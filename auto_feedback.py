@@ -26,6 +26,7 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
 import intervals_client as api
+from agents import workout_analysis
 
 STATE_PATH = Path(__file__).parent / "state.json"
 FEEDBACK_LOG = Path(__file__).parent / "feedback_log.json"
@@ -118,54 +119,68 @@ def _types_match(event_type: str, activity_type: str) -> bool:
 
 
 def generate_feedback(event: dict, activity: dict) -> str:
-    """Genereer AI feedback op een voltooide workout."""
+    """Genereer workout-specifieke feedback."""
+    analysis = workout_analysis.analyze(event, activity)
+    metrics = analysis["metrics"]
+    insights = analysis["insights"]
+    wtype = analysis["workout_type"]
+    prompt_focus = analysis["prompt_focus"]
+
     if not CLAUDE_AVAILABLE:
-        return _quick_feedback(event, activity)
+        return _quick_feedback(analysis)
 
-    hr = activity.get("average_heartrate") or activity.get("icu_average_hr") or 0
-    hr_max = activity.get("max_heartrate") or activity.get("icu_hr_max") or 190
-    hr_pct = round(hr / hr_max * 100) if hr and hr_max else 0
-    distance = round((activity.get("distance") or 0) / 1000, 1)
-    duration = round((activity.get("moving_time") or activity.get("elapsed_time") or 0) / 60)
-    tss = activity.get("icu_training_load") or activity.get("training_load") or 0
-    avg_power = activity.get("average_watts") or activity.get("icu_average_watts")
+    insights_str = "\n".join(f"- {i}" for i in insights) if insights else "- Geen bijzonderheden."
 
-    prompt = f"""Je bent een ervaren coach in de stijl van Louis Delahaije.
-Atleet traint voor Amsterdam Marathon (18 okt 2026), herstelt van gluteus medius blessure.
+    extra_data = []
+    if metrics.get("interval_powers"):
+        extra_data.append(f"Power per interval: {metrics['interval_powers']}W")
+    if metrics.get("hr_drift_pct") is not None:
+        extra_data.append(f"HR drift: {metrics['hr_drift_pct']}%")
+    if metrics.get("cardiac_decoupling_pct") is not None:
+        extra_data.append(f"Cardiac decoupling: {metrics['cardiac_decoupling_pct']}%")
+    if metrics.get("interval_paces"):
+        extra_data.append(f"Interval paces: {[f'{p:.2f}' for p in metrics['interval_paces']]}/km")
+    if metrics.get("splits"):
+        split_str = ", ".join(f"{s['pace']:.2f}" for s in metrics["splits"][:8])
+        extra_data.append(f"Splits: {split_str}/km")
+    extra_str = "\n".join(f"- {e}" for e in extra_data) if extra_data else ""
 
-GEPLANDE WORKOUT: {event.get('name', '?')}
-UITGEVOERD: {activity.get('type', '?')} | {duration}min | {distance}km | HR {hr}bpm ({hr_pct}%HRmax) | TSS {tss:.0f}
-{f'Vermogen: {avg_power}W (FTP 290W = {round(avg_power/290*100)}%)' if avg_power else ''}
+    power_line = f"Vermogen: {metrics['avg_power']}W ({round(metrics['avg_power']/290*100)}% FTP)" if metrics.get("avg_power") else ""
 
-Geef feedback in 3-4 korte zinnen (Nederlands). Check: juiste zone? Rode vlaggen? Advies morgen?
-Eindig met een motiverend Delahaije-achtig zinnetje. Platte tekst."""
+    prompt = f"""Coach Delahaije, feedback op deze workout.
+Type: {wtype} | {event.get('name', '?')}
+Data: {metrics['duration']}min | {metrics['distance']}km | HR {metrics['hr_avg']}bpm ({metrics['hr_pct']}%HRmax) | TSS {metrics['tss']:.0f}
+{power_line}
+
+ANALYSE:
+{extra_str}
+
+BEVINDINGEN:
+{insights_str}
+
+INSTRUCTIE: {prompt_focus}
+
+Wees specifiek — verwijs naar de cijfers. Z2 runs: max 2 zinnen. Intensiteit: 3-4 zinnen.
+Nederlands, platte tekst."""
 
     try:
         client = anthropic.Anthropic()
         response = client.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=200,
+            max_tokens=250,
             messages=[{"role": "user", "content": prompt}]
         )
         return response.content[0].text.strip()
     except Exception as e:
-        return f"(AI niet bereikbaar: {e}) " + _quick_feedback(event, activity)
+        return f"(AI niet bereikbaar: {e}) " + _quick_feedback(analysis)
 
 
-def _quick_feedback(event: dict, activity: dict) -> str:
-    """Rule-based feedback fallback."""
-    hr = activity.get("average_heartrate") or activity.get("icu_average_hr") or 0
-    hr_max = activity.get("max_heartrate") or activity.get("icu_hr_max") or 190
-    name = event.get("name", "").lower()
-
-    if hr and hr_max:
-        pct = hr / hr_max * 100
-        if pct > 82 and "z2" in name:
-            return f"HR {pct:.0f}% — boven Z2. Volgende keer rustiger. Een gelukkige atleet is een snelle atleet!"
-        elif pct < 70 and "threshold" in name:
-            return f"HR {pct:.0f}% — aan de lage kant voor threshold. Niet erg, luister naar je lichaam."
-
-    return "Workout voltooid. Goed bezig! Een gelukkige atleet is een snelle atleet."
+def _quick_feedback(analysis) -> str:
+    """Rule-based fallback."""
+    insights = analysis.get("insights", [])
+    if insights:
+        return " ".join(insights[:2])
+    return "Workout voltooid."
 
 
 def post_feedback_to_intervals(event: dict, feedback: str, dry_run: bool = False):

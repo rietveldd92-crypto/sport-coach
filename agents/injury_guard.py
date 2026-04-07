@@ -31,7 +31,22 @@ SIGNAL_WEIGHTS = {
     "hrv_dalend": 2,
 }
 
-# Signalen die direct loopintensiteit verbieden
+# Signalen die DIRECT ingrijpen vereisen (gewrichtsklachten, potentiële blessure)
+# Geen tolerantie-buffer, direct stoplicht aanpassen.
+DIRECT_SIGNALS = {"knie_pijn", "heup_pijn", "rug_pijn"}
+
+# Signalen die door de tolerantie-buffer gaan (vermoeidheid, normaal trainingsgevoel)
+# Pas escaleren na 3x binnen 7 dagen.
+BUFFERED_SIGNALS = {
+    "knie_twinge", "knie_ongemak", "rug_trekkend", "heup_instabiel",
+    "been_uitdraaien", "soreness_hoog", "hrv_dalend",
+    "sessie_te_zwaar", "hr_te_hoog", "energie_laag",
+}
+
+BUFFER_THRESHOLD = 3   # aantal signalen binnen het window
+BUFFER_WINDOW_DAYS = 7  # rolling window in dagen
+
+# Signalen die loopintensiteit verbieden (na buffer of direct)
 INTENSITY_BLOCKERS = {"knie_pijn", "knie_twinge", "rug_pijn", "heup_pijn"}
 
 # Signalen die kracht verbieden
@@ -56,9 +71,45 @@ def _days_since(date_str: str | None) -> int:
     return (date.today() - d).days
 
 
+def _get_buffer(state: dict) -> dict:
+    """Haal de signal_buffer op uit state, initialiseer als die niet bestaat."""
+    if "signal_buffer" not in state:
+        state["signal_buffer"] = {}
+    return state["signal_buffer"]
+
+
+def _add_to_buffer(buffer: dict, signal: str, signal_date: str = None) -> None:
+    """Voeg een signaal toe aan de buffer. Eén entry per dag per signaal."""
+    if signal_date is None:
+        signal_date = date.today().isoformat()
+    if signal not in buffer:
+        buffer[signal] = []
+    if signal_date not in buffer[signal]:
+        buffer[signal].append(signal_date)
+
+
+def _buffer_exceeded(buffer: dict, signal: str) -> bool:
+    """Check of een buffered signaal de drempel heeft bereikt (3 unieke dagen in 7 dagen)."""
+    if signal not in buffer:
+        return False
+    cutoff = (date.today() - timedelta(days=BUFFER_WINDOW_DAYS)).isoformat()
+    recent = sorted(set(d for d in buffer[signal] if d >= cutoff))
+    buffer[signal] = recent  # cleanup oude entries
+    return len(recent) >= BUFFER_THRESHOLD
+
+
+def _any_buffer_exceeded(buffer: dict) -> list[str]:
+    """Geef alle buffered signalen terug die de drempel hebben bereikt."""
+    return [sig for sig in buffer if _buffer_exceeded(buffer, sig)]
+
+
 def analyze(wellness_data: list = None, activities: list = None, feedback_signals: list = None) -> dict:
     """
     Analyseer injury-status en geef stoplicht terug.
+
+    Twee sporen:
+    - DIRECT signalen (knie_pijn, heup_pijn, rug_pijn): onmiddellijk stoplicht
+    - BUFFERED signalen (vermoeidheid, stijfheid, etc.): pas na 3x in 7 dagen
 
     Args:
         wellness_data: Wellness records van afgelopen 14 dagen
@@ -70,6 +121,7 @@ def analyze(wellness_data: list = None, activities: list = None, feedback_signal
     """
     state = _load_state()
     injury = state["injury"]
+    buffer = _get_buffer(state)
 
     active_signals = list(injury.get("active_signals", []))
     last_signal_date = injury.get("last_signal_date")
@@ -77,24 +129,47 @@ def analyze(wellness_data: list = None, activities: list = None, feedback_signal
 
     flags = []
     volume_modifier = 1.0
+    direct_triggered = []
+    buffered_noted = []
 
-    # Verwerk nieuwe feedback-signalen
+    # Verwerk nieuwe feedback-signalen via twee sporen
     if feedback_signals:
         for sig in feedback_signals:
-            if sig not in active_signals:
-                active_signals.append(sig)
-        last_signal_date = date.today().isoformat()
-        days_symptom_free = 0
-        injury["active_signals"] = active_signals
-        injury["last_signal_date"] = last_signal_date
-        injury["days_symptom_free"] = 0
-        # Sla op in history
-        injury["history"].append({
-            "date": date.today().isoformat(),
-            "signals": feedback_signals
-        })
+            if sig in DIRECT_SIGNALS:
+                # Pad 1: direct ingrijpen
+                if sig not in active_signals:
+                    active_signals.append(sig)
+                direct_triggered.append(sig)
+                last_signal_date = date.today().isoformat()
+                days_symptom_free = 0
+            elif sig in BUFFERED_SIGNALS:
+                # Pad 2: in de buffer, pas escaleren na drempel
+                _add_to_buffer(buffer, sig)
+                buffered_noted.append(sig)
+            else:
+                # Onbekend signaal → buffer
+                _add_to_buffer(buffer, sig)
+                buffered_noted.append(sig)
 
-    # Verwerk wellness data — soreness en HRV trend
+        # Sla directe signalen op
+        if direct_triggered:
+            injury["active_signals"] = active_signals
+            injury["last_signal_date"] = last_signal_date
+            injury["days_symptom_free"] = 0
+            injury["history"].append({
+                "date": date.today().isoformat(),
+                "signals": direct_triggered,
+                "type": "direct"
+            })
+
+        if buffered_noted:
+            injury["history"].append({
+                "date": date.today().isoformat(),
+                "signals": buffered_noted,
+                "type": "buffered"
+            })
+
+    # Verwerk wellness data — soreness en HRV trend (buffered)
     if wellness_data:
         soreness_values = [w.get("soreness") for w in wellness_data if w.get("soreness") is not None]
         hrv_values = [w.get("hrv_rmssd") for w in wellness_data if w.get("hrv_rmssd") is not None]
@@ -102,15 +177,36 @@ def analyze(wellness_data: list = None, activities: list = None, feedback_signal
         if soreness_values:
             avg_soreness = sum(soreness_values) / len(soreness_values)
             if avg_soreness >= 4:
-                flags.append("soreness_hoog")
-                volume_modifier = min(volume_modifier, 0.85)
+                _add_to_buffer(buffer, "soreness_hoog")
 
         if len(hrv_values) >= 5:
             recent_hrv = sum(hrv_values[-3:]) / 3
             older_hrv = sum(hrv_values[:3]) / 3
             if recent_hrv < older_hrv * 0.92:
-                flags.append("hrv_dalend")
-                volume_modifier = min(volume_modifier, 0.90)
+                _add_to_buffer(buffer, "hrv_dalend")
+
+    # Check welke buffered signalen de drempel hebben bereikt
+    escalated = _any_buffer_exceeded(buffer)
+    if escalated:
+        flags.extend(escalated)
+        # Buffered signalen die escaleren → behandelen als semi-actief
+        for sig in escalated:
+            if sig not in active_signals:
+                active_signals.append(sig)
+        last_signal_date = last_signal_date or date.today().isoformat()
+        injury["active_signals"] = active_signals
+
+    # Wellness signalen die NIET geëscaleerd zijn: noteer maar grijp niet in
+    non_escalated_buffer = [sig for sig in buffer if not _buffer_exceeded(buffer, sig) and buffer[sig]]
+    if non_escalated_buffer:
+        cutoff = (date.today() - timedelta(days=BUFFER_WINDOW_DAYS)).isoformat()
+        for sig in non_escalated_buffer:
+            count = len([d for d in buffer[sig] if d >= cutoff])
+            if count > 0:
+                flags.append(f"{sig}_noted_{count}x")
+
+    # Sla buffer op
+    state["signal_buffer"] = buffer
 
     # Bepaal hoe oud de laatste klacht is
     days_since_signal = _days_since(last_signal_date)
@@ -121,7 +217,7 @@ def analyze(wellness_data: list = None, activities: list = None, feedback_signal
         injury["active_signals"] = []
 
     # Combineer signalen voor stoplicht beslissing
-    all_signals = set(active_signals) | set(flags)
+    all_signals = set(active_signals) | set(s for s in flags if not s.endswith("x"))
 
     # Bereken dagen symptoomvrij (update dagelijks)
     if not active_signals and not any(s in INTENSITY_BLOCKERS for s in flags):
@@ -132,32 +228,45 @@ def analyze(wellness_data: list = None, activities: list = None, feedback_signal
         injury["days_symptom_free"] = days_symptom_free
 
     # STOPLICHT BEPALEN
+    has_direct_blocker = any(s in DIRECT_SIGNALS for s in all_signals)
     has_intensity_blocker = any(s in INTENSITY_BLOCKERS for s in all_signals)
     has_strength_blocker = any(s in STRENGTH_BLOCKERS for s in all_signals)
     recent_signal = days_since_signal <= 3
     semi_recent_signal = days_since_signal <= 7
+    has_escalated_buffer = bool(escalated)
 
-    if has_intensity_blocker and recent_signal:
+    if has_direct_blocker and recent_signal:
         status = "rood"
         run_intensity_allowed = False
         bike_intensity_allowed = False
         strength_allowed = not has_strength_blocker
         volume_modifier = min(volume_modifier, 0.70)
         message = (
-            f"ROOD: Actieve klacht gemeld {days_since_signal} dag(en) geleden. "
+            f"ROOD: Gewrichtsklacht gemeld {days_since_signal} dag(en) geleden. "
             "Geen intensiteit, volume -30%. Alleen Z1 lopen. Fokus op rehab."
         )
-    elif has_intensity_blocker and semi_recent_signal:
+    elif has_direct_blocker and semi_recent_signal:
         status = "geel"
         run_intensity_allowed = False
         bike_intensity_allowed = True
         strength_allowed = not has_strength_blocker
         volume_modifier = min(volume_modifier, 0.85)
         message = (
-            f"GEEL: Klacht {days_since_signal} dag(en) geleden. "
-            "Geen loopintensiteit, fiets-intensiteit OK. Volume licht verlaagd."
+            f"GEEL: Gewrichtsklacht {days_since_signal} dag(en) geleden. "
+            "Geen loopintensiteit, fiets-intensiteit OK."
         )
-    elif semi_recent_signal and not has_intensity_blocker:
+    elif has_escalated_buffer:
+        status = "geel"
+        run_intensity_allowed = False
+        bike_intensity_allowed = True
+        strength_allowed = True
+        volume_modifier = min(volume_modifier, 0.90)
+        message = (
+            f"GEEL: Patroon gedetecteerd — {', '.join(escalated)} "
+            f"({BUFFER_THRESHOLD}x in {BUFFER_WINDOW_DAYS} dagen). "
+            "Tijd voor een rustiger week."
+        )
+    elif has_intensity_blocker and semi_recent_signal:
         status = "geel"
         run_intensity_allowed = False
         bike_intensity_allowed = True
@@ -165,14 +274,18 @@ def analyze(wellness_data: list = None, activities: list = None, feedback_signal
         volume_modifier = min(volume_modifier, 0.90)
         message = (
             f"GEEL: Lichte signalen {days_since_signal} dag(en) geleden. "
-            "Voorzichtig opbouwen, geen loopintensiteit."
+            "Voorzichtig opbouwen."
         )
     else:
         status = "groen"
-        run_intensity_allowed = False  # Standaard: intensiteit pas na ontgrendeling
+        run_intensity_allowed = False
         bike_intensity_allowed = True
         strength_allowed = True
-        message = f"GROEN: {days_symptom_free} symptoomvrije dag(en)."
+        buffer_notes = [s for s in flags if s.endswith("x")]
+        if buffer_notes:
+            message = f"GROEN: {days_symptom_free} symptoomvrije dag(en). Enkele notities gelogd, geen actie nodig."
+        else:
+            message = f"GROEN: {days_symptom_free} symptoomvrije dag(en)."
 
     # Intensiteitsontgrendeling
     strides_unlocked = days_symptom_free >= 14

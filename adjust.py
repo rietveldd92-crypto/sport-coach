@@ -86,58 +86,74 @@ def _rule_based_parse(feedback: str) -> dict:
     is_positive = any(m in fb for m in positive_markers)
 
     if not is_positive:
-        # Knie signalen
+        # DIRECT signalen — gewrichtsklachten, onmiddellijk ingrijpen
         if any(w in fb for w in ["kniepijn", "knie pijn", "knie doet pijn", "pijn in mijn knie", "knieklacht"]):
             signals.append("knie_pijn")
             verwijder_intensiteit = True
             urgentie = "direct"
             volume_aanpassing = -20
             rust_dag = True
-        elif any(w in fb for w in ["knie voelt", "knie wat", "knie ongemak", "knie reageert", "knie trekt"]):
+        if any(w in fb for w in ["heuppijn", "heup pijn", "heup doet pijn"]):
+            signals.append("heup_pijn")
+            verwijder_intensiteit = True
+            urgentie = "direct"
+            volume_aanpassing = min(volume_aanpassing, -20)
+            rust_dag = True
+        if any(w in fb for w in ["rugpijn", "rug pijn", "scherpe rug", "rug schiet"]):
+            signals.append("rug_pijn")
+            urgentie = "direct"
+            volume_aanpassing = min(volume_aanpassing, -15)
+
+        # BUFFERED signalen — normaal trainingsgevoel, gaat door de buffer
+        # Deze worden genoteerd maar leiden niet direct tot aanpassingen
+        if any(w in fb for w in ["knie voelt", "knie wat", "knie ongemak", "knie reageert", "knie trekt"]):
             signals.append("knie_twinge")
-            urgentie = "direct"
-            volume_aanpassing = -10
-
-        # Rug signalen
-        if any(w in fb for w in ["rugpijn", "rug pijn", "onderrug", "stuitje", "rug trekt", "rug reageert"]):
+            # Geen directe actie — injury_guard buffer handelt dit af
+        if any(w in fb for w in ["onderrug", "stuitje", "rug trekt", "rug reageert"]):
             signals.append("rug_trekkend")
-            urgentie = "direct"
-            volume_aanpassing = min(volume_aanpassing, -10)
-
-        # Heup signalen
-        if any(w in fb for w in ["heuppijn", "heup pijn", "heup instabiel", "heup reageert"]):
+        if any(w in fb for w in ["heup instabiel", "heup reageert", "heup voelt"]):
             signals.append("heup_instabiel")
 
-    # Sessie-impact (onafhankelijk van blessure-status)
+    # Sessie-impact
     if any(w in fb for w in ["overgeslagen", "gemist", "niet gedaan", "geannuleerd", "skippen", "geskipt"]):
         sessie_impact = "gemist"
         urgentie = "volgende_week"
     elif any(w in fb for w in ["extra gelopen", "extra km", "meer gedaan dan", "langer gelopen dan"]):
         sessie_impact = "extra_gedaan"
-        urgentie = "direct"
-        volume_aanpassing = min(volume_aanpassing, -10)
+        # Buffered — één keer extra is geen probleem
+        signals.append("sessie_te_zwaar")
     elif any(w in fb for w in ["te zwaar", "afgemat", "uitgeput", "kapot", "doodmoe"]):
         sessie_impact = "te_zwaar"
-        urgentie = "direct"
-        volume_aanpassing = min(volume_aanpassing, -15)
+        # Buffered — één zware dag hoort bij training
+        signals.append("sessie_te_zwaar")
     elif any(w in fb for w in ["te makkelijk", "veel te licht", "had meer kunnen"]):
         sessie_impact = "te_licht"
 
-    # Alles goed — reset signals als er expliciete positieve bevestiging is
+    # Alles goed — reset
     if any(w in fb for w in ["alles goed", "geen klachten", "prima gelopen", "geweldig", "alles prima"]):
         sessie_impact = "normaal"
         signals = []
         urgentie = "volgende_week"
 
-    bericht = "Bedankt voor de feedback. "
-    if signals:
-        bericht += f"Klachten gedetecteerd ({', '.join(signals)}). Plan wordt aangepast."
+    # Bepaal of er directe signalen zijn (alleen die triggeren urgentie)
+    from agents.injury_guard import DIRECT_SIGNALS
+    has_direct = any(s in DIRECT_SIGNALS for s in signals)
+    has_buffered_only = signals and not has_direct
+
+    if has_direct:
+        bericht = f"Gewrichtsklacht ({', '.join(s for s in signals if s in DIRECT_SIGNALS)}). Direct aanpassen."
+    elif has_buffered_only:
+        bericht = "Genoteerd. Eén slechte dag is geen probleem — pas bij een patroon grijpen we in."
+        urgentie = "volgende_week"
+        verwijder_intensiteit = False
+        volume_aanpassing = 0
+        rust_dag = False
     elif sessie_impact == "gemist":
-        bericht += "Sessie gemist — dit meenemen in de komende planning."
+        bericht = "Sessie gemist — kijken of de kwaliteitstraining elders in de week past."
     elif sessie_impact == "extra_gedaan":
-        bericht += "Je hebt extra gedaan — hou de komende 2 dagen licht."
+        bericht = "Extra gedaan — genoteerd. We houden het in de gaten."
     else:
-        bericht += "Geen aanpassingen nodig."
+        bericht = "Goed bezig. Geen aanpassingen nodig."
 
     return {
         "injury_signals": signals,

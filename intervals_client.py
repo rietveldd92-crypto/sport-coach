@@ -128,6 +128,30 @@ def get_wellness_today() -> dict:
     return r.json()
 
 
+def get_activity_detail(activity_id: str, intervals: bool = True) -> dict:
+    """Haal volledige activiteit op inclusief intervals/laps."""
+    params = {}
+    if intervals:
+        params["intervals"] = "true"
+    r = requests.get(f"{BASE_URL}/activity/{activity_id}", auth=_auth(), params=params, timeout=TIMEOUT)
+    r.raise_for_status()
+    return r.json()
+
+
+def get_activity_streams(activity_id: str, types: list[str] = None) -> dict:
+    """Haal second-by-second streams op (heartrate, watts, cadence, pace, distance).
+
+    Returns dict met keys per stream type, elk een lijst van waarden.
+    """
+    params = {}
+    if types:
+        params["types"] = ",".join(types)
+    r = requests.get(f"{BASE_URL}/activity/{activity_id}/streams.json",
+                     auth=_auth(), params=params, timeout=30)
+    r.raise_for_status()
+    return r.json()
+
+
 if __name__ == "__main__":
     print("=== Intervals.icu connectie test ===\n")
     athlete = get_athlete()

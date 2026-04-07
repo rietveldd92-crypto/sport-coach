@@ -24,6 +24,7 @@
             }
         ]
     },
+    "signal_buffer": {},
     "load": {
         "ctl_estimate": 44.3,
         "atl_estimate": 30.7,
@@ -163,7 +164,7 @@
             "geschat_tss": 0,
             "actual_tss": null,
             "injury_status": "groen",
-            "notes": "GROEN: 29 symptoomvrije dag(en). Strides mogen. Tempolopen mogen. | Feedback: Bedankt voor de feedback. Sessie gemist — dit meenemen in de komende planning."
+            "notes": "GROEN: 29 symptoomvrije dag(en). Strides mogen. Tempolopen mogen. | Feedback: Bedankt voor de feedback. Sessie gemist ï¿½ dit meenemen in de komende planning."
         }
     ]
 }
