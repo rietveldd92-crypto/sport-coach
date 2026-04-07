@@ -674,12 +674,22 @@ for i, item in enumerate(matched):
 
     # Action buttons — compact, inline
     if done or not is_today:
-        btn_cols = st.columns([1, 1, 4])
         if done:
+            btn_cols = st.columns([1, 1, 4])
             if btn_cols[0].button("Coach", key=f"fb_{i}"):
                 st.session_state[f"show_fb_{i}"] = not st.session_state.get(f"show_fb_{i}", False)
-        if btn_cols[1].button("Wissel", key=f"swap_{i}"):
-            st.session_state[f"show_swap_{i}"] = not st.session_state.get(f"show_swap_{i}", False)
+            if btn_cols[1].button("Wissel", key=f"swap_{i}"):
+                st.session_state[f"show_swap_{i}"] = not st.session_state.get(f"show_swap_{i}", False)
+        elif not is_today:
+            feel = get_feel_note(event)
+            if feel:
+                btn_cols = st.columns([1, 1, 4])
+            else:
+                btn_cols = st.columns([1, 5])
+            if btn_cols[0].button("Wissel", key=f"swap_{i}"):
+                st.session_state[f"show_swap_{i}"] = not st.session_state.get(f"show_swap_{i}", False)
+            if feel and btn_cols[1].button("Hoe voelt dit?", key=f"feel_{i}"):
+                st.session_state[f"show_feel_{i}"] = not st.session_state.get(f"show_feel_{i}", False)
 
     # Coach feedback — persoonlijk bericht stijl
     if st.session_state.get(f"show_fb_{i}"):
@@ -705,11 +715,12 @@ for i, item in enumerate(matched):
                     unsafe_allow_html=True
                 )
 
-    # Feel note voor toekomstige workouts
+    # Feel note alleen op klik
     if not done and not is_today:
         feel = get_feel_note(event)
         if feel:
-            st.markdown(f'<div class="feel-note">{feel}</div>', unsafe_allow_html=True)
+            if st.session_state.get(f"show_feel_{i}"):
+                st.markdown(f'<div class="feel-note">{feel}</div>', unsafe_allow_html=True)
 
     # Smart Swap panel
     if st.session_state.get(f"show_swap_{i}"):
