@@ -607,6 +607,324 @@ BIKE_HARD_CYCLE = [
 ]
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# EXTRA FIETS WORKOUTS (meer variatie)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def vo2max_short(ftp: int) -> dict:
+    """VO2max short-short intervals — 30/30s."""
+    return {
+        "type": "vo2max", "naam": "VO2max 30/30",
+        "beschrijving": (
+            "Warm-up\n- 10m 55%\n- 5m ramp 55-75%\n\n"
+            "2x\n- 10x\n  - 30s 120%\n  - 30s 50%\n- 5m 50%\n\n"
+            "Cool-down\n- 10m 50%"
+            f"{DELAHAIJE_BIKE}"
+        ),
+        "duur_min": 50, "tss_geschat": _tss_bike(50, 0.85),
+        "sport": "VirtualRide", "zone": "Z5",
+        "intensiteit_factor": 0.85, "fun": 3,
+    }
+
+
+def endurance_tempo_sandwich(ftp: int) -> dict:
+    """Endurance met tempo blokken — Z2 met Z3 inserts."""
+    return {
+        "type": "tempo_sandwich", "naam": "Endurance-Tempo sandwich",
+        "beschrijving": (
+            "Warm-up\n- 10m 55%\n\n"
+            "Main Set\n- 15m 65%\n- 8m 80%\n- 10m 65%\n"
+            "- 8m 80%\n- 15m 65%\n\n"
+            "Cool-down\n- 10m 50%"
+            f"{DELAHAIJE_BIKE}"
+        ),
+        "duur_min": 76, "tss_geschat": _tss_bike(76, 0.72),
+        "sport": "VirtualRide", "zone": "Z2/Z3",
+        "intensiteit_factor": 0.72, "fun": 3,
+    }
+
+
+def race_simulation_bike(ftp: int) -> dict:
+    """Simulate a race effort — progressive build."""
+    return {
+        "type": "race_sim", "naam": "Race simulation 40min",
+        "beschrijving": (
+            "Warm-up\n- 15m ramp 50-70%\n\n"
+            "Main Set\n- 10m 85%\n- 10m 90%\n- 10m 95%\n- 10m 100%\n\n"
+            "Cool-down\n- 10m 50%"
+            f"{DELAHAIJE_BIKE}"
+        ),
+        "duur_min": 65, "tss_geschat": _tss_bike(65, 0.90),
+        "sport": "VirtualRide", "zone": "Z3/Z4",
+        "intensiteit_factor": 0.90, "fun": 4,
+    }
+
+
+def tabata_bike(ftp: int) -> dict:
+    """Tabata — 20s max effort, 10s rust."""
+    return {
+        "type": "tabata", "naam": "Tabata 4x",
+        "beschrijving": (
+            "Warm-up\n- 15m ramp 50-75%\n\n"
+            "4x\n- 8x\n  - 20s 170%\n  - 10s 40%\n- 4m 50%\n\n"
+            "Cool-down\n- 10m 45%"
+            f"{DELAHAIJE_BIKE}"
+        ),
+        "duur_min": 50, "tss_geschat": _tss_bike(50, 0.88),
+        "sport": "VirtualRide", "zone": "Z6",
+        "intensiteit_factor": 0.88, "fun": 2,
+    }
+
+
+def recovery_spin(duration_min: int = 30) -> dict:
+    """Herstelrit — actief herstel op de fiets."""
+    return {
+        "type": "recovery_spin", "naam": f"Recovery spin {duration_min}min",
+        "beschrijving": (
+            f"- {duration_min}m 45-50%\n\n"
+            "Geen structuur. Houd het makkelijk. Kadans 85-95."
+            f"{DELAHAIJE_BIKE}"
+        ),
+        "duur_min": duration_min, "tss_geschat": _tss_bike(duration_min, 0.45),
+        "sport": "VirtualRide", "zone": "Z1",
+        "intensiteit_factor": 0.45, "fun": 2,
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# EXTRA RUN WORKOUTS (meer variatie)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def z2_negative_split(duration_min: int) -> dict:
+    """Z2 met bewust negatieve split — tweede helft iets sneller."""
+    half = duration_min // 2
+    return {
+        "type": "z2_negative_split", "naam": f"Z2 negative split – {duration_min}min",
+        "beschrijving": (
+            f"Warmup\n- 5m ramp 55-68% Pace\n\n"
+            f"Main Set\n- {half}m 68% Pace\n- {half - 5}m 73% Pace\n\n"
+            f"Cooldown\n- 5m ramp 70-55% Pace\n\n"
+            f"Eerste helft bewust rustig. Tweede helft mag iets vlotter.\n"
+            f"Niet harder dan Z2 bovengrens."
+            f"{DELAHAIJE_RUN}"
+        ),
+        "duur_min": duration_min, "tss_geschat": _tss_run(duration_min, 0.73),
+        "sport": "Run", "zone": "Z2",
+        "intensiteit_factor": 0.73, "fun": 3,
+    }
+
+
+def z2_hilly(duration_min: int) -> dict:
+    """Z2 met heuvels — zachte stijgingen voor kracht."""
+    main = duration_min - 10
+    return {
+        "type": "z2_hilly", "naam": f"Z2 heuvels – {duration_min}min",
+        "beschrijving": (
+            f"Warmup\n- 5m ramp 55-68% Pace\n\n"
+            f"Main Set\n- {main}m 70% Pace\n\n"
+            f"Cooldown\n- 5m ramp 70-55% Pace\n\n"
+            f"Kies een heuvelachtig parcours. Loop de heuvels op effort,\n"
+            f"niet op pace. Bergaf bewust kort en soepel."
+            f"{DELAHAIJE_RUN}"
+        ),
+        "duur_min": duration_min, "tss_geschat": _tss_run(duration_min, 0.75),
+        "sport": "Run", "zone": "Z2",
+        "intensiteit_factor": 0.75, "fun": 4,
+    }
+
+
+def z2_treadmill(duration_min: int) -> dict:
+    """Z2 op de loopband — voor slecht weer of herstel."""
+    main = duration_min - 6
+    return {
+        "type": "z2_treadmill", "naam": f"Loopband Z2 – {duration_min}min",
+        "beschrijving": (
+            f"- 3m ramp 55-68% Pace\n"
+            f"- {main}m 68% Pace\n"
+            f"- 3m ramp 68-55% Pace\n\n"
+            f"Loopband: 1% helling voor realistische weerstand.\n"
+            f"Serie of podcast erbij."
+            f"{DELAHAIJE_RUN}"
+        ),
+        "duur_min": duration_min, "tss_geschat": _tss_run(duration_min, 0.70),
+        "sport": "Run", "zone": "Z2",
+        "intensiteit_factor": 0.70, "fun": 2,
+    }
+
+
+def long_run_negative_split(km: float) -> dict:
+    """Lange duurloop met bewuste negative split."""
+    duration_min = _km_to_min(km, pace=6.0)
+    first_half = round(duration_min * 0.55)
+    second_half = round(duration_min * 0.35)
+    cd = max(5, duration_min - first_half - second_half)
+    return {
+        "type": "long_run_ns", "naam": f"Lange duurloop negative split – {km:.0f}km",
+        "beschrijving": (
+            f"Warmup + eerste helft\n- {first_half}m 66% Pace\n\n"
+            f"Tweede helft\n- {second_half}m 74% Pace\n\n"
+            f"Cooldown\n- {cd}m ramp 73-55% Pace\n\n"
+            f"Begin BEWUST te langzaam. Pas na de helft iets opschakelen.\n"
+            f"Delahaije: 'Wie de laatste 5km het sterkst loopt, wint.'\n"
+            f"Voeding mee."
+            f"{DELAHAIJE_RUN}"
+        ),
+        "duur_min": duration_min, "tss_geschat": _tss_run(duration_min, 0.73),
+        "sport": "Run", "zone": "Z1/Z2",
+        "intensiteit_factor": 0.73, "fun": 5,
+    }
+
+
+def marathon_pace_segments(duration_min: int = 60) -> dict:
+    """Z2 met marathontempo inserts — race-specifiek."""
+    return {
+        "type": "mp_segments", "naam": f"Z2 + marathontempo – {duration_min}min",
+        "beschrijving": (
+            f"Warmup\n- 10m ramp 55-68% Pace\n\n"
+            f"Main Set\n- 8m 68% Pace\n"
+            f"- 5m 80% Pace\n"
+            f"- 8m 68% Pace\n"
+            f"- 5m 80% Pace\n"
+            f"- 8m 68% Pace\n"
+            f"- 5m 80% Pace\n\n"
+            f"Cooldown\n- 10m ramp 68-55% Pace\n\n"
+            f"Marathon pace inserts: moet aanvoelen als 'snel maar duurzaam'.\n"
+            f"Als het hijgen is, te hard."
+            f"{DELAHAIJE_RUN}"
+        ),
+        "duur_min": duration_min, "tss_geschat": _tss_run(duration_min, 0.78),
+        "sport": "Run", "zone": "Z2/Z3",
+        "intensiteit_factor": 0.78, "fun": 4,
+    }
+
+
+def hill_sprints(duration_min: int = 40) -> dict:
+    """Korte heuvelsprints — neurommusculair."""
+    return {
+        "type": "hill_sprints", "naam": f"Heuvelsprints – {duration_min}min",
+        "beschrijving": (
+            f"Warmup\n- 15m ramp 55-70% Pace\n\n"
+            f"Main Set\n"
+            f"8x\n- 15s sprint heuvel op\n- 90s easy terug\n\n"
+            f"Cooldown\n- 10m 60% Pace\n\n"
+            f"Kort en explosief. Geen lactaat, wel kracht en coördinatie.\n"
+            f"Steile heuvel (6-10%), focus op kniehef en armzwaai."
+            f"{DELAHAIJE_RUN}"
+        ),
+        "duur_min": duration_min, "tss_geschat": _tss_run(duration_min, 0.75),
+        "sport": "Run", "zone": "Z4/Z5",
+        "intensiteit_factor": 0.75, "fun": 5,
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# SWAP CATEGORIES — voor de smart swap functie
+# ═══════════════════════════════════════════════════════════════════════════
+
+SWAP_CATEGORIES = {
+    "makkelijker": {
+        "label": "Rustiger",
+        "description": "Minder intensief, meer herstel",
+    },
+    "vergelijkbaar": {
+        "label": "Zelfde type",
+        "description": "Andere variant, zelfde belasting",
+    },
+    "anders": {
+        "label": "Iets anders",
+        "description": "Ander type workout, frisse prikkel",
+    },
+    "harder": {
+        "label": "Meer uitdaging",
+        "description": "Een tandje zwaarder",
+    },
+}
+
+
+def get_swap_options(event: dict, category: str, ftp: int = 290) -> list[dict]:
+    """Geef swap-opties voor een event in een bepaalde categorie.
+
+    Args:
+        event: Het huidige event
+        category: "makkelijker", "vergelijkbaar", "anders", "harder"
+        ftp: FTP in watt
+
+    Returns:
+        Lijst van workout dicts, automatisch gesorteerd op beste match
+    """
+    e_type = event.get("type", "")
+    e_name = (event.get("name") or "").lower()
+    is_bike = e_type in ("Ride", "VirtualRide")
+    is_run = e_type == "Run"
+
+    # Detecteer duur
+    dur = 45
+    for p in e_name.replace("min", " ").split():
+        try:
+            dur = int(p)
+            break
+        except ValueError:
+            pass
+
+    options = []
+
+    if is_bike:
+        if category == "makkelijker":
+            options = [
+                recovery_spin(30),
+                endurance_ride(max(45, dur - 15)),
+                single_leg_drills(ftp),
+                zwift_group_ride(max(45, dur - 10)),
+            ]
+        elif category == "vergelijkbaar":
+            if "threshold" in e_name:
+                options = [sweetspot(ftp, 3), over_unders(ftp, 2), tempo_blocks(ftp)]
+            elif "sweetspot" in e_name:
+                options = [threshold(ftp, 2), endurance_tempo_sandwich(ftp), over_unders(ftp, 2)]
+            elif "over-under" in e_name:
+                options = [threshold(ftp, 3), sweetspot(ftp, 3), microbursts(ftp)]
+            else:
+                options = [zwift_group_ride(dur), endurance_ride(dur), single_leg_drills(ftp)]
+        elif category == "anders":
+            options = [
+                cadence_pyramids(ftp), microbursts(ftp),
+                endurance_tempo_sandwich(ftp), single_leg_drills(ftp),
+            ]
+        elif category == "harder":
+            options = [
+                threshold(ftp, 4), vo2max_short(ftp),
+                race_simulation_bike(ftp), tabata_bike(ftp),
+            ]
+
+    elif is_run:
+        if category == "makkelijker":
+            options = [
+                recovery_run(max(20, dur - 10)),
+                z2_treadmill(dur),
+                z2_standard(max(30, dur - 10)),
+            ]
+        elif category == "vergelijkbaar":
+            options = [
+                z2_standard(dur), z2_progression(dur), z2_fartlek(dur),
+                z2_trail(dur), z2_with_pickups(dur), z2_negative_split(dur),
+                z2_hilly(dur),
+            ]
+        elif category == "anders":
+            options = [
+                z2_trail(dur), z2_hilly(dur),
+                z2_fartlek(dur), z2_with_pickups(dur),
+                hill_sprints(dur),
+            ]
+        elif category == "harder":
+            options = [
+                z2_progression(dur), marathon_pace_segments(dur),
+                strides(dur), marathon_tempo(),
+            ]
+
+    # Filter: niet dezelfde als huidige workout
+    return [o for o in options if o["naam"].lower() != e_name][:5]
+
+
 def pick_z2_run(duration_min: int, variety_index: int) -> dict:
     """Selecteer een Z2 run-variant op basis van de variatie-index."""
     idx = variety_index % len(Z2_RUN_VARIANTS)

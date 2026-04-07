@@ -106,47 +106,41 @@ def types_match(et, at):
     return et == at
 
 
-def get_alternatives(event):
-    e_type = event.get("type", "")
-    e_name = event.get("name", "").lower()
-    try:
-        with open(STATE_PATH) as f:
-            state = json.load(f)
-        prog = state.get("progression", {})
-    except Exception:
-        prog = {}
-    t_step = prog.get("threshold_step", 3)
-    ss_step = prog.get("sweetspot_step", 3)
+def get_alternatives(event, category: str = "vergelijkbaar"):
+    """Haal alternatieven op via de smart swap library."""
+    return lib.get_swap_options(event, category, ftp=290)
 
-    if e_type in ("Ride", "VirtualRide"):
-        if any(k in e_name for k in ["threshold", "sweetspot", "over-under"]):
-            alts = [
-                lib.endurance_ride(90), lib.zwift_group_ride(75),
-                lib.cadence_pyramids(290), lib.single_leg_drills(290),
-                lib.sweetspot(290, max(1, ss_step - 2)),
-                lib.threshold(290, max(1, t_step - 2)),
-            ]
-        else:
-            alts = [
-                lib.zwift_group_ride(75), lib.endurance_ride(75),
-                lib.cadence_pyramids(290), lib.single_leg_drills(290),
-                lib.sweetspot(290, max(1, ss_step)), lib.tempo_blocks(290),
-            ]
-    elif e_type == "Run":
-        dur = 45
-        for p in e_name.split():
-            try:
-                dur = int(p)
-            except ValueError:
-                pass
-        alts = [
-            lib.z2_standard(dur), lib.z2_progression(dur),
-            lib.z2_fartlek(dur), lib.z2_trail(dur),
-            lib.z2_with_pickups(dur), lib.recovery_run(max(25, dur - 10)),
-        ]
+
+def check_week_quality(matched_events: list, swap_event_id: str = None, swap_to: dict = None) -> dict:
+    """Check of de week na een swap nog genoeg kwaliteitsprikkels heeft.
+
+    Returns dict met has_enough_quality, quality_count, message.
+    """
+    quality_keywords = {"threshold", "sweetspot", "over-under", "tempo", "interval",
+                        "vo2max", "tabata", "race sim", "marathon"}
+    quality_count = 0
+
+    for item in matched_events:
+        event = item["event"]
+        eid = event.get("id")
+        name = (event.get("name") or "").lower()
+
+        # Als dit het event is dat geswapped wordt, gebruik de nieuwe naam
+        if swap_event_id and eid == swap_event_id and swap_to:
+            name = swap_to.get("naam", "").lower()
+
+        if any(q in name for q in quality_keywords):
+            quality_count += 1
+
+    has_enough = quality_count >= 1
+    if quality_count == 0:
+        message = "Let op: na deze swap heb je geen kwaliteitstraining meer deze week. Overweeg een andere dag harder te maken."
+    elif quality_count == 1:
+        message = "Je houdt 1 kwaliteitstraining over. Voldoende voor deze fase."
     else:
-        return []
-    return [a for a in alts if a["naam"].lower() != e_name][:6]
+        message = f"{quality_count} kwaliteitstrainingen deze week."
+
+    return {"has_enough_quality": has_enough, "quality_count": quality_count, "message": message}
 
 
 def phase_to_human(phase: str, weeks_to_race: int) -> str:
@@ -276,56 +270,213 @@ def _rule_feedback(analysis, quote):
 
 CUSTOM_CSS = """
 <style>
-    /* Clean, minimal styling */
-    .block-container { max-width: 720px; padding-top: 2rem; }
-    h1 { font-weight: 300 !important; font-size: 1.8rem !important; letter-spacing: -0.02em; }
-    .stMetric label { font-size: 0.75rem !important; color: #888 !important; }
-    .stMetric [data-testid="stMetricValue"] { font-size: 1.1rem !important; }
-
-    /* Coach feedback styling */
-    .coach-feedback {
-        background: #f8f7f5;
-        border-left: 3px solid #2d5016;
-        padding: 1.2rem 1.5rem;
-        margin: 0.5rem 0 1rem 0;
-        border-radius: 0 8px 8px 0;
-        font-size: 0.95rem;
-        line-height: 1.6;
-        color: #1a1a1a;
+    /* ── Foundation ─────────────────────────────────────── */
+    .block-container {
+        max-width: 680px !important;
+        padding-top: 1.5rem !important;
+        padding-bottom: 3rem !important;
     }
-    .coach-quote {
-        color: #666;
-        font-style: italic;
-        margin-top: 0.8rem;
-        font-size: 0.85rem;
+    h1, h2, h3 {
+        font-weight: 600 !important;
+        letter-spacing: -0.03em !important;
+        color: #1a1a1a !important;
     }
+    h1 { font-size: 1.6rem !important; }
+    h3 { font-size: 1.05rem !important; margin-bottom: 0.2rem !important; }
 
-    /* Feel note styling */
-    .feel-note {
-        background: #f0f4e8;
-        border-radius: 8px;
-        padding: 0.8rem 1.2rem;
-        margin: 0.3rem 0 0.8rem 0;
+    /* Kill default Streamlit metric chrome */
+    .stMetric label { font-size: 0.7rem !important; color: #999 !important; text-transform: uppercase; letter-spacing: 0.05em; }
+    .stMetric [data-testid="stMetricValue"] { font-size: 1.05rem !important; font-weight: 600 !important; }
+
+    /* ── Today Card ────────────────────────────────────── */
+    .today-card {
+        background: linear-gradient(135deg, #f4f8ee 0%, #eaf0dd 100%);
+        border: 1px solid #d4dfc4;
+        border-radius: 16px;
+        padding: 1.6rem 1.8rem 1.4rem 1.8rem;
+        margin: 0.5rem 0 1.5rem 0;
+    }
+    .today-card .today-label {
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: #6b8a4e;
+        font-weight: 600;
+        margin-bottom: 0.3rem;
+    }
+    .today-card .today-title {
+        font-size: 1.3rem;
+        font-weight: 700;
+        color: #1a2e0a;
+        line-height: 1.3;
+        margin-bottom: 0.15rem;
+    }
+    .today-card .today-sport {
+        font-size: 0.82rem;
+        color: #6b8a4e;
+        margin-bottom: 0.6rem;
+    }
+    .today-card .today-feel {
         font-size: 0.88rem;
         color: #3d5a1e;
+        line-height: 1.55;
+        background: rgba(255,255,255,0.55);
+        border-radius: 10px;
+        padding: 0.7rem 1rem;
+        margin-top: 0.5rem;
+    }
+
+    /* ── Workout Row ───────────────────────────────────── */
+    .workout-row {
+        padding: 0.75rem 1rem;
+        border-radius: 12px;
+        margin: 0.25rem 0;
+        transition: background 0.15s;
+    }
+    .workout-row:hover { background: #fafafa; }
+    .workout-row.is-done { opacity: 0.7; }
+    .workout-row .wr-day {
+        font-size: 0.72rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: #999;
+        font-weight: 600;
+    }
+    .workout-row .wr-name {
+        font-size: 0.95rem;
+        font-weight: 600;
+        color: #1a1a1a;
+        line-height: 1.3;
+    }
+    .workout-row .wr-stats {
+        font-size: 0.78rem;
+        color: #888;
+        margin-top: 0.15rem;
+    }
+    .wr-check {
+        display: inline-block;
+        width: 20px; height: 20px;
+        border-radius: 50%;
+        text-align: center;
+        line-height: 20px;
+        font-size: 0.7rem;
+        margin-right: 0.5rem;
+        flex-shrink: 0;
+    }
+    .wr-check.done { background: #2d5016; color: white; }
+    .wr-check.pending { border: 2px solid #ddd; background: white; }
+
+    /* ── Coach Feedback ────────────────────────────────── */
+    .coach-feedback {
+        background: #faf9f7;
+        border-radius: 14px;
+        padding: 1.3rem 1.5rem;
+        margin: 0.5rem 0 1rem 0;
+        border: 1px solid #eee;
+        font-size: 0.92rem;
+        line-height: 1.65;
+        color: #2a2a2a;
+    }
+    .coach-feedback .coach-avatar {
+        font-size: 0.72rem;
+        font-weight: 600;
+        color: #999;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        margin-bottom: 0.5rem;
+    }
+    .coach-quote {
+        color: #888;
+        font-style: italic;
+        margin-top: 0.8rem;
+        padding-top: 0.6rem;
+        border-top: 1px solid #eee;
+        font-size: 0.82rem;
+    }
+
+    /* ── Feel Note ─────────────────────────────────────── */
+    .feel-note {
+        background: #f7f5f0;
+        border-radius: 10px;
+        padding: 0.7rem 1rem;
+        margin: 0.3rem 0 0.6rem 0;
+        font-size: 0.85rem;
+        color: #555;
         line-height: 1.5;
     }
 
-    /* Workout card */
-    .workout-done { opacity: 0.85; }
-    .workout-today { border-left: 3px solid #2d5016; padding-left: 0.8rem; }
-
-    /* Status dot */
-    .dot-done { color: #2d5016; }
-    .dot-pending { color: #ccc; }
-
-    /* Sidebar human text */
-    .sidebar-narrative {
-        font-size: 0.9rem;
-        line-height: 1.6;
-        color: #444;
-        padding: 0.5rem 0;
+    /* ── Week Progress ─────────────────────────────────── */
+    .week-progress {
+        font-size: 0.78rem;
+        color: #999;
+        font-weight: 500;
+        letter-spacing: 0.02em;
+        margin-bottom: 0.3rem;
     }
+    /* Streamlit progress bar color override */
+    .stProgress > div > div > div > div {
+        background-color: #2d5016 !important;
+        border-radius: 8px !important;
+    }
+    .stProgress > div > div > div {
+        background-color: #eee !important;
+        border-radius: 8px !important;
+    }
+
+    /* ── Sidebar ───────────────────────────────────────── */
+    section[data-testid="stSidebar"] {
+        background: #fafaf8 !important;
+        border-right: 1px solid #eee !important;
+    }
+    section[data-testid="stSidebar"] .block-container {
+        padding-top: 2rem !important;
+    }
+    .sidebar-phase {
+        font-size: 1.0rem;
+        font-weight: 600;
+        color: #1a1a1a;
+        line-height: 1.45;
+        margin-bottom: 0.3rem;
+    }
+    .sidebar-fitness {
+        font-size: 0.85rem;
+        color: #666;
+        line-height: 1.5;
+        margin-bottom: 1rem;
+    }
+    .sidebar-weeks {
+        display: inline-block;
+        background: #2d5016;
+        color: white;
+        font-size: 0.72rem;
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        padding: 0.3rem 0.8rem;
+        border-radius: 20px;
+        margin-bottom: 1rem;
+    }
+
+    /* Hide Streamlit branding */
+    #MainMenu, footer, header { visibility: hidden; }
+
+    /* Button styling */
+    .stButton > button {
+        border-radius: 8px !important;
+        font-size: 0.8rem !important;
+        padding: 0.25rem 0.75rem !important;
+        border: 1px solid #ddd !important;
+        background: white !important;
+        color: #555 !important;
+        font-weight: 500 !important;
+    }
+    .stButton > button:hover {
+        border-color: #2d5016 !important;
+        color: #2d5016 !important;
+    }
+
+    /* Divider subtler */
+    hr { border-color: #f0f0f0 !important; }
 </style>
 """
 
@@ -341,35 +492,39 @@ monday = this_monday()
 # ── SIDEBAR ────────────────────────────────────────────────────────────────
 
 with st.sidebar:
-    week_offset = st.slider("Week", -4, 8, 0, label_visibility="collapsed")
-    selected_monday = monday + timedelta(weeks=week_offset)
-    if week_offset == 0:
-        st.caption("Deze week")
-    else:
-        st.caption(f"{selected_monday} t/m {selected_monday + timedelta(days=6)}")
-
-    if st.button("Ververs"):
-        st.cache_data.clear()
-
-    st.divider()
-
-    # Menselijke taal in plaats van metrics
+    # Menselijke context eerst — dat is wat telt
     ctl = state.get("load", {}).get("ctl_estimate", 0)
     phase = state.get("current_phase", "herstel_opbouw_I")
     race_date = state.get("race_date", "2026-10-18")
     weeks_left = max(0, (date.fromisoformat(race_date) - date.today()).days // 7)
 
-    st.markdown(f'<div class="sidebar-narrative">{phase_to_human(phase, weeks_left)}</div>',
-                unsafe_allow_html=True)
-    st.markdown(f'<div class="sidebar-narrative">{ctl_to_human(ctl)}</div>',
+    st.markdown(f'<div class="sidebar-weeks">Nog {weeks_left} weken</div>',
                 unsafe_allow_html=True)
 
-    # Compacte metrics voor de nerds
-    with st.expander("Details"):
-        c1, c2, c3 = st.columns(3)
-        c1.metric("CTL", f"{ctl:.0f}")
-        c2.metric("TSB", f"{state.get('load', {}).get('tsb_estimate', 0):+.0f}")
-        c3.metric("Wk", weeks_left)
+    phase_label = phase_to_human(phase, weeks_left)
+    # Split de fase-zin (voor de punt) van het "Nog X weken" deel (dat staat al hierboven)
+    phase_main = phase_label.split(". Nog")[0]
+    st.markdown(f'<div class="sidebar-phase">{phase_main}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="sidebar-fitness">{ctl_to_human(ctl)}</div>', unsafe_allow_html=True)
+
+    st.markdown("")  # spacing
+    week_offset = st.slider("Week", -4, 8, 0, label_visibility="collapsed")
+    selected_monday = monday + timedelta(weeks=week_offset)
+    if week_offset == 0:
+        st.caption("Deze week")
+    else:
+        st.caption(f"{selected_monday.strftime('%d %b')} — {(selected_monday + timedelta(days=6)).strftime('%d %b')}")
+
+    st.markdown("")  # spacing
+
+    # Compacte metrics — klein en onderaan
+    c1, c2 = st.columns(2)
+    c1.metric("Fitness", f"{ctl:.0f}")
+    c2.metric("Frisheid", f"{state.get('load', {}).get('tsb_estimate', 0):+.0f}")
+
+    st.markdown("")
+    if st.button("Ververs", use_container_width=True):
+        st.cache_data.clear()
 
 
 # ── MAIN ───────────────────────────────────────────────────────────────────
@@ -401,39 +556,71 @@ if today_event:
     e_type = event.get("type", "")
     sport = "Hardlopen" if e_type == "Run" else "Fietsen"
 
-    st.markdown(f"### Vandaag: {e_name}")
-    st.caption(sport)
-
     feel = get_feel_note(event)
-    if feel:
-        st.markdown(f'<div class="feel-note">{feel}</div>', unsafe_allow_html=True)
+    feel_html = f'<div class="today-feel">{feel}</div>' if feel else ""
 
-    col1, col2 = st.columns([3, 1])
-    with col2:
+    st.markdown(
+        f'<div class="today-card">'
+        f'<div class="today-label">Vandaag</div>'
+        f'<div class="today-title">{e_name}</div>'
+        f'<div class="today-sport">{sport}</div>'
+        f'{feel_html}'
+        f'</div>',
+        unsafe_allow_html=True
+    )
+
+    _, col_swap = st.columns([5, 1])
+    with col_swap:
         if st.button("Wissel", key="swap_today"):
             st.session_state["show_swap_today"] = True
 
     if st.session_state.get("show_swap_today"):
-        alts = get_alternatives(event)
-        if alts:
-            for j, alt in enumerate(alts):
-                c1, c2 = st.columns([5, 1])
-                c1.write(f"{alt['naam']}")
-                if c2.button("Kies", key=f"pick_today_{j}"):
-                    try:
-                        api.update_event(event["id"], name=alt["naam"],
-                                         description=alt["beschrijving"],
-                                         type=alt.get("sport", e_type))
-                        st.cache_data.clear()
-                        st.session_state["show_swap_today"] = False
-                        st.rerun()
-                    except Exception as e:
-                        st.error(str(e))
-        if st.button("Annuleren", key="cancel_swap_today"):
-            st.session_state["show_swap_today"] = False
-            st.rerun()
+        swap_cat_key = "swap_cat_today"
+        if swap_cat_key not in st.session_state:
+            st.caption("Wat wil je?")
+            cat_cols = st.columns(4)
+            for ci, (cat_id, cat_info) in enumerate(lib.SWAP_CATEGORIES.items()):
+                if cat_cols[ci].button(cat_info["label"], key=f"cat_today_{cat_id}"):
+                    st.session_state[swap_cat_key] = cat_id
+                    st.rerun()
+            if st.button("Annuleer", key="cancel_swap_today"):
+                st.session_state["show_swap_today"] = False
+                st.rerun()
+        else:
+            chosen_cat = st.session_state[swap_cat_key]
+            alts = get_alternatives(event, category=chosen_cat)
+            if alts:
+                for j, alt in enumerate(alts):
+                    quality_warning = ""
+                    if chosen_cat == "makkelijker":
+                        qcheck = check_week_quality(matched, event.get("id"), alt)
+                        if not qcheck["has_enough_quality"]:
+                            quality_warning = qcheck["message"]
+                    c1, c2 = st.columns([5, 1])
+                    c1.write(f"{alt['naam']}")
+                    if quality_warning:
+                        c1.caption(f"⚠ {quality_warning}")
+                    if c2.button("Kies", key=f"pick_today_{j}"):
+                        try:
+                            api.update_event(event["id"], name=alt["naam"],
+                                             description=alt["beschrijving"],
+                                             type=alt.get("sport", e_type))
+                            st.cache_data.clear()
+                            del st.session_state[swap_cat_key]
+                            st.session_state["show_swap_today"] = False
+                            st.rerun()
+                        except Exception as e:
+                            st.error(str(e))
+            c1, c2 = st.columns(2)
+            if c1.button("Terug", key="back_today"):
+                del st.session_state[swap_cat_key]
+                st.rerun()
+            if c2.button("Annuleer", key="cancel_today"):
+                del st.session_state[swap_cat_key]
+                st.session_state["show_swap_today"] = False
+                st.rerun()
 
-    st.divider()
+    st.markdown("")  # spacing instead of divider
 
 # ── WEEK PROGRESS ──────────────────────────────────────────────────────────
 
@@ -441,7 +628,8 @@ total_planned = sum(e["event"].get("load_target") or 0 for e in matched)
 total_done = sum((e["activity"].get("icu_training_load") or 0) if e["activity"] else 0 for e in matched)
 done_count = sum(1 for e in matched if e["done"])
 
-st.caption(f"{done_count} van {len(matched)} sessies voltooid")
+st.markdown(f'<div class="week-progress">{done_count} / {len(matched)} sessies</div>',
+            unsafe_allow_html=True)
 if total_planned > 0:
     st.progress(min(1.0, total_done / total_planned))
 
@@ -453,101 +641,143 @@ for i, item in enumerate(matched):
     done = item["done"]
 
     e_date = event.get("start_date_local", "")[:10]
-    weekday = DAYS_FULL.get(date.fromisoformat(e_date).weekday(), "?") if e_date else "?"
+    weekday_short = DAYS_NL.get(date.fromisoformat(e_date).weekday(), "?") if e_date else "?"
     e_name = event.get("name", "?")
     e_type = event.get("type", "?")
     is_today = e_date == today_str
 
-    # Status indicator
-    dot = "**·**" if not done else "**:**"
-    dot_class = "dot-done" if done else "dot-pending"
-
-    # Stats line
-    stats = ""
+    # Compact stats — alleen de kern
+    stats_parts = []
     if activity:
-        hr = activity.get("average_heartrate") or activity.get("icu_average_hr") or 0
-        tss = activity.get("icu_training_load") or 0
-        dist = round((activity.get("distance") or 0) / 1000, 1)
         dur = round((activity.get("moving_time") or 0) / 60)
-        power = activity.get("average_watts") or activity.get("icu_average_watts")
-        stats = f"{dur}min  {dist}km  HR {hr}  TSS {tss:.0f}"
-        if power:
-            stats += f"  {power}W"
+        dist = round((activity.get("distance") or 0) / 1000, 1)
+        tss = activity.get("icu_training_load") or 0
+        stats_parts = [f"{dur}min", f"{dist}km", f"TSS {tss:.0f}"]
+    stats_html = " &middot; ".join(stats_parts)
 
-    # Workout row
-    css_class = "workout-today" if is_today else ("workout-done" if done else "")
-    col_main, col_actions = st.columns([7, 2])
+    # Workout row — alles in een HTML blok voor visuele rust
+    check_class = "done" if done else "pending"
+    check_icon = "&#10003;" if done else ""
+    done_class = " is-done" if done else ""
 
-    with col_main:
-        status_icon = "&#10003;" if done else "&#9675;"
-        color = "#2d5016" if done else "#ccc"
-        st.markdown(
-            f'<span style="color:{color}; margin-right:8px;">{status_icon}</span>'
-            f'<strong>{weekday[:2]}</strong>&ensp;{e_name}',
-            unsafe_allow_html=True
-        )
-        if stats:
-            st.caption(stats)
+    st.markdown(
+        f'<div class="workout-row{done_class}">'
+        f'<div style="display:flex; align-items:flex-start;">'
+        f'<span class="wr-check {check_class}">{check_icon}</span>'
+        f'<div>'
+        f'<div class="wr-day">{weekday_short}</div>'
+        f'<div class="wr-name">{e_name}</div>'
+        f'{"<div class=wr-stats>" + stats_html + "</div>" if stats_html else ""}'
+        f'</div></div></div>',
+        unsafe_allow_html=True
+    )
 
-    with col_actions:
-        c1, c2 = st.columns(2)
+    # Action buttons — compact, inline
+    if done or not is_today:
+        btn_cols = st.columns([1, 1, 4])
         if done:
-            if c1.button("Coach", key=f"fb_{i}"):
+            if btn_cols[0].button("Coach", key=f"fb_{i}"):
                 st.session_state[f"show_fb_{i}"] = not st.session_state.get(f"show_fb_{i}", False)
-        if c2.button("Wissel", key=f"swap_{i}"):
+        if btn_cols[1].button("Wissel", key=f"swap_{i}"):
             st.session_state[f"show_swap_{i}"] = not st.session_state.get(f"show_swap_{i}", False)
 
-    # Coach feedback
+    # Coach feedback — persoonlijk bericht stijl
     if st.session_state.get(f"show_fb_{i}"):
         with st.spinner(""):
             fb = generate_feedback(event, activity)
         if fb:
-            # Split quote if present
             parts = fb.rsplit('"', 2)
             if len(parts) >= 3 and len(parts[-2]) > 10:
                 main_text = parts[0].strip().rstrip('"').rstrip('\n')
                 quote_text = parts[-2].strip()
                 st.markdown(
-                    f'<div class="coach-feedback">{main_text}'
+                    f'<div class="coach-feedback">'
+                    f'<div class="coach-avatar">Coach Louis</div>'
+                    f'{main_text}'
                     f'<div class="coach-quote">"{quote_text}"</div></div>',
                     unsafe_allow_html=True
                 )
             else:
-                st.markdown(f'<div class="coach-feedback">{fb}</div>', unsafe_allow_html=True)
+                st.markdown(
+                    f'<div class="coach-feedback">'
+                    f'<div class="coach-avatar">Coach Louis</div>'
+                    f'{fb}</div>',
+                    unsafe_allow_html=True
+                )
 
-    # Feel note for upcoming workouts (not done, not today's card which is shown above)
+    # Feel note voor toekomstige workouts
     if not done and not is_today:
         feel = get_feel_note(event)
         if feel:
-            with st.expander("Hoe moet dit voelen?"):
-                st.markdown(f'<div class="feel-note">{feel}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="feel-note">{feel}</div>', unsafe_allow_html=True)
 
-    # Swap panel
+    # Smart Swap panel
     if st.session_state.get(f"show_swap_{i}"):
-        alts = get_alternatives(event)
-        if alts:
-            for j, alt in enumerate(alts):
-                ca, cb = st.columns([5, 1])
-                ca.write(f"{alt['naam']}")
-                if cb.button("Kies", key=f"pick_{i}_{j}"):
-                    try:
-                        api.update_event(event["id"], name=alt["naam"],
-                                         description=alt["beschrijving"],
-                                         type=alt.get("sport", e_type))
-                        st.cache_data.clear()
-                        st.session_state[f"show_swap_{i}"] = False
-                        st.rerun()
-                    except Exception as e:
-                        st.error(str(e))
-        if st.button("Annuleer", key=f"cancel_{i}"):
-            st.session_state[f"show_swap_{i}"] = False
-            st.rerun()
+        swap_cat_key = f"swap_cat_{i}"
 
-    st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
+        # Stap 1: kies categorie
+        if swap_cat_key not in st.session_state:
+            st.caption("Wat wil je?")
+            cat_cols = st.columns(4)
+            for ci, (cat_id, cat_info) in enumerate(lib.SWAP_CATEGORIES.items()):
+                if cat_cols[ci].button(cat_info["label"], key=f"cat_{i}_{cat_id}"):
+                    st.session_state[swap_cat_key] = cat_id
+                    st.rerun()
+            if st.button("Annuleer", key=f"cancel_{i}"):
+                st.session_state[f"show_swap_{i}"] = False
+                st.rerun()
+
+        # Stap 2: toon opties in gekozen categorie
+        else:
+            chosen_cat = st.session_state[swap_cat_key]
+            cat_label = lib.SWAP_CATEGORIES[chosen_cat]["label"]
+            st.caption(f"{cat_label}")
+
+            alts = get_alternatives(event, category=chosen_cat)
+            if alts:
+                for j, alt in enumerate(alts):
+                    # Check weekbalans als makkelijker
+                    quality_warning = ""
+                    if chosen_cat == "makkelijker":
+                        qcheck = check_week_quality(matched, event.get("id"), alt)
+                        if not qcheck["has_enough_quality"]:
+                            quality_warning = qcheck["message"]
+
+                    ca, cb = st.columns([5, 1])
+                    ca.write(f"{alt['naam']}")
+                    if quality_warning:
+                        ca.caption(f"⚠ {quality_warning}")
+                    if cb.button("Kies", key=f"pick_{i}_{j}"):
+                        try:
+                            api.update_event(event["id"], name=alt["naam"],
+                                             description=alt["beschrijving"],
+                                             type=alt.get("sport", e_type))
+                            st.cache_data.clear()
+                            del st.session_state[swap_cat_key]
+                            st.session_state[f"show_swap_{i}"] = False
+                            st.rerun()
+                        except Exception as e:
+                            st.error(str(e))
+            else:
+                st.write("Geen alternatieven in deze categorie.")
+
+            c1, c2 = st.columns(2)
+            if c1.button("Terug", key=f"back_{i}"):
+                del st.session_state[swap_cat_key]
+                st.rerun()
+            if c2.button("Annuleer", key=f"cancel_{i}"):
+                del st.session_state[swap_cat_key]
+                st.session_state[f"show_swap_{i}"] = False
+                st.rerun()
 
 # ── FOOTER QUOTE ───────────────────────────────────────────────────────────
 
 quote = DELAHAIJE_QUOTES[date.today().timetuple().tm_yday % len(DELAHAIJE_QUOTES)]
-st.markdown(f'<div style="text-align:center; color:#999; font-style:italic; '
-            f'margin-top:2rem; font-size:0.85rem;">"{quote}"</div>',
-            unsafe_allow_html=True)
+st.markdown(
+    f'<div style="text-align:center; color:#bbb; font-style:italic; '
+    f'margin-top:3rem; padding:1.5rem 0; font-size:0.82rem; '
+    f'border-top:1px solid #f0f0f0;">'
+    f'"{quote}"<br><span style="font-size:0.7rem; font-style:normal; '
+    f'color:#ccc;">— Louis Delahaije</span></div>',
+    unsafe_allow_html=True
+)
