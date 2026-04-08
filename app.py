@@ -17,9 +17,12 @@ load_dotenv()
 
 sys.path.insert(0, str(Path(__file__).parent))
 import intervals_client as api
+import config
+import tp_sync_service
 from agents import workout_library as lib
 from agents import feedback_engine
 from agents.workout_feel import get_feel_note
+from trainingpeaks_errors import TPAPIError, TPAuthError, TPConversionError
 
 STATE_PATH = Path(__file__).parent / "state.json"
 
@@ -60,7 +63,10 @@ def load_state():
 def fetch_week(monday_str: str):
     monday = date.fromisoformat(monday_str)
     sunday = monday + timedelta(days=6)
-    events = api.get_events(monday, sunday)
+    # resolve=True bundelt workout_doc direct in elk event — nodig voor de
+    # TP-sync knop op de Today Card (anders zou die nog een losse fetch
+    # moeten doen per klik).
+    events = api.get_events(monday, sunday, resolve=True)
     try:
         activities = api.get_activities(start=monday, end=sunday)
     except Exception:
@@ -489,6 +495,22 @@ with st.sidebar:
     if st.button("Ververs", use_container_width=True):
         st.cache_data.clear()
 
+    # ── TrainingPeaks-sync status (alleen als feature-flag aan staat) ──
+    if config.get_bool("TP_SYNC_ENABLED", default=False):
+        st.markdown("")
+        tp_status = st.session_state.get("tp_connection_status")
+        if tp_status is None:
+            st.caption("TP: onbekend")
+        elif tp_status["ok"]:
+            st.caption(f"TP: ✅ {tp_status['message']}")
+        else:
+            st.caption(f"TP: ❌ {tp_status['message']}")
+        if st.button("Test TP verbinding", use_container_width=True):
+            cookie = config.get_secret("TP_AUTH_COOKIE") or ""
+            ok, msg = tp_sync_service.check_connection(cookie)
+            st.session_state["tp_connection_status"] = {"ok": ok, "message": msg}
+            st.rerun()
+
 
 # ── MAIN ───────────────────────────────────────────────────────────────────
 
@@ -532,10 +554,67 @@ if today_event:
         unsafe_allow_html=True
     )
 
-    _, col_swap = st.columns([5, 1])
+    # Sync-knop + Wissel-knop. TP-sync alleen tonen als:
+    # (1) feature-flag aan staat
+    # (2) sport wordt ondersteund
+    # (3) event nog niet is gesynced in state.json
+    tp_enabled = config.get_bool("TP_SYNC_ENABLED", default=False)
+    tp_supported = e_type in tp_sync_service.SUPPORTED_SPORTS
+    event_id = str(event.get("id", ""))
+    tp_existing = tp_sync_service.is_synced(event_id) if tp_enabled else None
+
+    if tp_enabled and tp_supported:
+        _, col_tp, col_swap = st.columns([4, 1, 1])
+    else:
+        _, col_swap = st.columns([5, 1])
+        col_tp = None
+
+    if col_tp is not None:
+        with col_tp:
+            if tp_existing:
+                st.caption(f"✅ TP")
+            else:
+                # Double-submit guard via session_state — Streamlit rerunt
+                # bij elke interactie, dus zonder dit kan dubbele push.
+                pending_key = f"tp_sync_pending_{event_id}"
+                if st.button("→ TP", key=f"tp_sync_{event_id}",
+                             disabled=st.session_state.get(pending_key, False)):
+                    st.session_state[pending_key] = True
+                    cookie = config.get_secret("TP_AUTH_COOKIE") or ""
+                    try:
+                        result = tp_sync_service.sync_event(event, cookie)
+                        st.session_state["tp_sync_flash"] = {
+                            "ok": True,
+                            "msg": f"Gesynced naar TP (workoutId {result['tp_workout_id']})"
+                        }
+                    except TPAuthError as exc:
+                        st.session_state["tp_sync_flash"] = {
+                            "ok": False,
+                            "msg": f"Cookie verlopen — {exc}",
+                        }
+                    except TPConversionError as exc:
+                        st.session_state["tp_sync_flash"] = {
+                            "ok": False, "msg": f"Conversie mislukt — {exc}"
+                        }
+                    except TPAPIError as exc:
+                        st.session_state["tp_sync_flash"] = {
+                            "ok": False, "msg": f"TP API fout — {exc}"
+                        }
+                    finally:
+                        st.session_state[pending_key] = False
+                    st.rerun()
+
     with col_swap:
         if st.button("Wissel", key="swap_today"):
             st.session_state["show_swap_today"] = True
+
+    # Flash message na sync-actie (overleeft de rerun)
+    flash = st.session_state.pop("tp_sync_flash", None)
+    if flash:
+        if flash["ok"]:
+            st.success(flash["msg"])
+        else:
+            st.error(flash["msg"])
 
     if st.session_state.get("show_swap_today"):
         swap_cat_key = "swap_cat_today"
