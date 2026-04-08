@@ -1,5 +1,17 @@
 .env
+.env.local
 __pycache__/
 *.pyc
 .venv/
 .claude/
+
+# Runtime state — contains athlete data, load estimates, feedback logs.
+# Use state.example.json as the schema template.
+state.json
+
+# Streamlit secrets — contains cookies, API keys, feature flags.
+# Use .streamlit/secrets.toml.example as the template.
+.streamlit/secrets.toml
+
+# Pytest cache
+.pytest_cache/

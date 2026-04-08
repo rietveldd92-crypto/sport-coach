@@ -1,0 +1,45 @@
+{
+    "last_updated": "YYYY-MM-DD",
+    "athlete_id": "",
+    "race_date": "YYYY-MM-DD",
+    "race_goal": "",
+    "race_name": "",
+    "current_phase": "",
+    "week_number": 0,
+    "plan_start": "YYYY-MM-DD",
+    "injury": {
+        "active_signals": [],
+        "last_signal_date": null,
+        "days_symptom_free": 0,
+        "run_intensity_unlocked": false,
+        "strides_unlocked": false,
+        "tempo_unlocked": false,
+        "fysio_constraint": "",
+        "history": []
+    },
+    "signal_buffer": {},
+    "load": {
+        "ctl_estimate": 0.0,
+        "atl_estimate": 0.0,
+        "tsb_estimate": 0.0,
+        "last_calculated": "YYYY-MM-DD",
+        "weekly_tss_target": 0
+    },
+    "build_deload": {
+        "consecutive_build_weeks": 0,
+        "target_build_weeks": 3,
+        "last_deload_week": "YYYY-MM-DD",
+        "is_deload_week": false,
+        "deload_modifier": 0.7
+    },
+    "progression": {
+        "threshold_step": 0,
+        "sweetspot_step": 0,
+        "over_unders_step": 0,
+        "endurance_spin_min": 0,
+        "long_ride_min": 0,
+        "z2_run_variety_index": 0,
+        "long_run_variety_index": 0
+    },
+    "weekly_log": []
+}
