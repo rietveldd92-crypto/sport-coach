@@ -11,6 +11,9 @@ from datetime import date, timedelta
 from pathlib import Path
 
 import streamlit as st
+from dotenv import load_dotenv
+
+load_dotenv()
 
 sys.path.insert(0, str(Path(__file__).parent))
 import intervals_client as api
@@ -20,11 +23,58 @@ from agents.workout_feel import get_feel_note, get_post_workout_note
 
 STATE_PATH = Path(__file__).parent / "state.json"
 
+# ── LLM SETUP ──────────────────────────────────────────────────────────────
+# We gebruiken Google Gemini (gratis tier).
+# Pro voor key/zware sessies (intervals, threshold, long run, sweetspot, over-unders, tempo).
+# Flash voor de rest (Z2, recovery, endurance, drills, kracht).
+# Streamlit Cloud: zet GOOGLE_API_KEY in app secrets.
+
+GEMINI_AVAILABLE = False
+_gemini_client = None
 try:
-    import anthropic
-    CLAUDE_AVAILABLE = bool(os.getenv("ANTHROPIC_API_KEY"))
+    from google import genai as google_genai
+    from google.genai import types as genai_types
+    _gemini_key = os.getenv("GOOGLE_API_KEY")
+    # Streamlit Cloud secrets fallback
+    if not _gemini_key:
+        try:
+            _gemini_key = st.secrets.get("GOOGLE_API_KEY")
+        except Exception:
+            _gemini_key = None
+    if _gemini_key:
+        _gemini_client = google_genai.Client(api_key=_gemini_key)
+        GEMINI_AVAILABLE = True
 except ImportError:
-    CLAUDE_AVAILABLE = False
+    pass
+
+GEMINI_PRO_MODEL = "gemini-2.5-pro"
+GEMINI_FLASH_MODEL = "gemini-2.5-flash"
+
+# Workout types die "Pro" verdienen — daar is diepere analyse meeste waard
+HARD_WORKOUT_TYPES = {
+    "run_long", "run_tempo", "run_intervals", "run_progression", "run_fartlek",
+    "bike_threshold", "bike_sweetspot", "bike_over_unders", "bike_tempo",
+}
+
+# Coach-persona / system prompt — door de gebruiker zelf opgesteld
+COACH_SYSTEM_PROMPT = """Jij bent mijn persoonlijke coach. Wees direct, eerlijk en analytisch.
+
+Doel: maximaliseer mijn prestatie en ontwikkeling richting de Amsterdam Marathon (sub 3:45) op 18 oktober 2026.
+
+Houd rekening met:
+- Ik functioneer het best met hoge standaarden, autonomie en inhoudelijke feedback
+- Ik heb sterk analytisch vermogen en zelfreflectie
+- Ik haak af op vaagheid, lage ambitie of overdreven positiviteit
+- Blessuregevoeligheid: linkerhamstring/heup en onderrug → bewaak belasting kritisch
+- Focus: progressie, fatigue resistance, slimme opbouw en herstel
+
+Jouw gedrag:
+- Geef concrete, scherpe feedback (wat werkt / wat niet)
+- Benoem risico's en fouten direct
+- Geen motivatiepraat, geen clichés
+- Altijd praktisch en toepasbaar
+- Prioriteer impact boven volledigheid
+- Wees kort, scherp en zonder ruis"""
 
 
 # ── HELPERS ─────────────────────────────────────────────────────────────────
@@ -77,6 +127,218 @@ def fetch_recent():
         return api.get_activities(start=date.today() - timedelta(days=7), end=date.today())
     except Exception:
         return []
+
+
+@st.cache_data(ttl=300)
+def fetch_recent_28d():
+    """Activiteiten van afgelopen 28 dagen — voor 'vergelijkbare workouts'."""
+    try:
+        return api.get_activities(start=date.today() - timedelta(days=28), end=date.today())
+    except Exception:
+        return []
+
+
+@st.cache_data(ttl=300)
+def fetch_wellness_window(days: int = 14):
+    """Wellness data — laatste N dagen, voor trend en vandaag-snapshot."""
+    try:
+        return api.get_wellness(start=date.today() - timedelta(days=days), end=date.today())
+    except Exception:
+        return []
+
+
+def _avg(xs):
+    xs = [x for x in xs if x is not None]
+    return sum(xs) / len(xs) if xs else None
+
+
+def _trend_arrow(recent, baseline):
+    """Pijl voor trend — recent vs baseline."""
+    if recent is None or baseline is None or baseline == 0:
+        return ""
+    diff_pct = (recent - baseline) / baseline * 100
+    if diff_pct > 5:
+        return "stijgend"
+    if diff_pct < -5:
+        return "dalend"
+    return "stabiel"
+
+
+def build_wellness_context(activity_date: str) -> str:
+    """Bouw een wellness-snippet voor de activity-datum + 7-day trend.
+
+    Returns een platte tekst-blok of '' als er geen data is.
+    """
+    wellness = fetch_wellness_window(days=14)
+    if not wellness:
+        return ""
+
+    today_record = next((w for w in wellness if w.get("id") == activity_date), None)
+
+    # Trend: laatste 7 dagen vs 7 dagen daarvoor
+    sorted_w = sorted(wellness, key=lambda w: w.get("id", ""))
+    last7 = sorted_w[-7:]
+    prev7 = sorted_w[-14:-7]
+
+    lines = []
+
+    if today_record:
+        bits = []
+        if (hrv := today_record.get("hrv")) is not None:
+            bits.append(f"HRV {hrv:.0f}ms")
+        if (rhr := today_record.get("restingHR")) is not None:
+            bits.append(f"rust-HR {rhr}bpm")
+        if (sleep := today_record.get("sleepSecs")) is not None:
+            bits.append(f"slaap {sleep/3600:.1f}u")
+        if (ss := today_record.get("sleepScore")) is not None:
+            bits.append(f"slaapscore {ss:.0f}")
+        if (sor := today_record.get("soreness")) is not None:
+            bits.append(f"spierpijn {sor}/4")
+        if (fat := today_record.get("fatigue")) is not None:
+            bits.append(f"vermoeidheid {fat}/4")
+        if (mood := today_record.get("mood")) is not None:
+            bits.append(f"stemming {mood}/4")
+        if (mot := today_record.get("motivation")) is not None:
+            bits.append(f"motivatie {mot}/4")
+        if (rea := today_record.get("readiness")) is not None:
+            bits.append(f"readiness {rea}")
+        if (inj := today_record.get("injury")) is not None:
+            bits.append(f"blessure {inj}/4")
+        if bits:
+            lines.append(f"Op {activity_date}: " + ", ".join(bits) + ".")
+
+    # 7d trend
+    hrv_recent = _avg([w.get("hrv") for w in last7])
+    hrv_base = _avg([w.get("hrv") for w in prev7])
+    rhr_recent = _avg([w.get("restingHR") for w in last7])
+    rhr_base = _avg([w.get("restingHR") for w in prev7])
+    sleep_recent = _avg([w.get("sleepSecs") for w in last7])
+
+    trend_bits = []
+    if hrv_recent is not None and hrv_base is not None:
+        arrow = _trend_arrow(hrv_recent, hrv_base)
+        trend_bits.append(f"HRV 7d-gem {hrv_recent:.0f}ms ({arrow} t.o.v. week ervoor)")
+    if rhr_recent is not None and rhr_base is not None:
+        arrow = _trend_arrow(rhr_recent, rhr_base)
+        # voor RHR: lager is beter, dus draai de interpretatie om
+        if arrow == "stijgend":
+            arrow = "oplopend (mogelijk vermoeidheid)"
+        elif arrow == "dalend":
+            arrow = "dalend (gunstig)"
+        trend_bits.append(f"rust-HR 7d-gem {rhr_recent:.0f}bpm ({arrow})")
+    if sleep_recent is not None:
+        trend_bits.append(f"slaap 7d-gem {sleep_recent/3600:.1f}u/nacht")
+
+    if trend_bits:
+        lines.append("Trend: " + "; ".join(trend_bits) + ".")
+
+    return "\n".join(lines)
+
+
+def build_neighbor_context(matched: list, event_date: str) -> str:
+    """Wat is er gisteren gedaan en wat staat er morgen gepland?"""
+    try:
+        d = date.fromisoformat(event_date)
+    except Exception:
+        return ""
+
+    yesterday = (d - timedelta(days=1)).isoformat()
+    tomorrow = (d + timedelta(days=1)).isoformat()
+
+    lines = []
+    for item in matched:
+        e = item["event"]
+        e_date = e.get("start_date_local", "")[:10]
+        e_name = e.get("name", "?")
+
+        if e_date == yesterday:
+            if item["done"] and item["activity"]:
+                act = item["activity"]
+                tss = act.get("icu_training_load") or 0
+                hr = act.get("average_heartrate") or 0
+                hr_pct = round(hr / 190 * 100) if hr else 0
+                lines.append(
+                    f"Gisteren: {e_name} — voltooid, TSS {tss:.0f}, HR {hr_pct}%HRmax."
+                )
+            else:
+                lines.append(f"Gisteren: {e_name} — niet voltooid.")
+        elif e_date == tomorrow:
+            target = e.get("load_target") or 0
+            tag = f" (target TSS {target})" if target else ""
+            lines.append(f"Morgen gepland: {e_name}{tag}.")
+
+    return "\n".join(lines)
+
+
+def build_similar_workouts_context(wtype: str, activity_id: int, recent_28d: list) -> str:
+    """Vergelijk met max 3 vergelijkbare workouts uit afgelopen 28 dagen."""
+    from agents.workout_analysis import classify_workout
+
+    similar = []
+    for act in recent_28d:
+        if str(act.get("id")) == str(activity_id):
+            continue
+        # Bouw een fake-event om classify_workout te kunnen gebruiken
+        fake_event = {"name": act.get("name", ""), "type": act.get("type", "")}
+        if classify_workout(fake_event) != wtype:
+            continue
+        similar.append(act)
+
+    if not similar:
+        return ""
+
+    similar.sort(key=lambda a: a.get("start_date_local", ""), reverse=True)
+    similar = similar[:3]
+
+    lines = []
+    for s in similar:
+        s_date = s.get("start_date_local", "")[:10]
+        dur = round((s.get("moving_time") or 0) / 60)
+        dist = round((s.get("distance") or 0) / 1000, 1)
+        hr = s.get("average_heartrate") or s.get("icu_average_hr") or 0
+        hr_pct = round(hr / 190 * 100) if hr else 0
+        tss = s.get("icu_training_load") or 0
+        pace_str = ""
+        if dist > 0 and dur > 0 and (s.get("type") == "Run"):
+            pace = dur / dist
+            pace_str = f", pace {pace:.2f}/km"
+        power_str = ""
+        if s.get("average_watts"):
+            power_str = f", {s.get('average_watts'):.0f}W"
+        lines.append(
+            f"- {s_date}: {dur}min, {dist}km, HR {hr_pct}%{pace_str}{power_str}, TSS {tss:.0f}"
+        )
+
+    return "Vergelijkbare workouts (laatste 28d):\n" + "\n".join(lines)
+
+
+def build_state_context(state: dict) -> str:
+    """Korte snapshot van fase, blessure, weken-tot-race uit state.json."""
+    bits = []
+    phase = state.get("current_phase", "?").replace("_", " ")
+    bits.append(f"Fase: {phase}")
+
+    race_date_str = state.get("race_date", "")
+    if race_date_str:
+        try:
+            wks = max(0, (date.fromisoformat(race_date_str) - date.today()).days // 7)
+            bits.append(f"{wks} weken tot {state.get('race_name', 'race')}")
+        except Exception:
+            pass
+
+    inj = state.get("injury", {})
+    if inj.get("active_signals"):
+        bits.append(f"Actieve blessure-signalen: {', '.join(inj['active_signals'])}")
+    elif inj.get("days_symptom_free"):
+        bits.append(f"{inj['days_symptom_free']}d symptoomvrij")
+    if inj.get("fysio_constraint"):
+        bits.append(f"Fysio: {inj['fysio_constraint']}")
+
+    load = state.get("load", {})
+    if "ctl_estimate" in load and "tsb_estimate" in load:
+        bits.append(f"CTL {load['ctl_estimate']:.0f}, TSB {load['tsb_estimate']:+.0f}")
+
+    return " | ".join(bits)
 
 
 def match_events_activities(events, activities):
@@ -175,7 +437,52 @@ def ctl_to_human(ctl: float) -> str:
 
 # ── FEEDBACK GENERATION ────────────────────────────────────────────────────
 
-def generate_feedback(event, activity):
+def _gemini_call(model_name: str, prompt: str) -> str:
+    """Single Gemini-call met juiste config per model.
+
+    - Flash: thinking uit (snel + voorspelbaar token-budget)
+    - Pro: thinking aan met beperkt budget (kwaliteit telt hier)
+    """
+    if "flash" in model_name:
+        cfg = genai_types.GenerateContentConfig(
+            max_output_tokens=2000,
+            temperature=0.7,
+            thinking_config=genai_types.ThinkingConfig(thinking_budget=0),
+        )
+    else:
+        cfg = genai_types.GenerateContentConfig(
+            max_output_tokens=4000,
+            temperature=0.7,
+            thinking_config=genai_types.ThinkingConfig(thinking_budget=1024),
+        )
+
+    response = _gemini_client.models.generate_content(
+        model=model_name,
+        contents=prompt,
+        config=cfg,
+    )
+    text = (response.text or "").strip()
+    if not text:
+        # Diagnose lege response
+        try:
+            fr = response.candidates[0].finish_reason
+            raise RuntimeError(f"lege response, finish_reason={fr}")
+        except (AttributeError, IndexError):
+            raise RuntimeError("lege response zonder candidate")
+    return text
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def _cached_feedback(activity_id, event_id, model_name: str, _prompt: str) -> str:
+    """Cache de Gemini-call op activity+event+model id.
+
+    `_prompt` heeft underscore-prefix → Streamlit hasht 'm niet (scheelt werk
+    op een lange string, en de andere 3 args zijn al genoeg uniek).
+    """
+    return _gemini_call(model_name, _prompt)
+
+
+def generate_feedback(event, activity, matched=None):
     if not activity:
         return None
 
@@ -185,7 +492,7 @@ def generate_feedback(event, activity):
     wtype = analysis["workout_type"]
     prompt_focus = analysis["prompt_focus"]
 
-    # Post-workout feel note
+    # Post-workout feel note (vergelijkt verwacht gevoel met data)
     feel_note = get_post_workout_note(event, metrics)
     if feel_note and not insights:
         insights = [feel_note]
@@ -193,77 +500,137 @@ def generate_feedback(event, activity):
         insights.insert(0, feel_note)
 
     state = load_state()
-    ctl = state.get("load", {}).get("ctl_estimate", 49)
-    phase = state.get("current_phase", "herstel_opbouw_I").replace("_", " ")
-    weeks_to_race = max(0, (date.fromisoformat(state.get("race_date", "2026-10-18")) - date.today()).days // 7)
 
-    quote = DELAHAIJE_QUOTES[date.today().timetuple().tm_yday % len(DELAHAIJE_QUOTES)]
+    if not GEMINI_AVAILABLE:
+        return _rule_feedback(analysis)
 
-    if not CLAUDE_AVAILABLE:
-        return _rule_feedback(analysis, quote)
+    # ── CONTEXT BLOKKEN ────────────────────────────────────────────────────
+    state_ctx = build_state_context(state)
 
-    insights_str = "\n".join(f"- {i}" for i in insights) if insights else "- Geen bijzonderheden."
+    activity_date = (activity.get("start_date_local") or "")[:10]
+    wellness_ctx = build_wellness_context(activity_date) if activity_date else ""
 
-    extra_data = []
+    neighbor_ctx = ""
+    if matched:
+        event_date = (event.get("start_date_local") or "")[:10]
+        if event_date:
+            neighbor_ctx = build_neighbor_context(matched, event_date)
+
+    recent_28d = fetch_recent_28d()
+    similar_ctx = build_similar_workouts_context(wtype, activity.get("id"), recent_28d)
+
+    # ── METRIEKEN BLOK ─────────────────────────────────────────────────────
+    insights_str = "\n".join(f"- {i}" for i in insights) if insights else "- Geen bijzonderheden uit de auto-analyse."
+
+    deep_data = []
     if metrics.get("interval_powers"):
-        extra_data.append(f"Power per interval: {metrics['interval_powers']}W")
+        deep_data.append(f"Power per work-interval: {metrics['interval_powers']}W (gem {metrics.get('interval_avg_power', '?')}W = {metrics.get('interval_pct_ftp', '?')}% FTP, spread {metrics.get('interval_power_spread_pct', '?')}%)")
     if metrics.get("hr_drift_pct") is not None:
-        extra_data.append(f"HR drift: {metrics['hr_drift_pct']}%")
+        deep_data.append(f"HR drift over intervals: {metrics['hr_drift_pct']}%")
     if metrics.get("splits"):
-        split_str = ", ".join(f"{s['pace']:.2f}/km" for s in metrics["splits"][:10])
-        extra_data.append(f"Splits: {split_str}")
+        split_str = ", ".join(f"{s['pace']:.2f}" for s in metrics["splits"][:12])
+        deep_data.append(f"Km-splits (min/km): {split_str}")
     if metrics.get("cardiac_decoupling_pct") is not None:
-        extra_data.append(f"Cardiac decoupling: {metrics['cardiac_decoupling_pct']}%")
+        deep_data.append(f"Cardiac decoupling: {metrics['cardiac_decoupling_pct']}% (lager = beter aerobe basis)")
+    if metrics.get("avg_pace_first_third") and metrics.get("avg_pace_last_third"):
+        deep_data.append(f"Pacing: eerste derde {metrics['avg_pace_first_third']:.2f}/km → laatste derde {metrics['avg_pace_last_third']:.2f}/km")
     if metrics.get("interval_paces"):
-        extra_data.append(f"Interval paces: {[f'{p:.2f}' for p in metrics['interval_paces']]}/km")
-    extra_str = "\n".join(f"- {e}" for e in extra_data) if extra_data else ""
+        deep_data.append(f"Interval paces (min/km): {[f'{p:.2f}' for p in metrics['interval_paces']]}")
+    if metrics.get("z1z2_pct") is not None:
+        deep_data.append(f"Tijd in zones: Z1+Z2 {metrics['z1z2_pct']}%, boven Z2 {metrics['z3plus_pct']}%")
+    if metrics.get("vi"):
+        deep_data.append(f"Variability Index: {metrics['vi']}")
+    if metrics.get("cadence"):
+        deep_data.append(f"Gem. kadans: {metrics['cadence']}")
+    deep_str = "\n".join(f"- {d}" for d in deep_data) if deep_data else "- Geen interval/split-detail beschikbaar."
 
-    power_line = f"Vermogen: {metrics['avg_power']}W ({round(metrics['avg_power']/290*100)}% FTP)" if metrics.get("avg_power") else ""
-    pace_line = f"Pace: {metrics.get('avg_pace', '?')} min/km" if metrics.get("avg_pace") else ""
+    power_line = (
+        f"Vermogen: {metrics['avg_power']}W (gem) / {metrics['np_power']}W (NP) = {round(metrics['avg_power']/290*100)}% FTP"
+        if metrics.get("avg_power") and metrics.get("np_power")
+        else (f"Vermogen: {metrics['avg_power']}W = {round(metrics['avg_power']/290*100)}% FTP" if metrics.get("avg_power") else "")
+    )
+    pace_line = f"Gem. pace: {metrics.get('avg_pace', '?')} min/km" if metrics.get("avg_pace") else ""
 
-    prompt = f"""Je bent Louis Delahaije. Kort, warm, persoonlijk. Geen opsommingstekens.
+    target_tss = metrics.get("target_tss") or event.get("load_target") or 0
+    target_line = f"Geplande TSS-target: {target_tss}" if target_tss else ""
+    desc = (event.get("description") or "").strip()[:300]
 
-Atleet: CTL {ctl}, FTP 290W, Amsterdam Marathon in {weeks_to_race} weken. Fase: {phase}.
+    # ── PROMPT ────────────────────────────────────────────────────────────
+    prompt = f"""{COACH_SYSTEM_PROMPT}
 
-WORKOUT: {wtype} — {event.get('name', '?')}
-Data: {metrics['duration']}min | {metrics['distance']}km | HR {metrics['hr_avg']}bpm ({metrics['hr_pct']}%HRmax) | TSS {metrics['tss']:.0f}
-{power_line} {pace_line}
+REFERENTIEWAARDEN ATLEET (gebruik DEZE, verzin geen andere)
+- FTP: 290W
+- HRmax: 190bpm
+- Z2 hartslag-bandbreedte: 129–152bpm (68–80% HRmax)
 
-ANALYSE:
-{extra_str}
+LIVE STATE
+{state_ctx}
 
-BEVINDINGEN:
+DEZE WORKOUT
+Type: {wtype}
+Naam: {event.get('name', '?')}
+Plan-beschrijving: {desc or '(geen)'}
+{target_line}
+
+UITGEVOERD
+Duur {metrics['duration']}min | Afstand {metrics['distance']}km | Gem HR {metrics['hr_avg']}bpm ({metrics['hr_pct']}% HRmax) | TSS {metrics['tss']:.0f}
+{power_line}
+{pace_line}
+
+DIEPE METRIEKEN
+{deep_str}
+
+AUTO-ANALYSE BEVINDINGEN
 {insights_str}
 
-INSTRUCTIE: {prompt_focus}
+WELLNESS / HERSTEL
+{wellness_ctx or '(geen wellness data beschikbaar)'}
 
-Lengterichtlijn:
-- Z2/recovery: max 2 zinnen
-- Threshold/sweetspot: 3-4 zinnen
-- Lange duurloop: 3-5 zinnen
+CONTEXT WEEK
+{neighbor_ctx or '(geen buur-workouts)'}
 
-Sluit af met een variatie op: "{quote}"
-Nederlands, platte tekst."""
+{similar_ctx or '(geen vergelijkbare workouts in laatste 28 dagen)'}
+
+INTERNE ANALYSE-FOCUS (niet noemen in output): {prompt_focus}
+
+OUTPUT FORMAT
+Geef je feedback in exact deze 4 secties. Gebruik **bold** voor de labels, geen H-headers. Houd het kort en scherp. Maximaal 200 woorden totaal. Geen quote, geen slotzin, geen motivatiepraat.
+
+**Wat gaat goed**
+1-3 zinnen. Concreet, met cijfers uit de data hierboven.
+
+**Wat gaat fout / risico's**
+1-3 zinnen. Eerlijk, geen verzachting. Bewaak linkerhamstring/heup/onderrug expliciet als er signalen zijn (HR drift, te veel intensiteit, fatigue trend, slechte slaap). Als er niets fout is, schrijf dat ook expliciet ("geen risico's deze sessie").
+
+**Concreet advies**
+Maximaal 3 acties, genummerd. Specifiek, meetbaar, toepasbaar. "Morgen Z2, HR onder 152bpm" — niet "blijf rustig".
+
+**Aanpassing in strategie**
+Alleen invullen als je vindt dat het weekplan of de fase-aanpak moet schuiven. Anders schrijf: "geen aanpassing nodig"."""
+
+    # Kies model: Pro voor key sessies, Flash voor de rest
+    model_name = GEMINI_PRO_MODEL if wtype in HARD_WORKOUT_TYPES else GEMINI_FLASH_MODEL
 
     try:
-        client = anthropic.Anthropic()
-        r = client.messages.create(
-            model="claude-haiku-4-5-20251001", max_tokens=300,
-            messages=[{"role": "user", "content": prompt}])
-        return r.content[0].text.strip()
-    except Exception:
-        return _rule_feedback(analysis, quote)
+        return _cached_feedback(activity.get("id"), event.get("id"), model_name, prompt)
+    except Exception as e:
+        # Pro quota op? Probeer Flash als fallback
+        if model_name == GEMINI_PRO_MODEL:
+            try:
+                return _cached_feedback(activity.get("id"), event.get("id"), GEMINI_FLASH_MODEL, prompt)
+            except Exception as e2:
+                return f"(Gemini fout: {e2})\n\n" + _rule_feedback(analysis)
+        return f"(Gemini fout: {e})\n\n" + _rule_feedback(analysis)
 
 
-def _rule_feedback(analysis, quote):
-    insights = analysis["insights"]
-    wtype = analysis["workout_type"]
+def _rule_feedback(analysis):
+    """Fallback als Gemini niet beschikbaar is. Geen quote, geen motivatiepraat —
+    alleen de auto-analyse insights als platte tekst."""
+    insights = analysis.get("insights", [])
     if not insights:
-        return f"Goed bezig.\n\n\"{quote}\""
-    if wtype in ("run_z2", "run_recovery", "run_trail", "bike_endurance"):
-        return f"{insights[0]}\n\n\"{quote}\""
+        return "**Wat gaat goed**\nWorkout voltooid, geen bijzonderheden uit auto-analyse.\n\n**Wat gaat fout / risico's**\nGeen risico's gedetecteerd.\n\n**Concreet advies**\n1. Volg het bestaande weekplan.\n\n**Aanpassing in strategie**\nGeen aanpassing nodig."
     text = " ".join(insights[:3])
-    return f"{text}\n\n\"{quote}\""
+    return f"**Wat gaat goed**\n{text}\n\n**Wat gaat fout / risico's**\nGeen specifieke risico's uit deze auto-analyse — Gemini AI niet beschikbaar voor diepere check.\n\n**Concreet advies**\n1. Volg het bestaande plan tot AI weer werkt.\n\n**Aanpassing in strategie**\nGeen aanpassing nodig."
 
 
 # ── CUSTOM CSS ─────────────────────────────────────────────────────────────
@@ -691,29 +1058,19 @@ for i, item in enumerate(matched):
             if feel and btn_cols[1].button("Hoe voelt dit?", key=f"feel_{i}"):
                 st.session_state[f"show_feel_{i}"] = not st.session_state.get(f"show_feel_{i}", False)
 
-    # Coach feedback — persoonlijk bericht stijl
+    # Coach feedback — analytische bericht-stijl
     if st.session_state.get(f"show_fb_{i}"):
         with st.spinner(""):
-            fb = generate_feedback(event, activity)
+            fb = generate_feedback(event, activity, matched=matched)
         if fb:
-            parts = fb.rsplit('"', 2)
-            if len(parts) >= 3 and len(parts[-2]) > 10:
-                main_text = parts[0].strip().rstrip('"').rstrip('\n')
-                quote_text = parts[-2].strip()
-                st.markdown(
-                    f'<div class="coach-feedback">'
-                    f'<div class="coach-avatar">Coach Louis</div>'
-                    f'{main_text}'
-                    f'<div class="coach-quote">"{quote_text}"</div></div>',
-                    unsafe_allow_html=True
-                )
-            else:
-                st.markdown(
-                    f'<div class="coach-feedback">'
-                    f'<div class="coach-avatar">Coach Louis</div>'
-                    f'{fb}</div>',
-                    unsafe_allow_html=True
-                )
+            # Container met label, content via st.markdown zodat **bold** rendert
+            st.markdown(
+                '<div class="coach-feedback">'
+                '<div class="coach-avatar">Coach</div>'
+                '</div>',
+                unsafe_allow_html=True,
+            )
+            st.markdown(fb)
 
     # Feel note alleen op klik
     if not done and not is_today:
