@@ -2,14 +2,32 @@
 
 This module has NO network, NO Streamlit, NO file I/O. It takes a
 workout_doc dict (as returned by intervals.icu ``GET /events?resolve=true``)
-plus a sport string, and returns a dict ready to be serialised into the
-TrainingPeaks ``POST /fitness/v6/athletes/{userId}/workouts`` body.
+plus a sport string, and returns a dict ready to drop into the
+TrainingPeaks ``POST /fitness/v6/athletes/{userId}/workouts`` body as
+the ``structure`` field (as a dict, **not** a JSON string — TP rejects
+strings with "Workout structure is invalid").
 
 Why pure: the tester review flagged silent mapping errors as the single
 highest risk of the TrainingPeaks sync feature. Keeping this function
 free of side effects means it can be exhaustively fixture-tested without
 hitting any API, and regressions show up as failing unit tests instead
 of polluted TrainingPeaks calendars.
+
+TrainingPeaks structure shape (reverse-engineered from live calendar)
+---------------------------------------------------------------------
+Observed by fetching an existing workout from ``GET /fitness/v6/athletes/
+{userId}/workouts/{start}/{end}`` and inspecting its ``structure`` dict.
+Differs from the tp2intervals research notes in several subtle ways:
+
+* **Every** top-level step is ``{"type": "step", ...}``. There is no
+  ``"repetition"`` step type — repetition is expressed via ``length.unit``.
+* Every top-level step has ``length: {value: N, unit: "repetition"}``
+  where ``N`` is the number of reps. Single intervals use ``N=1``.
+* Top-level steps contain a ``steps`` array with leaf objects.
+* Leaf objects have only ``length`` (``{value: seconds, unit: "second"}``)
+  and ``targets``. No ``type``, no ``name``.
+* Target objects are ``{"minValue": X}`` for steady efforts and
+  ``{"minValue": X, "maxValue": Y}`` for ranges/ramps.
 
 MVP scope and known limitations
 -------------------------------
@@ -36,10 +54,13 @@ _TP_WORKOUT_TYPE_ID: dict[str, int] = {
 
 # Maps intervals.icu target enum → (resolved key, threshold field name,
 # TrainingPeaks primaryIntensityMetric string).
+# The metric strings come from inspecting live TP workouts: bike uses
+# "percentOfFtp", run uses "percentOfThresholdPace". "percentOfThresholdHr"
+# follows the same naming pattern but is unverified against live data.
 _TARGET_SPEC: dict[str, tuple[str, str, str]] = {
-    "POWER": ("_power", "ftp", "power"),
-    "PACE": ("_pace", "threshold_pace", "pace"),
-    "HR": ("_hr", "lthr", "heartRate"),
+    "POWER": ("_power", "ftp", "percentOfFtp"),
+    "PACE": ("_pace", "threshold_pace", "percentOfThresholdPace"),
+    "HR": ("_hr", "lthr", "percentOfThresholdHr"),
 }
 
 
@@ -116,7 +137,6 @@ def convert(workout_doc: dict[str, Any], sport: str) -> TPConversion:
         "structure": tp_steps,
         "primaryLengthMetric": "duration",
         "primaryIntensityMetric": primary_intensity,
-        "visualizationDistanceUnit": None,
     }
 
     return TPConversion(
@@ -137,24 +157,74 @@ def _convert_step(
     threshold: float,
     path: str,
 ) -> tuple[dict[str, Any], int]:
-    """Dispatch a raw step to either a flat step or a repetition group.
+    """Convert one intervals.icu top-level step into a TP repetition wrapper.
 
-    Returns the converted TP step dict and the total seconds it consumes
-    (reps × sum(child durations) for groups, or plain duration for flats).
+    TrainingPeaks wraps every top-level step in a ``{type: step, length:
+    {unit: repetition}}`` container, even single intervals (which use
+    ``value: 1``). Repetition groups from intervals.icu use ``value: N``
+    with the same nested leaf-step format.
+
+    Returns the TP wrapper dict and the total seconds it consumes
+    (reps × sum(child leaf durations)).
     """
-    # Repetition group: has 'reps' and nested 'steps'
+    # Repetition group: has 'reps' and nested 'steps'. Multi-rep wrappers
+    # use type "repetition"; single-rep wrappers (reps == 1 or single
+    # intervals from a flat step) use type "step". Both carry the same
+    # length.unit == "repetition" shape — only the type field differs.
     if "reps" in step and isinstance(step.get("steps"), list):
-        return _convert_repetition(step, resolved_key, threshold, path)
-    return _convert_flat_step(step, resolved_key, threshold, path)
+        reps = step.get("reps")
+        if not isinstance(reps, int) or reps <= 0:
+            raise TPConversionError(
+                f"{path}: repetition group has invalid reps={reps!r}"
+            )
+        child_steps_raw = step.get("steps") or []
+        if not child_steps_raw:
+            raise TPConversionError(
+                f"{path}: repetition group has no child steps"
+            )
+        leaves: list[dict[str, Any]] = []
+        leaf_total = 0
+        for i, child in enumerate(child_steps_raw):
+            if not isinstance(child, dict):
+                raise TPConversionError(f"{path}.steps[{i}] is not a dict")
+            if "reps" in child and isinstance(child.get("steps"), list):
+                raise TPConversionError(
+                    f"{path}.steps[{i}]: nested repetition groups are not "
+                    f"supported in MVP (TrainingPeaks structure is single-level)"
+                )
+            leaf, leaf_seconds = _leaf_step(
+                child, resolved_key, threshold, path=f"{path}.steps[{i}]"
+            )
+            leaves.append(leaf)
+            leaf_total += leaf_seconds
+        wrapper = {
+            "type": "repetition" if reps > 1 else "step",
+            "length": {"value": reps, "unit": "repetition"},
+            "steps": leaves,
+        }
+        return wrapper, reps * leaf_total
+
+    # Single interval: wrap a single leaf in a 1-rep container.
+    leaf, seconds = _leaf_step(step, resolved_key, threshold, path)
+    wrapper = {
+        "type": "step",
+        "length": {"value": 1, "unit": "repetition"},
+        "steps": [leaf],
+    }
+    return wrapper, seconds
 
 
-def _convert_flat_step(
+def _leaf_step(
     step: dict[str, Any],
     resolved_key: str,
     threshold: float,
     path: str,
 ) -> tuple[dict[str, Any], int]:
-    """Convert a single leaf interval step."""
+    """Build a TP leaf step: ``{length: {unit: second}, targets: [...]}``.
+
+    Leaf steps intentionally carry no ``type`` and no ``name`` — TP only
+    wants duration and targets at this level.
+    """
     duration = step.get("duration")
     if not isinstance(duration, (int, float)) or duration <= 0:
         raise TPConversionError(
@@ -165,74 +235,23 @@ def _convert_flat_step(
 
     min_pct, max_pct = _resolve_target_range(step, resolved_key, threshold, path)
 
-    name = _step_name(step)
+    # Steady target (min == max) is expressed as just {minValue: X} in TP.
+    if min_pct == max_pct:
+        primary: dict[str, Any] = {"minValue": min_pct}
+    else:
+        primary = {"minValue": min_pct, "maxValue": max_pct}
 
-    targets: list[dict[str, Any]] = [
-        {"minValue": min_pct, "maxValue": max_pct}
-    ]
+    targets: list[dict[str, Any]] = [primary]
 
-    cadence = step.get("cadence")
-    if isinstance(cadence, dict) and "value" in cadence:
-        targets.append(
-            {
-                "minValue": cadence["value"],
-                "maxValue": cadence["value"],
-                "unit": "roundOrStridePerMinute",
-            }
-        )
+    # Cadence is currently dropped for TP: the live TP calendar format we
+    # inspected carries only the intensity target, and mixing units in the
+    # targets array triggers "Workout structure is invalid". Keep it out
+    # until we verify the right encoding.
 
-    tp_step = {
-        "type": "step",
+    return {
         "length": {"value": duration_s, "unit": "second"},
-        "name": name,
         "targets": targets,
-    }
-    return tp_step, duration_s
-
-
-def _convert_repetition(
-    step: dict[str, Any],
-    resolved_key: str,
-    threshold: float,
-    path: str,
-) -> tuple[dict[str, Any], int]:
-    """Convert a repetition group (e.g. ``Main Set 3x``)."""
-    reps = step.get("reps")
-    if not isinstance(reps, int) or reps <= 0:
-        raise TPConversionError(
-            f"{path}: repetition group has invalid reps={reps!r}"
-        )
-    child_steps_raw = step.get("steps") or []
-    if not child_steps_raw:
-        raise TPConversionError(
-            f"{path}: repetition group has no child steps"
-        )
-
-    child_tp: list[dict[str, Any]] = []
-    child_total = 0
-    for i, child in enumerate(child_steps_raw):
-        if not isinstance(child, dict):
-            raise TPConversionError(f"{path}.steps[{i}] is not a dict")
-        if "reps" in child and isinstance(child.get("steps"), list):
-            raise TPConversionError(
-                f"{path}.steps[{i}]: nested repetition groups are not "
-                f"supported in MVP (TrainingPeaks structure is single-level)"
-            )
-        converted, child_seconds = _convert_flat_step(
-            child, resolved_key, threshold, path=f"{path}.steps[{i}]"
-        )
-        child_tp.append(converted)
-        child_total += child_seconds
-
-    group_name = _step_name(step) or f"{reps}x"
-
-    tp_group = {
-        "type": "repetition",
-        "length": {"value": reps, "unit": "repetition"},
-        "name": group_name,
-        "steps": child_tp,
-    }
-    return tp_group, reps * child_total
+    }, duration_s
 
 
 def _resolve_target_range(
@@ -280,16 +299,3 @@ def _resolve_target_range(
     )
 
 
-def _step_name(step: dict[str, Any]) -> str:
-    """Derive a display name for a step from its flags/text."""
-    if step.get("warmup"):
-        return "Warm Up"
-    if step.get("cooldown"):
-        return "Cool Down"
-    text = step.get("text")
-    if isinstance(text, str) and text.strip():
-        # intervals.icu sometimes has multi-line text like "Main Set\n3x";
-        # use the first line to keep it short.
-        first_line = text.splitlines()[0].strip()
-        return first_line[:64] or "Active"
-    return "Active"

@@ -18,7 +18,6 @@ to the caller. Keeping the client dumb keeps the mocked tests simple.
 """
 from __future__ import annotations
 
-import json
 from datetime import date
 from typing import Any
 
@@ -141,9 +140,17 @@ def get_user_id(token: str, timeout: int = DEFAULT_TIMEOUT) -> int:
     _raise_for_status(response, "user fetch")
 
     body = response.json()
-    user_id = body.get("userId") if isinstance(body, dict) else None
+    # Real response shape: {"user": {"userId": 3398462, ...}, "accountStatus": ...}
+    # Tolerate a flat {"userId": ...} too in case TP changes the shape.
+    user_id: Any = None
+    if isinstance(body, dict):
+        user_obj = body.get("user")
+        if isinstance(user_obj, dict):
+            user_id = user_obj.get("userId")
+        if user_id is None:
+            user_id = body.get("userId")
     if user_id is None:
-        raise TPAPIError("User response missing userId field")
+        raise TPAPIError("User response missing user.userId field")
     return int(user_id)
 
 
@@ -186,14 +193,17 @@ def create_workout(
         "Accept": "application/json",
         "Content-Type": "application/json",
     }
+    # TP rejects JSON-stringified structures with "Workout structure is
+    # invalid". The field must be a nested dict in the request body, not
+    # a string. Confirmed against live GET /fitness/v6/athletes/{id}/workouts.
     payload: dict[str, Any] = {
         "athleteId": user_id,
-        "workoutDay": workout_day.isoformat(),
+        "workoutDay": f"{workout_day.isoformat()}T00:00:00",
         "workoutTypeValueId": workout_type_id,
         "title": title,
         "description": description,
         "totalTimePlanned": round(total_seconds / 3600, 4),
-        "structure": json.dumps(tp_structure),
+        "structure": tp_structure,
     }
     if tss_planned is not None:
         payload["tssPlanned"] = tss_planned

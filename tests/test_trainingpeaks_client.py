@@ -121,18 +121,20 @@ def test_create_workout_201_returns_parsed_body():
 
     assert result == {"id": "wk-1", "title": "Test"}
 
-    # Validate the request: URL has the user_id interpolated, Bearer header
-    # set, structure is a JSON *string* (not a nested dict), workoutDay is ISO.
+    # Validate request shape: URL has user_id, Bearer header set, structure
+    # is sent as a nested DICT (not string — TP rejects strings with
+    # "Workout structure is invalid"), workoutDay carries a midnight suffix.
     args, kwargs = mock_post.call_args
     assert "/fitness/v6/athletes/12345/workouts" in args[0]
     assert kwargs["headers"]["Authorization"] == "Bearer tok"
     payload = kwargs["json"]
     assert payload["athleteId"] == 12345
-    assert payload["workoutDay"] == "2030-01-01"
+    assert payload["workoutDay"] == "2030-01-01T00:00:00"
     assert payload["workoutTypeValueId"] == 2
-    assert isinstance(payload["structure"], str), (
-        "structure must be JSON-stringified per TP API contract"
+    assert isinstance(payload["structure"], dict), (
+        "structure must be a nested dict — TP rejects stringified payloads"
     )
+    assert payload["structure"] is SAMPLE_STRUCTURE
     assert payload["totalTimePlanned"] == pytest.approx(0.5, abs=0.01)  # 30 min
 
 
@@ -174,8 +176,19 @@ def test_create_workout_handles_empty_response_body():
 # ---------------------------------------------------------------------------
 
 
-def test_get_user_id_happy_path():
-    fake = _mock_response(200, {"userId": 12345, "isAthlete": True})
+def test_get_user_id_happy_path_nested_user_object():
+    """Real TP shape: userId nested inside top-level 'user' object."""
+    fake = _mock_response(
+        200,
+        {"user": {"userId": 3398462, "settings": {}}, "accountStatus": {}},
+    )
+    with patch.object(tpc.requests, "get", return_value=fake):
+        assert tpc.get_user_id("tok") == 3398462
+
+
+def test_get_user_id_falls_back_to_top_level_userid():
+    """Tolerate a flat shape in case TP changes its response structure."""
+    fake = _mock_response(200, {"userId": 12345})
     with patch.object(tpc.requests, "get", return_value=fake):
         assert tpc.get_user_id("tok") == 12345
 
