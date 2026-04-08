@@ -27,6 +27,7 @@ from datetime import date, datetime, timedelta
 
 import config
 import intervals_client
+import tp_sync_service
 from trainingpeaks_errors import TPAPIError, TPAuthError, TPConversionError
 from workout_converter import convert
 
@@ -190,6 +191,19 @@ def push_workout(cookie: str, event: dict, conversion: dict, target: date) -> No
         tss_planned=event.get("icu_training_load"),
     )
     print(f"       OK — response: {json.dumps(response)[:120]}")
+
+    # Registreer in de sync-log zodat de Streamlit UI deze workout als
+    # "✅ TP" toont en niet nog eens aanbiedt om te pushen.
+    event_id = str(event.get("id", ""))
+    tp_workout_id = response.get("workoutId")
+    if event_id and tp_workout_id:
+        tp_sync_service.mark_synced(
+            event_id=event_id,
+            tp_workout_id=int(tp_workout_id),
+            title=event.get("name", "(untitled)"),
+            workout_day=target.isoformat(),
+        )
+        print(f"       Sync-log bijgewerkt: event {event_id} → TP {tp_workout_id}")
 
 
 def main(argv: list[str] | None = None) -> int:
