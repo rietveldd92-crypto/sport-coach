@@ -1,0 +1,94 @@
+{
+  "sport": "Run",
+  "name": "Fartlek – 41 min",
+  "workout_doc": {
+    "duration": 2880,
+    "distance": 8456.25,
+    "ftp": 515,
+    "lthr": 183,
+    "threshold_pace": 4.1666665,
+    "pace_units": "MINS_KM",
+    "target": "PACE",
+    "steps": [
+      {
+        "duration": 300,
+        "warmup": true,
+        "ramp": true,
+        "pace": {
+          "start": 55,
+          "end": 75,
+          "units": "%pace"
+        },
+        "_pace": {
+          "value": 2.7083332538604736,
+          "start": 2.2916665077209473,
+          "end": 3.125
+        },
+        "_distance": 812.5
+      },
+      {
+        "text": "Main Set\n5x",
+        "duration": 2400,
+        "distance": 7174.9995,
+        "reps": 5,
+        "steps": [
+          {
+            "duration": 180,
+            "pace": {
+              "value": 68,
+              "units": "%pace"
+            },
+            "_pace": {
+              "value": 2.8333332538604736,
+              "start": 2.7624999225139617,
+              "end": 2.9041665852069856
+            },
+            "_distance": 510.0
+          },
+          {
+            "duration": 120,
+            "pace": {
+              "value": 80,
+              "units": "%pace"
+            },
+            "_pace": {
+              "value": 3.3333332538604736,
+              "start": 3.249999922513962,
+              "end": 3.4166665852069853
+            },
+            "_distance": 400.0
+          },
+          {
+            "duration": 180,
+            "pace": {
+              "value": 70,
+              "units": "%pace"
+            },
+            "_pace": {
+              "value": 2.9166665077209473,
+              "start": 2.8437498450279235,
+              "end": 2.989583170413971
+            },
+            "_distance": 525.0
+          }
+        ]
+      },
+      {
+        "duration": 180,
+        "cooldown": true,
+        "ramp": true,
+        "pace": {
+          "start": 70,
+          "end": 55,
+          "units": "%pace"
+        },
+        "_pace": {
+          "value": 2.6041665077209473,
+          "start": 2.9166665077209473,
+          "end": 2.2916665077209473
+        },
+        "_distance": 468.74997
+      }
+    ]
+  }
+}

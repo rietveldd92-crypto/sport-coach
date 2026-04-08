@@ -1,0 +1,28 @@
+{
+  "sport": "Run",
+  "name": "Run 6km easy Z2",
+  "workout_doc": {
+    "duration": 1800,
+    "distance": 5625.0,
+    "ftp": 515,
+    "lthr": 183,
+    "threshold_pace": 4.1666665,
+    "pace_units": "MINS_KM",
+    "target": "PACE",
+    "steps": [
+      {
+        "duration": 1800,
+        "pace": {
+          "value": 75,
+          "units": "%pace"
+        },
+        "_pace": {
+          "value": 3.125,
+          "start": 3.046875,
+          "end": 3.203125
+        },
+        "_distance": 5625.0
+      }
+    ]
+  }
+}

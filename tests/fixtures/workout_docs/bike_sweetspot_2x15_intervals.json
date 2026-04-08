@@ -1,0 +1,111 @@
+{
+  "sport": "VirtualRide",
+  "name": "Sweetspot – 2x15 min @ 88%",
+  "workout_doc": {
+    "duration": 3510,
+    "distance": 0.0,
+    "ftp": 290,
+    "lthr": 176,
+    "target": "POWER",
+    "steps": [
+      {
+        "duration": 420,
+        "warmup": true,
+        "ramp": true,
+        "power": {
+          "start": 55,
+          "end": 80,
+          "units": "%ftp"
+        },
+        "cadence": {
+          "value": 90,
+          "units": "rpm"
+        },
+        "_power": {
+          "value": 195.5,
+          "start": 159.0,
+          "end": 232.0
+        }
+      },
+      {
+        "duration": 30,
+        "power": {
+          "value": 110,
+          "units": "%ftp"
+        },
+        "_power": {
+          "value": 319.0,
+          "start": 311.0,
+          "end": 327.0
+        }
+      },
+      {
+        "duration": 60,
+        "power": {
+          "value": 55,
+          "units": "%ftp"
+        },
+        "_power": {
+          "value": 159.0,
+          "start": 155.0,
+          "end": 163.0
+        }
+      },
+      {
+        "text": "Main Set\n2x",
+        "duration": 2400,
+        "distance": 0.0,
+        "reps": 2,
+        "steps": [
+          {
+            "duration": 900,
+            "power": {
+              "value": 88,
+              "units": "%ftp"
+            },
+            "cadence": {
+              "value": 88,
+              "units": "rpm"
+            },
+            "_power": {
+              "value": 255.0,
+              "start": 248.0,
+              "end": 262.0
+            }
+          },
+          {
+            "duration": 300,
+            "power": {
+              "value": 60,
+              "units": "%ftp"
+            },
+            "cadence": {
+              "value": 95,
+              "units": "rpm"
+            },
+            "_power": {
+              "value": 174.0,
+              "start": 169.0,
+              "end": 179.0
+            }
+          }
+        ]
+      },
+      {
+        "duration": 600,
+        "cooldown": true,
+        "ramp": true,
+        "power": {
+          "start": 75,
+          "end": 50,
+          "units": "%ftp"
+        },
+        "_power": {
+          "value": 181.0,
+          "start": 217.0,
+          "end": 145.0
+        }
+      }
+    ]
+  }
+}

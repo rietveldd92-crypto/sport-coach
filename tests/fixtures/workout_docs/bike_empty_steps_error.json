@@ -1,0 +1,12 @@
+{
+  "sport": "VirtualRide",
+  "name": "Synthetic: empty steps",
+  "workout_doc": {
+    "duration": 0,
+    "distance": 0.0,
+    "ftp": 290,
+    "lthr": 176,
+    "target": "POWER",
+    "steps": []
+  }
+}

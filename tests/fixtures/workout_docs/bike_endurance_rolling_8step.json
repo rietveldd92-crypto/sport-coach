@@ -1,0 +1,147 @@
+{
+  "sport": "VirtualRide",
+  "name": "Duurrit rolling Z2 – 135 min",
+  "workout_doc": {
+    "duration": 8100,
+    "distance": 0.0,
+    "ftp": 290,
+    "lthr": 176,
+    "target": "POWER",
+    "steps": [
+      {
+        "duration": 480,
+        "warmup": true,
+        "ramp": true,
+        "power": {
+          "start": 45,
+          "end": 63,
+          "units": "%ftp"
+        },
+        "cadence": {
+          "value": 85,
+          "units": "rpm"
+        },
+        "_power": {
+          "value": 156.0,
+          "start": 130.0,
+          "end": 182.0
+        }
+      },
+      {
+        "duration": 1200,
+        "power": {
+          "value": 63,
+          "units": "%ftp"
+        },
+        "cadence": {
+          "value": 90,
+          "units": "rpm"
+        },
+        "_power": {
+          "value": 182.0,
+          "start": 177.0,
+          "end": 187.0
+        }
+      },
+      {
+        "duration": 1200,
+        "ramp": true,
+        "power": {
+          "start": 63,
+          "end": 75,
+          "units": "%ftp"
+        },
+        "cadence": {
+          "value": 85,
+          "units": "rpm"
+        },
+        "_power": {
+          "value": 199.5,
+          "start": 182.0,
+          "end": 217.0
+        }
+      },
+      {
+        "duration": 1200,
+        "power": {
+          "value": 70,
+          "units": "%ftp"
+        },
+        "cadence": {
+          "value": 80,
+          "units": "rpm"
+        },
+        "_power": {
+          "value": 203.0,
+          "start": 197.0,
+          "end": 209.0
+        }
+      },
+      {
+        "duration": 1200,
+        "power": {
+          "value": 60,
+          "units": "%ftp"
+        },
+        "cadence": {
+          "value": 95,
+          "units": "rpm"
+        },
+        "_power": {
+          "value": 174.0,
+          "start": 169.0,
+          "end": 179.0
+        }
+      },
+      {
+        "duration": 1200,
+        "ramp": true,
+        "power": {
+          "start": 60,
+          "end": 73,
+          "units": "%ftp"
+        },
+        "cadence": {
+          "value": 85,
+          "units": "rpm"
+        },
+        "_power": {
+          "value": 192.5,
+          "start": 174.0,
+          "end": 211.0
+        }
+      },
+      {
+        "duration": 1200,
+        "power": {
+          "value": 65,
+          "units": "%ftp"
+        },
+        "cadence": {
+          "value": 90,
+          "units": "rpm"
+        },
+        "_power": {
+          "value": 188.0,
+          "start": 183.0,
+          "end": 193.0
+        }
+      },
+      {
+        "duration": 420,
+        "cooldown": true,
+        "ramp": true,
+        "power": {
+          "start": 63,
+          "end": 45,
+          "units": "%ftp"
+        },
+        "_power": {
+          "value": 156.0,
+          "start": 182.0,
+          "end": 130.0
+        }
+      }
+    ]
+  }
+}

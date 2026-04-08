@@ -54,8 +54,16 @@ def get_wellness(start: date = None, end: date = None) -> list:
     return r.json()
 
 
-def get_events(start: date = None, end: date = None) -> list:
-    """Haal geplande events/workouts op uit de kalender."""
+def get_events(start: date = None, end: date = None, resolve: bool = False) -> list:
+    """Haal geplande events/workouts op uit de kalender.
+
+    Args:
+        start: oudste datum (default vandaag).
+        end: nieuwste datum (default +14 dagen).
+        resolve: als True wordt workout_doc meegestuurd met resolved
+            power/hr/pace targets (nodig voor TrainingPeaks-sync). Default
+            False om bestaande callsites niet te breken.
+    """
     if end is None:
         end = date.today() + timedelta(days=14)
     if start is None:
@@ -65,6 +73,8 @@ def get_events(start: date = None, end: date = None) -> list:
         "oldest": start.isoformat(),
         "newest": end.isoformat(),
     }
+    if resolve:
+        params["resolve"] = "true"
     r = requests.get(f"{BASE_URL}/athlete/{ATHLETE_ID}/events", auth=_auth(), params=params)
     r.raise_for_status()
     return r.json()

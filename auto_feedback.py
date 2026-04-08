@@ -56,8 +56,31 @@ def _save_feedback_log(log: dict):
         json.dump(log, f, indent=2, ensure_ascii=False)
 
 
-def find_new_completed_workouts() -> list[dict]:
-    """Vind workouts die voltooid zijn maar nog geen feedback hebben gekregen."""
+def _build_week_matched(events: list, activities: list) -> list:
+    """Bouw {event, activity, done}-lijst (matched-formaat van feedback_engine)."""
+    matched = []
+    for ev in events or []:
+        if ev.get("category") != "WORKOUT":
+            continue
+        e_date = ev.get("start_date_local", "")[:10]
+        e_type = ev.get("type", "")
+        act = next(
+            (a for a in activities or []
+             if a.get("start_date_local", "")[:10] == e_date
+             and _types_match(e_type, a.get("type", ""))),
+            None,
+        )
+        matched.append({"event": ev, "activity": act, "done": act is not None})
+    return matched
+
+
+def find_new_completed_workouts() -> tuple[list[dict], list, list]:
+    """Vind workouts die voltooid zijn maar nog geen feedback hebben gekregen.
+
+    Returns: (new_workouts, week_events, week_activities)
+    De week_events/activities worden meegegeven zodat de aanroepende code ze
+    kan gebruiken voor de buur-workout context in feedback_engine.
+    """
     log = _load_feedback_log()
     processed = set(log.get("processed_activities", []))
 
@@ -70,7 +93,7 @@ def find_new_completed_workouts() -> list[dict]:
         activities = api.get_activities(start=monday, end=sunday)
     except Exception as e:
         print(f"  Kan data niet ophalen: {e}")
-        return []
+        return [], [], []
 
     # Match activiteiten met events
     results = []
@@ -100,7 +123,7 @@ def find_new_completed_workouts() -> list[dict]:
                 "activity_id": act_id,
             })
 
-    return results
+    return results, events, activities
 
 
 def _types_match(event_type: str, activity_type: str) -> bool:
@@ -121,8 +144,12 @@ def _load_state() -> dict:
         return {}
 
 
-def generate_feedback(event: dict, activity: dict) -> str:
-    """Genereer workout-specifieke feedback via feedback_engine."""
+def generate_feedback(event: dict, activity: dict, week_matched: list = None) -> str:
+    """Genereer workout-specifieke feedback via feedback_engine.
+
+    `week_matched` is de lijst van {event, activity, done} dicts voor de week
+    waarin deze workout valt — gebruikt voor de buur-workout context (gisteren/morgen).
+    """
     state = _load_state()
 
     try:
@@ -145,7 +172,7 @@ def generate_feedback(event: dict, activity: dict) -> str:
         event, activity,
         state=state,
         wellness_records=wellness,
-        week_events=None,  # auto_feedback heeft geen weeklijst — single-event focus
+        week_events=week_matched,
         recent_28d=recent_28d,
     )
 
@@ -229,12 +256,15 @@ def main():
 
     print(f"\n  Auto-feedback check — {date.today()}")
 
-    new_workouts = find_new_completed_workouts()
+    new_workouts, week_events, week_activities = find_new_completed_workouts()
     if not new_workouts:
         print("  Geen nieuwe voltooide workouts.")
         return
 
     print(f"  {len(new_workouts)} nieuwe voltooide workout(s) gevonden.\n")
+
+    # Bouw matched-formaat één keer voor de hele week, hergebruik voor elke workout
+    week_matched = _build_week_matched(week_events, week_activities)
 
     log = _load_feedback_log()
     email_body = []
@@ -247,7 +277,7 @@ def main():
         act_date = act.get("start_date_local", "")[:10]
 
         print(f"  {act_date} — {event_name}")
-        feedback = generate_feedback(event, act)
+        feedback = generate_feedback(event, act, week_matched=week_matched)
         print(f"  {feedback}\n")
 
         # Post naar intervals.icu

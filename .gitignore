@@ -15,3 +15,7 @@ state.json
 
 # Pytest cache
 .pytest_cache/
+
+# One-off exploration dumps (scripts/_*.json contain real athlete data).
+# The scripts themselves are kept; their raw outputs are gitignored.
+scripts/_*.json

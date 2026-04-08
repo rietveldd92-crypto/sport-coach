@@ -1,0 +1,54 @@
+{
+  "sport": "Run",
+  "name": "Synthetic: HR zone endurance run",
+  "workout_doc": {
+    "duration": 2400,
+    "distance": 0.0,
+    "ftp": 515,
+    "lthr": 176,
+    "threshold_pace": 4.1666665,
+    "target": "HR",
+    "steps": [
+      {
+        "duration": 300,
+        "warmup": true,
+        "hr": {
+          "start": 60,
+          "end": 75,
+          "units": "%lthr"
+        },
+        "_hr": {
+          "value": 118.8,
+          "start": 105.6,
+          "end": 132.0
+        }
+      },
+      {
+        "duration": 1800,
+        "hr": {
+          "value": 78,
+          "units": "%lthr"
+        },
+        "_hr": {
+          "value": 137.3,
+          "start": 134.0,
+          "end": 140.6
+        }
+      },
+      {
+        "duration": 300,
+        "cooldown": true,
+        "hr": {
+          "start": 70,
+          "end": 55,
+          "units": "%lthr"
+        },
+        "_hr": {
+          "value": 110.0,
+          "start": 123.2,
+          "end": 96.8
+        }
+      }
+    ]
+  }
+}
