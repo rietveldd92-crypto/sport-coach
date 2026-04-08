@@ -10,7 +10,6 @@ Gebruik:
     python coach.py --week 2026-04-13  # Bekijk specifieke week
 """
 
-import os
 import sys
 import json
 import argparse
@@ -20,16 +19,14 @@ from pathlib import Path
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
+from dotenv import load_dotenv
+load_dotenv()
+
 import intervals_client as api
 from agents import workout_library as lib
+from agents import feedback_engine
 
 STATE_PATH = Path(__file__).parent / "state.json"
-
-try:
-    import anthropic
-    CLAUDE_AVAILABLE = bool(os.getenv("ANTHROPIC_API_KEY"))
-except ImportError:
-    CLAUDE_AVAILABLE = False
 
 DAYS_NL = {0: "maandag", 1: "dinsdag", 2: "woensdag", 3: "donderdag",
            4: "vrijdag", 5: "zaterdag", 6: "zondag"}
@@ -123,131 +120,82 @@ def get_recent_activities(days: int = 7) -> list[dict]:
 
 # ── AI FEEDBACK ─────────────────────────────────────────────────────────────
 
-FEEDBACK_PROMPT = """Je bent een ervaren hardloop/fietscoach in de stijl van Louis Delahaije.
-Filosofie: gevoel boven data, gelukkige atleet = snelle atleet, volume boven intensiteit.
-
-De atleet traint voor de Amsterdam Marathon (18 oktober 2026) en herstelt van een gluteus medius blessure.
-Huidige CTL: {ctl}, FTP: 290W.
-
-GEPLANDE WORKOUT:
-{workout_name}
-{workout_description}
-
-UITGEVOERDE ACTIVITEIT:
-Type: {activity_type}
-Duur: {activity_duration} min
-Afstand: {activity_distance} km
-Gem. HR: {activity_hr} bpm ({hr_pct}% HRmax)
-TSS: {activity_tss}
-{activity_power_info}
-
-RECENTE CONTEXT (afgelopen 3 dagen):
-{recent_context}
-
-Geef kort feedback (max 4 zinnen, Nederlands):
-1. Was de workout goed uitgevoerd? (intensiteit, duur, zone)
-2. Rode vlaggen? (te hard gelopen, knie-signalen, overtraining)
-3. Advies voor morgen/volgende sessie
-4. Motiverend Delahaije-achtig afsluitzinnetje
-
-Antwoord in platte tekst, geen JSON.
-"""
-
-
-def generate_feedback(event: dict, recent_activities: list) -> str:
-    """Genereer AI feedback op een voltooide workout."""
-    if not CLAUDE_AVAILABLE:
-        return _rule_based_feedback(event)
-
-    act = event.get("activity", {})
-    if not act:
-        return "Geen activiteit gevonden om feedback op te geven."
-
-    # Bouw context
-    hr = act.get("average_heartrate") or act.get("icu_average_hr") or 0
-    hr_max = act.get("max_heartrate") or act.get("icu_hr_max") or 190
-    hr_pct = round(hr / hr_max * 100) if hr and hr_max else 0
-    distance = round((act.get("distance") or 0) / 1000, 1)
-    duration = round((act.get("moving_time") or act.get("elapsed_time") or 0) / 60)
-    tss = act.get("icu_training_load") or act.get("training_load") or 0
-
-    power_info = ""
-    avg_power = act.get("average_watts") or act.get("icu_average_watts")
-    if avg_power:
-        power_info = f"Gem. vermogen: {avg_power}W (FTP 290W = {round(avg_power/290*100)}%)"
-
-    # Recente activiteiten context
-    recent_lines = []
-    for ra in recent_activities[:5]:
-        ra_date = ra.get("start_date_local", "")[:10]
-        ra_name = ra.get("name", "")
-        ra_tss = ra.get("icu_training_load") or 0
-        recent_lines.append(f"  {ra_date}: {ra_name} (TSS {ra_tss:.0f})")
-    recent_context = "\n".join(recent_lines) if recent_lines else "Geen recente data."
-
-    # State lezen voor CTL
+def _load_state() -> dict:
     try:
         with open(STATE_PATH) as f:
-            state = json.load(f)
-        ctl = state.get("load", {}).get("ctl_estimate", 49)
+            return json.load(f)
     except Exception:
-        ctl = 49
+        return {}
 
-    prompt = FEEDBACK_PROMPT.format(
-        ctl=ctl,
-        workout_name=event["name"],
-        workout_description=event.get("description", "")[:500],
-        activity_type=act.get("type", "?"),
-        activity_duration=duration,
-        activity_distance=distance,
-        activity_hr=hr,
-        hr_pct=hr_pct,
-        activity_tss=tss,
-        activity_power_info=power_info,
-        recent_context=recent_context,
-    )
+
+def _coach_events_to_engine_format(coach_events: list) -> list:
+    """Convert coach.py's flat event-dicts naar feedback_engine's
+    {'event', 'activity', 'done'} structuur."""
+    result = []
+    for ce in coach_events or []:
+        # Reconstruct het 'event' dict — de coach-versie is een platte view
+        # met de meeste velden direct, plus een aparte 'activity' key.
+        result.append({
+            "event": {
+                "id": ce.get("id"),
+                "name": ce.get("name"),
+                "type": ce.get("type"),
+                "description": ce.get("description"),
+                "load_target": ce.get("load_target"),
+                "start_date_local": ce.get("date", "") + "T00:00:00" if ce.get("date") else "",
+            },
+            "activity": ce.get("activity"),
+            "done": ce.get("done", False),
+        })
+    return result
+
+
+def generate_feedback(event: dict, recent_activities: list, week_events: list = None) -> str:
+    """Genereer AI feedback via feedback_engine.
+
+    `event` heeft hier de extra keys 'activity' en 'done' (uit get_week_events()).
+    `week_events` is de volledige weeklijst (voor buur-workout context).
+    """
+    activity = event.get("activity")
+    if not activity:
+        return "Geen activiteit gevonden om feedback op te geven."
+
+    state = _load_state()
+
+    # Wellness en 28d activiteiten direct ophalen (geen Streamlit cache hier)
+    try:
+        wellness = api.get_wellness(
+            start=date.today() - timedelta(days=14),
+            end=date.today(),
+        )
+    except Exception:
+        wellness = []
 
     try:
-        client = anthropic.Anthropic()
-        response = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=300,
-            messages=[{"role": "user", "content": prompt}]
+        recent_28d = api.get_activities(
+            start=date.today() - timedelta(days=28),
+            end=date.today(),
         )
-        return response.content[0].text.strip()
-    except Exception as e:
-        return f"AI feedback niet beschikbaar ({e}). " + _rule_based_feedback(event)
+    except Exception:
+        recent_28d = list(recent_activities or [])
 
+    # Reconstrueer event in API format voor feedback_engine
+    api_event = {
+        "id": event.get("id"),
+        "name": event.get("name"),
+        "type": event.get("type"),
+        "description": event.get("description"),
+        "load_target": event.get("load_target"),
+        "start_date_local": event.get("date", "") + "T00:00:00" if event.get("date") else "",
+    }
 
-def _rule_based_feedback(event: dict) -> str:
-    """Simpele rule-based feedback als Claude niet beschikbaar is."""
-    act = event.get("activity", {})
-    if not act:
-        return "Workout niet uitgevoerd."
-
-    hr = act.get("average_heartrate") or act.get("icu_average_hr") or 0
-    hr_max = act.get("max_heartrate") or act.get("icu_hr_max") or 190
-    tss = act.get("icu_training_load") or 0
-
-    feedback = []
-    if hr and hr_max:
-        hr_pct = hr / hr_max * 100
-        if hr_pct > 82 and "Z2" in event["name"]:
-            feedback.append(f"Hartslag was {hr_pct:.0f}% HRmax — dat is boven Z2. Volgende keer rustiger.")
-        elif hr_pct < 65 and "threshold" in event["name"].lower():
-            feedback.append(f"Hartslag was {hr_pct:.0f}% HRmax — dat is aan de lage kant voor threshold.")
-        else:
-            feedback.append("Intensiteit ziet er goed uit.")
-
-    if tss > 0:
-        target = event.get("load_target") or 0
-        if target and tss > target * 1.2:
-            feedback.append(f"TSS ({tss:.0f}) was hoger dan gepland ({target}). Let op herstel.")
-        elif target and tss < target * 0.7:
-            feedback.append(f"TSS ({tss:.0f}) was lager dan gepland ({target}).")
-
-    feedback.append("Gelukkige atleet = snelle atleet. Geniet van het proces!")
-    return " ".join(feedback)
+    return feedback_engine.generate_feedback(
+        api_event, activity,
+        state=state,
+        wellness_records=wellness,
+        week_events=_coach_events_to_engine_format(week_events),
+        recent_28d=recent_28d,
+    )
 
 
 # ── SWAP ────────────────────────────────────────────────────────────────────
@@ -339,7 +287,7 @@ def check_completed(events: list, recent: list) -> list[dict]:
     completed = [e for e in events if e["done"]]
     results = []
     for event in completed:
-        feedback = generate_feedback(event, recent)
+        feedback = generate_feedback(event, recent, week_events=events)
         results.append({"event": event, "feedback": feedback})
     return results
 
@@ -424,7 +372,7 @@ def interactive(events: list, recent: list):
         if event["done"]:
             print(f"\n  Feedback op: {event['name']}")
             print(f"  {'.' * 50}")
-            feedback = generate_feedback(event, recent)
+            feedback = generate_feedback(event, recent, week_events=events)
             print(f"  {feedback}")
         else:
             print(f"\n  {event['name']} is nog niet uitgevoerd.")

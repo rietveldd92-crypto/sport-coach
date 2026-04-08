@@ -25,21 +25,16 @@ from pathlib import Path
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
+from dotenv import load_dotenv
+load_dotenv()
+
 import intervals_client as api
-from agents import workout_analysis
+from agents import feedback_engine
 
 STATE_PATH = Path(__file__).parent / "state.json"
 FEEDBACK_LOG = Path(__file__).parent / "feedback_log.json"
 
-try:
-    import anthropic
-    CLAUDE_AVAILABLE = bool(os.getenv("ANTHROPIC_API_KEY"))
-except ImportError:
-    CLAUDE_AVAILABLE = False
-
 # Email config (optioneel, via .env)
-from dotenv import load_dotenv
-load_dotenv()
 EMAIL_TO = os.getenv("FEEDBACK_EMAIL_TO")  # jouw email
 EMAIL_FROM = os.getenv("FEEDBACK_EMAIL_FROM")  # sender
 EMAIL_SMTP = os.getenv("FEEDBACK_SMTP_HOST", "smtp.gmail.com")
@@ -118,69 +113,41 @@ def _types_match(event_type: str, activity_type: str) -> bool:
     return event_type == activity_type
 
 
+def _load_state() -> dict:
+    try:
+        with open(STATE_PATH) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
 def generate_feedback(event: dict, activity: dict) -> str:
-    """Genereer workout-specifieke feedback."""
-    analysis = workout_analysis.analyze(event, activity)
-    metrics = analysis["metrics"]
-    insights = analysis["insights"]
-    wtype = analysis["workout_type"]
-    prompt_focus = analysis["prompt_focus"]
-
-    if not CLAUDE_AVAILABLE:
-        return _quick_feedback(analysis)
-
-    insights_str = "\n".join(f"- {i}" for i in insights) if insights else "- Geen bijzonderheden."
-
-    extra_data = []
-    if metrics.get("interval_powers"):
-        extra_data.append(f"Power per interval: {metrics['interval_powers']}W")
-    if metrics.get("hr_drift_pct") is not None:
-        extra_data.append(f"HR drift: {metrics['hr_drift_pct']}%")
-    if metrics.get("cardiac_decoupling_pct") is not None:
-        extra_data.append(f"Cardiac decoupling: {metrics['cardiac_decoupling_pct']}%")
-    if metrics.get("interval_paces"):
-        extra_data.append(f"Interval paces: {[f'{p:.2f}' for p in metrics['interval_paces']]}/km")
-    if metrics.get("splits"):
-        split_str = ", ".join(f"{s['pace']:.2f}" for s in metrics["splits"][:8])
-        extra_data.append(f"Splits: {split_str}/km")
-    extra_str = "\n".join(f"- {e}" for e in extra_data) if extra_data else ""
-
-    power_line = f"Vermogen: {metrics['avg_power']}W ({round(metrics['avg_power']/290*100)}% FTP)" if metrics.get("avg_power") else ""
-
-    prompt = f"""Coach Delahaije, feedback op deze workout.
-Type: {wtype} | {event.get('name', '?')}
-Data: {metrics['duration']}min | {metrics['distance']}km | HR {metrics['hr_avg']}bpm ({metrics['hr_pct']}%HRmax) | TSS {metrics['tss']:.0f}
-{power_line}
-
-ANALYSE:
-{extra_str}
-
-BEVINDINGEN:
-{insights_str}
-
-INSTRUCTIE: {prompt_focus}
-
-Wees specifiek — verwijs naar de cijfers. Z2 runs: max 2 zinnen. Intensiteit: 3-4 zinnen.
-Nederlands, platte tekst."""
+    """Genereer workout-specifieke feedback via feedback_engine."""
+    state = _load_state()
 
     try:
-        client = anthropic.Anthropic()
-        response = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=250,
-            messages=[{"role": "user", "content": prompt}]
+        wellness = api.get_wellness(
+            start=date.today() - timedelta(days=14),
+            end=date.today(),
         )
-        return response.content[0].text.strip()
-    except Exception as e:
-        return f"(AI niet bereikbaar: {e}) " + _quick_feedback(analysis)
+    except Exception:
+        wellness = []
 
+    try:
+        recent_28d = api.get_activities(
+            start=date.today() - timedelta(days=28),
+            end=date.today(),
+        )
+    except Exception:
+        recent_28d = []
 
-def _quick_feedback(analysis) -> str:
-    """Rule-based fallback."""
-    insights = analysis.get("insights", [])
-    if insights:
-        return " ".join(insights[:2])
-    return "Workout voltooid."
+    return feedback_engine.generate_feedback(
+        event, activity,
+        state=state,
+        wellness_records=wellness,
+        week_events=None,  # auto_feedback heeft geen weeklijst — single-event focus
+        recent_28d=recent_28d,
+    )
 
 
 def post_feedback_to_intervals(event: dict, feedback: str, dry_run: bool = False):
