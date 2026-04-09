@@ -709,7 +709,7 @@ if today_event:
 
     # Instant-swap categorie-picker — klik = direct swap, geen tussenmenu
     if st.session_state.get("show_swap_today"):
-        st.caption("Wissel naar...")
+        ui.section_header("Wissel naar")
         cat_cols = st.columns(len(lib.SWAP_CATEGORIES) + 1)
         # Bereken wat deze workout idealiter nog aan TSS moet leveren om het
         # weekelijkse target te halen. Swap-pool wordt dan gesorteerd op
@@ -718,12 +718,12 @@ if today_event:
         ideal_tss = compute_ideal_tss(matched, event.get("id"), weekly_target)
 
         for ci, (cat_id, cat_info) in enumerate(lib.SWAP_CATEGORIES.items()):
-            if cat_cols[ci].button(cat_info["label"], key=f"cat_today_{cat_id}"):
+            if cat_cols[ci].button(cat_info["label"], key=f"cat_today_{cat_id}", use_container_width=True):
                 perform_instant_swap(event, cat_id, ideal_tss=ideal_tss)
                 st.cache_data.clear()
                 st.session_state["show_swap_today"] = False
                 st.rerun()
-        if cat_cols[-1].button("✕", key="cancel_swap_today"):
+        if cat_cols[-1].button("✕", key="cancel_swap_today", use_container_width=True):
             st.session_state["show_swap_today"] = False
             st.rerun()
 
@@ -752,35 +752,45 @@ for i, item in enumerate(matched):
     done = item["done"]
 
     e_date = event.get("start_date_local", "")[:10]
-    weekday_short = DAYS_NL.get(date.fromisoformat(e_date).weekday(), "?") if e_date else "?"
+    weekday_full = DAYS_FULL.get(date.fromisoformat(e_date).weekday(), "?") if e_date else "?"
     e_name = event.get("name", "?")
     e_type = event.get("type", "?")
     is_today = e_date == today_str
 
-    # Compact stats — alleen de kern
+    # Compact stats voor voltooide workouts (echte data) of geplande (target)
     stats_parts = []
     if activity:
         dur = round((activity.get("moving_time") or 0) / 60)
         dist = round((activity.get("distance") or 0) / 1000, 1)
         tss = activity.get("icu_training_load") or 0
-        stats_parts = [f"{dur}min", f"{dist}km", f"TSS {tss:.0f}"]
-    stats_html = " &middot; ".join(stats_parts)
+        stats_parts = [f"{dur} min", f"{dist} km", f"TSS {tss:.0f}"]
+    elif event.get("load_target"):
+        target_dur = None
+        for part in (e_name or "").lower().replace("min", " ").split():
+            try:
+                d = int(part)
+                if 10 <= d <= 300:
+                    target_dur = d
+                    break
+            except ValueError:
+                pass
+        if target_dur:
+            stats_parts.append(f"{target_dur} min")
+        stats_parts.append(f"TSS ~{event['load_target']:.0f}")
 
-    # Workout row — alles in een HTML blok voor visuele rust
-    check_class = "done" if done else "pending"
-    check_icon = "&#10003;" if done else ""
-    done_class = " is-done" if done else ""
+    # Status bepalen voor day_card styling
+    if done:
+        card_status = "done"
+    elif is_today:
+        card_status = "today"
+    else:
+        card_status = "planned"
 
-    st.markdown(
-        f'<div class="workout-row{done_class}">'
-        f'<div style="display:flex; align-items:flex-start;">'
-        f'<span class="wr-check {check_class}">{check_icon}</span>'
-        f'<div>'
-        f'<div class="wr-day">{weekday_short}</div>'
-        f'<div class="wr-name">{e_name}</div>'
-        f'{"<div class=wr-stats>" + stats_html + "</div>" if stats_html else ""}'
-        f'</div></div></div>',
-        unsafe_allow_html=True
+    ui.day_card(
+        day_label=weekday_full,
+        name=e_name,
+        status=card_status,
+        stats_parts=stats_parts if stats_parts else None,
     )
 
     # Action buttons — compact, inline
@@ -866,19 +876,19 @@ for i, item in enumerate(matched):
 
     # Instant-swap categorie-picker — klik = direct swap, geen tussenmenu
     if st.session_state.get(f"show_swap_{i}"):
-        st.caption("Wissel naar...")
+        ui.section_header("Wissel naar")
         cat_cols = st.columns(len(lib.SWAP_CATEGORIES) + 1)
         # Week-TSS-budget voor deze swap (zie Today card voor uitleg)
         weekly_target = state.get("load", {}).get("weekly_tss_target", 400)
         ideal_tss = compute_ideal_tss(matched, event.get("id"), weekly_target)
 
         for ci, (cat_id, cat_info) in enumerate(lib.SWAP_CATEGORIES.items()):
-            if cat_cols[ci].button(cat_info["label"], key=f"cat_{i}_{cat_id}"):
+            if cat_cols[ci].button(cat_info["label"], key=f"cat_{i}_{cat_id}", use_container_width=True):
                 perform_instant_swap(event, cat_id, ideal_tss=ideal_tss)
                 st.cache_data.clear()
                 st.session_state[f"show_swap_{i}"] = False
                 st.rerun()
-        if cat_cols[-1].button("✕", key=f"cancel_swap_{i}"):
+        if cat_cols[-1].button("✕", key=f"cancel_swap_{i}", use_container_width=True):
             st.session_state[f"show_swap_{i}"] = False
             st.rerun()
 

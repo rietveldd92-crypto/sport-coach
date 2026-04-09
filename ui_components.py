@@ -214,21 +214,39 @@ _GLOBAL_CSS = """
 
     /* ── Day card — één dag in weekview ──────────────────────── */
     .ui-day-card {
-        padding: 0.95rem 1.2rem;
+        padding: 1rem 1.2rem 1rem 1.4rem;
         border-radius: 14px;
         margin: 0.4rem 0;
         border: 1px solid var(--border);
         background: var(--bg-raised);
-        transition: border-color 0.15s ease;
+        transition: border-color 0.15s ease, transform 0.15s ease;
+        position: relative;
     }
-    .ui-day-card:hover { border-color: var(--border-strong); }
+    .ui-day-card:hover {
+        border-color: var(--border-strong);
+    }
+    /* Accent-streepje links voor today */
+    .ui-day-card.status-today {
+        border-color: var(--accent-border);
+        background: linear-gradient(90deg, var(--accent-bg) 0%, var(--bg-raised) 60%);
+    }
+    .ui-day-card.status-today::before {
+        content: "";
+        position: absolute;
+        left: 0; top: 14%; bottom: 14%;
+        width: 3px;
+        background: var(--accent);
+        border-radius: 0 3px 3px 0;
+    }
+    /* Done: subtiele ✓ linksonder, minder vrolijk dan een groene badge */
     .ui-day-card.status-done {
         opacity: 0.55;
         background: transparent;
     }
-    .ui-day-card.status-today {
-        border-color: var(--accent-border);
-        background: var(--accent-bg);
+    .ui-day-card.status-done .day::after {
+        content: " ✓";
+        color: var(--positive);
+        font-weight: 600;
     }
     .ui-day-card.status-missed {
         border-color: rgba(184, 70, 70, 0.3);
@@ -242,17 +260,19 @@ _GLOBAL_CSS = """
     }
     .ui-day-card .name {
         font-family: var(--font-display);
-        font-size: 1.02rem;
+        font-size: 1.05rem;
         font-weight: 600;
         color: var(--text);
         margin-top: 0.2rem;
         letter-spacing: -0.01em;
+        line-height: 1.3;
     }
     .ui-day-card .reason {
         font-size: 0.78rem;
         color: var(--text-muted);
-        margin-top: 0.35rem;
+        margin-top: 0.4rem;
         line-height: 1.55;
+        font-variant-numeric: tabular-nums;
     }
 
     /* ── Workout details — structuur blok ────────────────────── */
@@ -394,51 +414,37 @@ _GLOBAL_CSS = """
         margin: 1rem 0 0.4rem 0;
     }
 
-    /* ── Verberg oude legacy workout-row styling (rest van app) ─ */
-    .workout-row {
-        background: var(--bg-raised);
-        border-radius: 14px;
-        border: 1px solid var(--border);
-        padding: 0.95rem 1.2rem;
-        margin: 0.4rem 0;
+    /* ── Streamlit slider polish — terracotta thumb + track ──── */
+    .stSlider [data-baseweb="slider"] {
+        padding: 0.5rem 0;
     }
-    .workout-row.is-done { opacity: 0.55; }
-    .workout-row .wr-day {
-        font-size: 0.66rem;
-        text-transform: uppercase;
-        letter-spacing: 0.14em;
-        color: var(--text-muted);
-        font-weight: 600;
+    /* Track achtergrond */
+    .stSlider [data-baseweb="slider"] > div:first-child {
+        background: var(--border) !important;
+        height: 3px !important;
     }
-    .workout-row .wr-name {
-        font-family: var(--font-display);
-        font-size: 1rem;
-        font-weight: 600;
-        color: var(--text);
-        margin-top: 0.15rem;
+    /* Actieve fill (links van de thumb) */
+    .stSlider [data-baseweb="slider"] > div:first-child > div {
+        background: var(--accent) !important;
     }
-    .workout-row .wr-stats {
-        font-size: 0.74rem;
-        color: var(--text-muted);
-        margin-top: 0.3rem;
+    /* Thumb knop */
+    .stSlider [role="slider"] {
+        background: var(--accent) !important;
+        border-color: var(--accent) !important;
+        box-shadow: 0 0 0 4px rgba(196, 96, 60, 0.15) !important;
     }
-    .wr-check {
-        display: inline-block;
-        width: 18px; height: 18px;
-        border-radius: 50%;
-        text-align: center;
-        line-height: 18px;
-        font-size: 0.66rem;
-        margin-right: 0.6rem;
-        flex-shrink: 0;
+    /* Min/max labels */
+    .stSlider [data-testid="stTickBarMin"],
+    .stSlider [data-testid="stTickBarMax"] {
+        color: var(--text-dim) !important;
+        font-family: var(--font-body) !important;
+        font-size: 0.66rem !important;
     }
-    .wr-check.done {
-        background: var(--positive);
-        color: var(--bg);
-    }
-    .wr-check.pending {
-        border: 1.5px solid var(--border-strong);
-        background: transparent;
+    /* Huidige waarde (bubble boven thumb) */
+    .stSlider [data-baseweb="tooltip"] {
+        background: var(--bg-elevated) !important;
+        color: var(--text) !important;
+        border: 1px solid var(--accent-border) !important;
     }
 
     /* Coach feedback card (oude Gemini output) */
