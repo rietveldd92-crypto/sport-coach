@@ -818,6 +818,571 @@ def hill_sprints(duration_min: int = 40) -> dict:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# PARAMETRIC VARIATION FACTORIES — library expansion (2026-04-09)
+#
+# In plaats van handgeschreven workouts voor elke variant, generators met
+# parameters (sets × duur × intensiteit). Elk return een lijst van dicts
+# die je direct in get_swap_options kunt pluggen.
+#
+# Target per type: 25-30 unieke variaties. Samen met de bestaande hand-
+# geschreven workouts geeft dat 200+ workouts in de library.
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _build_bike_threshold(ftp: int, sets: int, work_min: int, rest_min: int,
+                           pct: int, flavor: str = "") -> dict:
+    """Bouw één threshold-variant met opgegeven parameters."""
+    total_work = sets * work_min
+    if_score = (pct / 100) * 0.98  # grofweg: 100% FTP ≈ IF 0.98
+    total_dur = 12 + (sets * (work_min + rest_min)) + 8  # WU + main + CD
+    naam_extra = f" {flavor}" if flavor else ""
+    return {
+        "type": "bike_threshold",
+        "naam": f"Threshold {sets}x{work_min} min @ {pct}%{naam_extra}",
+        "beschrijving": (
+            f"Warmup\n- 12m ramp 50-75% 85rpm\n\n"
+            f"Main Set\n"
+            f"{sets}x\n"
+            f"- {work_min}m {pct}% 85rpm\n"
+            f"- {rest_min}m 55% 95rpm\n\n"
+            f"Cooldown\n- 8m ramp 60-45% 90rpm\n\n"
+            f"Threshold variant: {total_work} min totaal werk in {sets} sets van {work_min} min.\n"
+            f"Doel FTP-zone (95-105%). Eerste set beheerst, laatste set =\n"
+            f"eerste set in tempo. Stop bij fade > 5W tussen intervals."
+            f"{DELAHAIJE_BIKE}"
+        ),
+        "duur_min": total_dur,
+        "tss_geschat": _tss_bike(total_dur, if_score),
+        "sport": "VirtualRide", "zone": "Z4",
+        "intensiteit_factor": if_score, "fun": 3,
+    }
+
+
+def bike_threshold_variants(ftp: int) -> list[dict]:
+    """Groot menu van threshold-variaties. ~30 unieke combinaties.
+
+    Alle variaties geldig, met verschillen in volume, intensiteit en
+    set-structuur.
+    """
+    # (sets, work_min, rest_min, pct, flavor)
+    combos = [
+        # Intro / lage volume
+        (2, 8, 3, 95, ""),
+        (3, 5, 2, 100, "kort"),
+        (3, 6, 2, 98, "kort"),
+        (3, 8, 3, 95, ""),
+        (3, 8, 3, 97, ""),
+        (3, 8, 3, 100, "FTP"),
+        (4, 5, 2, 100, "kort"),
+        (4, 6, 2, 97, ""),
+        (4, 6, 2, 100, "FTP"),
+        # Middel volume
+        (2, 10, 4, 100, "FTP"),
+        (2, 10, 4, 102, "piek"),
+        (3, 10, 3, 97, "volume"),
+        (3, 10, 3, 100, "FTP"),
+        (3, 10, 3, 102, "piek"),
+        (4, 8, 3, 98, "volume"),
+        (4, 8, 3, 100, "FTP"),
+        # Langer volume
+        (2, 12, 4, 97, ""),
+        (2, 12, 4, 100, "FTP"),
+        (2, 12, 4, 102, "piek"),
+        (2, 15, 5, 95, "volume"),
+        (2, 15, 5, 97, "volume"),
+        (3, 12, 4, 95, "groot volume"),
+        (3, 12, 4, 97, "groot volume"),
+        # Piek / bovengrens
+        (3, 6, 3, 105, "piek"),
+        (3, 8, 3, 103, "piek"),
+        (4, 5, 2, 105, "piek"),
+        (5, 4, 2, 105, "piek"),
+        (3, 5, 2, 108, "supra"),
+        # Extra lange (alleen in opbouw)
+        (2, 20, 5, 95, "lang"),
+        (3, 15, 5, 95, "lang volume"),
+    ]
+    return [_build_bike_threshold(ftp, *c) for c in combos]
+
+
+def _build_bike_sweetspot(ftp: int, sets: int, work_min: int, rest_min: int,
+                           pct: int, flavor: str = "") -> dict:
+    total_work = sets * work_min
+    if_score = (pct / 100) * 0.92
+    total_dur = 10 + (sets * (work_min + rest_min)) + 7
+    naam_extra = f" {flavor}" if flavor else ""
+    return {
+        "type": "bike_sweetspot",
+        "naam": f"Sweetspot {sets}x{work_min} min @ {pct}%{naam_extra}",
+        "beschrijving": (
+            f"Warmup\n- 10m ramp 50-75% 90rpm\n\n"
+            f"Main Set\n"
+            f"{sets}x\n"
+            f"- {work_min}m {pct}% 88rpm\n"
+            f"- {rest_min}m 60% 95rpm\n\n"
+            f"Cooldown\n- 7m ramp 60-45% 90rpm\n\n"
+            f"Sweetspot: 'comfortabel oncomfortabel' (88-93% FTP).\n"
+            f"{total_work} min totaal. Je moet nog kunnen praten, maar je wilt het niet.\n"
+            f"Als ademhaling op 'hijgen' schiet, zit je te hoog."
+            f"{DELAHAIJE_BIKE}"
+        ),
+        "duur_min": total_dur,
+        "tss_geschat": _tss_bike(total_dur, if_score),
+        "sport": "VirtualRide", "zone": "Z3/Z4",
+        "intensiteit_factor": if_score, "fun": 3,
+    }
+
+
+def bike_sweetspot_variants(ftp: int) -> list[dict]:
+    """Groot menu van sweetspot-variaties. ~25 combinaties."""
+    combos = [
+        # Kort, intro
+        (2, 10, 3, 88, ""),
+        (2, 10, 3, 90, ""),
+        (2, 12, 3, 88, ""),
+        (2, 12, 3, 90, ""),
+        (3, 8, 2, 90, ""),
+        (3, 8, 2, 92, ""),
+        (3, 10, 3, 88, ""),
+        (3, 10, 3, 90, ""),
+        (3, 10, 3, 92, ""),
+        # Middel
+        (2, 15, 4, 88, "standaard"),
+        (2, 15, 4, 90, "standaard"),
+        (2, 15, 4, 92, "bovengrens"),
+        (2, 18, 4, 88, ""),
+        (3, 12, 3, 88, ""),
+        (3, 12, 3, 90, ""),
+        (3, 12, 4, 92, "bovengrens"),
+        # Lang volume
+        (2, 20, 5, 88, "lang"),
+        (2, 20, 5, 90, "lang"),
+        (3, 15, 4, 88, "groot volume"),
+        (3, 15, 4, 90, "groot volume"),
+        (2, 25, 5, 88, "extra lang"),
+        (3, 18, 5, 88, "groot volume"),
+        # Piramides
+        (4, 10, 2, 90, "piramide"),
+        (4, 12, 3, 88, "piramide"),
+        (5, 8, 2, 90, "piramide"),
+    ]
+    return [_build_bike_sweetspot(ftp, *c) for c in combos]
+
+
+def _build_bike_over_unders(ftp: int, sets: int, over_sec: int, under_sec: int,
+                              cycles: int, over_pct: int, under_pct: int) -> dict:
+    cycle_dur = (over_sec + under_sec) * cycles / 60  # min per set
+    rest_min = 4
+    total_dur = 12 + sets * (cycle_dur + rest_min) + 8
+    if_score = 0.92  # grof
+    return {
+        "type": "bike_over_unders",
+        "naam": f"Over-unders {sets}x{cycles}x({over_sec}s/{under_sec}s)",
+        "beschrijving": (
+            f"Warmup\n- 12m ramp 50-75% 90rpm\n\n"
+            f"Main Set\n"
+            f"{sets}x\n"
+            + "\n".join([f"- {over_sec}s {over_pct}% 90rpm\n- {under_sec}s {under_pct}% 90rpm" for _ in range(cycles)])
+            + f"\n- {rest_min}m 55% 95rpm\n\n"
+            f"Cooldown\n- 8m ramp 60-45% 90rpm\n\n"
+            f"Over-unders: over-fase = boven FTP ({over_pct}%), under-fase = net onder ({under_pct}%).\n"
+            f"Under-fase voelt onaangenaam maar is het trainingsdoel: lactaat opruimen onder belasting.\n"
+            f"Als de under-fase te makkelijk voelt, de over-fase te hard."
+            f"{DELAHAIJE_BIKE}"
+        ),
+        "duur_min": round(total_dur),
+        "tss_geschat": _tss_bike(round(total_dur), if_score),
+        "sport": "VirtualRide", "zone": "Z4",
+        "intensiteit_factor": if_score, "fun": 2,
+    }
+
+
+def bike_over_under_variants(ftp: int) -> list[dict]:
+    """Over-unders menu. ~15 combinaties."""
+    combos = [
+        # (sets, over_sec, under_sec, cycles, over_pct, under_pct)
+        (2, 30, 30, 6, 105, 88),
+        (2, 30, 30, 8, 105, 88),
+        (3, 30, 30, 5, 105, 88),
+        (3, 30, 30, 6, 105, 88),
+        (2, 40, 40, 5, 105, 88),
+        (2, 40, 40, 6, 105, 88),
+        (3, 40, 40, 5, 105, 88),
+        (2, 60, 60, 4, 103, 90),
+        (2, 60, 60, 5, 103, 90),
+        (3, 60, 60, 4, 103, 90),
+        (2, 60, 90, 4, 108, 85),
+        (2, 45, 75, 5, 108, 85),
+        (3, 30, 60, 5, 110, 85),
+        (2, 90, 60, 4, 103, 88),
+        (3, 30, 30, 8, 108, 85),
+    ]
+    return [_build_bike_over_unders(ftp, *c) for c in combos]
+
+
+def _build_bike_vo2max(ftp: int, sets: int, work_sec: int, rest_sec: int,
+                        pct: int) -> dict:
+    total_work_min = (sets * work_sec) / 60
+    total_dur = 15 + sets * (work_sec + rest_sec) / 60 + 10
+    if_score = 0.95
+    return {
+        "type": "bike_vo2max",
+        "naam": f"VO2max {sets}x{work_sec}s @ {pct}%",
+        "beschrijving": (
+            f"Warmup\n- 15m ramp 50-75% 90rpm\n\n"
+            f"Main Set\n"
+            f"{sets}x\n"
+            f"- {work_sec}s {pct}% 95rpm\n"
+            f"- {rest_sec}s 55% 90rpm\n\n"
+            f"Cooldown\n- 10m ramp 60-45% 90rpm\n\n"
+            f"VO2max intervals. {total_work_min:.1f} min totaal op hoge intensiteit.\n"
+            f"Doel: maximale zuurstofopname. Je moet aan het eind echt afhappen.\n"
+            f"Niet meer dan 1x/week in deze fase."
+            f"{DELAHAIJE_BIKE}"
+        ),
+        "duur_min": round(total_dur),
+        "tss_geschat": _tss_bike(round(total_dur), if_score),
+        "sport": "VirtualRide", "zone": "Z5",
+        "intensiteit_factor": if_score, "fun": 1,
+    }
+
+
+def bike_vo2max_variants(ftp: int) -> list[dict]:
+    """VO2max menu. ~12 combinaties."""
+    combos = [
+        (4, 30, 30, 120),   # 30/30's
+        (5, 30, 30, 120),
+        (6, 30, 30, 118),
+        (8, 30, 30, 115),
+        (10, 30, 30, 115),
+        (5, 40, 40, 115),
+        (6, 40, 40, 115),
+        (4, 60, 60, 115),   # 1/1's
+        (5, 60, 60, 115),
+        (6, 60, 60, 112),
+        (4, 120, 120, 112), # 2/2's
+        (5, 180, 180, 108), # 3/3's
+        (4, 240, 240, 108), # 4/4's
+    ]
+    return [_build_bike_vo2max(ftp, *c) for c in combos]
+
+
+def _build_bike_endurance(duration_min: int, avg_pct: int, pattern: str = "rolling") -> dict:
+    main = duration_min - 15
+    if pattern == "rolling":
+        seg = main // 6
+        rest = main - seg * 6
+        blocks = (
+            f"- {seg}m {avg_pct - 5}% 90rpm\n"
+            f"- {seg}m ramp {avg_pct - 5}-{avg_pct + 5}% 85rpm\n"
+            f"- {seg}m {avg_pct}% 80rpm\n"
+            f"- {seg}m {avg_pct - 10}% 95rpm\n"
+            f"- {seg}m ramp {avg_pct - 5}-{avg_pct + 3}% 85rpm\n"
+            f"- {seg + rest}m {avg_pct - 2}% 90rpm"
+        )
+        desc = "Rolling terrain: wisselend terrein alsof je buiten fietst."
+    elif pattern == "steady":
+        blocks = f"- {main}m {avg_pct}% 90rpm"
+        desc = "Steady state — één vermogen, geen wisselingen. Meditatief."
+    elif pattern == "progressive":
+        seg = main // 3
+        rest = main - seg * 3
+        blocks = (
+            f"- {seg}m {avg_pct - 8}% 88rpm\n"
+            f"- {seg}m {avg_pct - 2}% 88rpm\n"
+            f"- {seg + rest}m {avg_pct + 4}% 88rpm"
+        )
+        desc = "Progressief: elke tertsie iets hoger vermogen. Eindigt strak in Z2-bovengrens."
+    else:  # negative_split
+        half = main // 2
+        blocks = (
+            f"- {half}m {avg_pct - 6}% 90rpm\n"
+            f"- {main - half}m {avg_pct + 4}% 88rpm"
+        )
+        desc = "Negative split: eerste helft rustig, tweede helft iets actiever."
+    if_score = avg_pct / 100
+    return {
+        "type": "bike_endurance",
+        "naam": f"Duurrit {pattern} Z2 – {duration_min} min",
+        "beschrijving": (
+            f"Warmup\n- 8m ramp 45-{avg_pct - 3}% 85rpm\n\n"
+            f"Main Set\n{blocks}\n\n\n"
+            f"Cooldown\n- 7m ramp {avg_pct - 8}-45%\n\n"
+            f"{desc}\nHoudt alles binnen Z2. Kadans varieert mee."
+            f"{DELAHAIJE_BIKE}"
+        ),
+        "duur_min": duration_min,
+        "tss_geschat": _tss_bike(duration_min, if_score),
+        "sport": "VirtualRide", "zone": "Z2",
+        "intensiteit_factor": if_score, "fun": 3,
+    }
+
+
+def bike_endurance_variants(duration_min: int) -> list[dict]:
+    """Endurance bike menu. ~20 combinaties (4 patronen × 5 lengtes)."""
+    durations = [duration_min, max(45, duration_min - 15), max(60, duration_min - 5),
+                 min(150, duration_min + 15), min(180, duration_min + 30)]
+    patterns = ["rolling", "steady", "progressive", "negative_split"]
+    avg_pcts = [63, 65, 68, 70]  # verschillende Z2-niveaus
+    variants = []
+    for d in durations:
+        for p in patterns:
+            for pct in avg_pcts[:2]:  # niet alle combinaties = te veel
+                variants.append(_build_bike_endurance(d, pct, p))
+    return variants
+
+
+# ─── RUN VARIATIONS ─────────────────────────────────────────────────────
+
+def _build_run_tempo(sets: int, work_min: int, rest_min: int, pct: int,
+                      flavor: str = "") -> dict:
+    total_work = sets * work_min
+    total_dur = 12 + sets * (work_min + rest_min) + 10
+    if_score = pct / 100 * 0.95
+    naam_extra = f" {flavor}" if flavor else ""
+    return {
+        "type": "run_tempo",
+        "naam": f"Tempo {sets}x{work_min} min @ {pct}%{naam_extra}",
+        "beschrijving": (
+            f"Warmup\n- 12m ramp 55-75% Pace\n\n"
+            f"Main Set\n"
+            f"{sets}x\n"
+            f"- {work_min}m {pct}% Pace\n"
+            f"- {rest_min}m 65% Pace\n\n"
+            f"Cooldown\n- 10m ramp 70-55% Pace\n\n"
+            f"Drempelwerk: {total_work} min totaal op drempel-intensiteit.\n"
+            f"Je kunt nog net praten maar je wilt het niet. Stabiel tempo is\n"
+            f"belangrijker dan snel tempo. {REHAB_PRE_RUN}"
+            f"{DELAHAIJE_RUN}"
+        ),
+        "duur_min": total_dur,
+        "tss_geschat": _tss_run(total_dur, if_score),
+        "sport": "Run", "zone": "Z3",
+        "intensiteit_factor": if_score, "fun": 3,
+    }
+
+
+def run_tempo_variants() -> list[dict]:
+    """Run tempo/threshold menu. ~25 combinaties. Allemaal hele minuten."""
+    combos = [
+        # (sets, work_min, rest_min, pct, flavor)
+        # Cruise intervals (kort, 3-5 min)
+        (3, 5, 2, 85, "cruise"),
+        (4, 5, 2, 85, "cruise"),
+        (5, 5, 2, 85, "cruise"),
+        (6, 4, 2, 87, "cruise"),
+        (8, 3, 1, 88, "cruise"),
+        # Klassieke tempo blokken
+        (2, 8, 3, 83, "tempo"),
+        (2, 10, 3, 82, "tempo"),
+        (2, 12, 4, 82, "tempo"),
+        (3, 8, 3, 82, "tempo"),
+        (3, 10, 3, 82, "tempo"),
+        # Lange tempo
+        (1, 20, 1, 82, "lang"),
+        (1, 25, 1, 81, "lang"),
+        (1, 30, 1, 80, "lang"),
+        (2, 15, 5, 82, "lang"),
+        # Progressief
+        (3, 8, 2, 83, "progressief"),
+        (3, 6, 2, 85, "progressief"),
+        # Marathon pace
+        (2, 15, 5, 80, "marathon pace"),
+        (3, 10, 3, 80, "marathon pace"),
+        (2, 20, 5, 79, "marathon pace"),
+        (1, 30, 1, 79, "marathon pace"),
+        # Variaties (piek)
+        (4, 6, 2, 85, "variatie"),
+        (5, 4, 2, 87, "piek"),
+        (6, 3, 1, 88, "piek"),
+        (3, 12, 4, 82, "volume"),
+        (4, 10, 3, 82, "groot volume"),
+    ]
+    return [_build_run_tempo(*c) for c in combos]
+
+
+def _fmt_interval_duration(seconds: int) -> str:
+    """Format interval duration: < 60s → '30s', ≥ 60s whole minutes → '2m', else '90s'."""
+    if seconds < 60:
+        return f"{seconds}s"
+    if seconds % 60 == 0:
+        return f"{seconds // 60}m"
+    return f"{seconds}s"
+
+
+def _build_run_intervals(count: int, work_sec: int, rest_sec: int, pct: int,
+                           flavor: str = "") -> dict:
+    total_work_min = (count * work_sec) / 60
+    total_dur = 12 + round((count * (work_sec + rest_sec)) / 60) + 10
+    if_score = pct / 100 * 0.95
+    naam_extra = f" {flavor}" if flavor else ""
+    work_str = _fmt_interval_duration(work_sec)
+    rest_str = _fmt_interval_duration(rest_sec)
+    return {
+        "type": "run_intervals",
+        "naam": f"Intervals {count}x{work_str} @ {pct}%{naam_extra}",
+        "beschrijving": (
+            f"Warmup\n- 12m ramp 55-78% Pace\n\n"
+            f"Main Set\n"
+            f"{count}x\n"
+            f"- {work_str} {pct}% Pace\n"
+            f"- {rest_str} 60% Pace (jog of wandelen)\n\n"
+            f"Cooldown\n- 10m ramp 70-55% Pace\n\n"
+            f"Interval training: {total_work_min:.0f} min totaal op hoge intensiteit.\n"
+            f"Laatste interval moet even snel zijn als de eerste (Delahaije).\n"
+            f"Stop direct bij knieklachten. Zachte ondergrond. {REHAB_PRE_RUN}"
+            f"{DELAHAIJE_RUN}"
+        ),
+        "duur_min": total_dur,
+        "tss_geschat": _tss_run(total_dur, if_score),
+        "sport": "Run", "zone": "Z4/Z5",
+        "intensiteit_factor": if_score, "fun": 3,
+    }
+
+
+def run_interval_variants() -> list[dict]:
+    """Run intervals menu. ~20 combinaties. Werkt in SECONDEN."""
+    # (count, work_sec, rest_sec, pct, flavor)
+    combos = [
+        # 10km pace intervals (3-5 min blokken)
+        (5, 180, 120, 90, "10km pace"),
+        (6, 180, 120, 90, "10km pace"),
+        (7, 180, 120, 90, "10km pace"),
+        (8, 180, 90, 92, "10km pace"),
+        (4, 240, 120, 90, "10km pace"),
+        (5, 240, 120, 90, "10km pace"),
+        (6, 240, 120, 88, "10km pace"),
+        (3, 300, 180, 88, "lange intervals"),
+        (4, 300, 180, 88, "lange intervals"),
+        (5, 300, 120, 88, "lange intervals"),
+        # Korte snelle intervals (5k pace)
+        (8, 120, 90, 92, "5km pace"),
+        (10, 120, 60, 93, "5km pace"),
+        (12, 90, 60, 95, "snelle"),
+        (15, 60, 60, 95, "snelle"),
+        # 1500m-style
+        (6, 90, 90, 95, "1500m"),
+        (8, 90, 90, 93, "1500m"),
+        # Piramide (samengevat)
+        (5, 180, 90, 90, "piramide"),
+        (7, 120, 60, 93, "piramide kort"),
+        # Yasso 800s (3 min per rep)
+        (6, 180, 180, 88, "Yasso"),
+        (8, 180, 180, 87, "Yasso"),
+        (10, 180, 180, 87, "Yasso"),
+    ]
+    return [_build_run_intervals(*c) for c in combos]
+
+
+def _build_run_z2(duration_min: int, avg_pct: int, style: str) -> dict:
+    main = duration_min - 8
+    if style == "steady":
+        blocks = f"- {main}m {avg_pct}% Pace"
+        desc = "Steady state: één tempo, geen variatie. Mediteren op ritme."
+        fun = 2
+    elif style == "rolling":
+        seg = max(5, main // 4)
+        rest = main - seg * 4
+        blocks = (
+            f"- {seg}m {avg_pct - 3}% Pace\n"
+            f"- {seg}m {avg_pct + 2}% Pace\n"
+            f"- {seg}m {avg_pct}% Pace\n"
+            f"- {seg + rest}m {avg_pct + 1}% Pace"
+        )
+        desc = "Rolling: subtiele tempowisselingen binnen Z2."
+        fun = 3
+    elif style == "fartlek":
+        seg = max(5, main // 6)
+        rest = main - seg * 6
+        blocks = (
+            f"6x\n- {seg}m {avg_pct - 3}% Pace\n- 30s {avg_pct + 10}% Pace\n"
+            + (f"\n- {rest}m {avg_pct}% Pace" if rest > 0 else "")
+        )
+        desc = "Fartlek: 6 korte versnellingen tussen Z2-blokken. Speels."
+        fun = 5
+    elif style == "progression":
+        third = main // 3
+        rest = main - third * 3
+        blocks = (
+            f"- {third}m {avg_pct - 5}% Pace\n"
+            f"- {third}m {avg_pct}% Pace\n"
+            f"- {third + rest}m {avg_pct + 5}% Pace"
+        )
+        desc = "Progression: elke derde iets sneller. Eindigt bij Z2-top."
+        fun = 4
+    else:  # negative_split
+        half = main // 2
+        blocks = (
+            f"- {half}m {avg_pct - 4}% Pace\n"
+            f"- {main - half}m {avg_pct + 3}% Pace"
+        )
+        desc = "Negative split: tweede helft iets sneller. Beheersing is key."
+        fun = 3
+    if_score = avg_pct / 100 * 0.75
+    return {
+        "type": f"run_z2_{style}",
+        "naam": f"Z2 {style} – {duration_min}min",
+        "beschrijving": (
+            f"Warmup\n- 4m ramp 55-{avg_pct - 2}% Pace\n\n"
+            f"Main Set\n{blocks}\n\n"
+            f"Cooldown\n- 4m ramp {avg_pct - 5}-55% Pace\n\n"
+            f"{desc}\n{REHAB_PRE_RUN}"
+            f"{DELAHAIJE_RUN}"
+        ),
+        "duur_min": duration_min,
+        "tss_geschat": _tss_run(duration_min, if_score),
+        "sport": "Run", "zone": "Z2",
+        "intensiteit_factor": if_score, "fun": fun,
+    }
+
+
+def run_z2_variants(duration_min: int) -> list[dict]:
+    """Z2 run menu. ~25 combinaties (5 styles × 5 lengtes × 2 intensiteiten)."""
+    durations = [duration_min,
+                 max(25, duration_min - 10),
+                 max(40, duration_min - 5),
+                 duration_min + 10,
+                 duration_min + 20]
+    styles = ["steady", "rolling", "fartlek", "progression", "negative_split"]
+    variants = []
+    seen_names = set()
+    for d in durations:
+        for s in styles:
+            # Twee intensiteitsniveaus (onderkant Z2 / bovenkant Z2)
+            for pct in [68, 75]:
+                v = _build_run_z2(d, pct, s)
+                if v["naam"] not in seen_names:
+                    seen_names.add(v["naam"])
+                    variants.append(v)
+    return variants
+
+
+def run_easy_variants(duration_min: int) -> list[dict]:
+    """Easy/recovery run menu. ~10 combinaties."""
+    out = []
+    for d in [max(20, duration_min - 15), max(25, duration_min - 10),
+              max(30, duration_min - 5), duration_min]:
+        out.append(recovery_run(d))
+        # Easy aerobic (tussen recovery en echte Z2)
+        main = d - 8
+        out.append({
+            "type": "easy_aerobic",
+            "naam": f"Easy aerobic – {d}min",
+            "beschrijving": (
+                f"Warmup\n- 4m ramp 55-66% Pace\n\n"
+                f"Main Set\n- {main}m 66% Pace\n\n"
+                f"Cooldown\n- 4m ramp 66-55% Pace\n\n"
+                f"Onderkant Z2. Moet aanvoelen als 'ik zou dit uren kunnen'.\n"
+                f"{REHAB_PRE_RUN}"
+                f"{DELAHAIJE_RUN}"
+            ),
+            "duur_min": d, "tss_geschat": _tss_run(d, 0.68),
+            "sport": "Run", "zone": "Z1/Z2",
+            "intensiteit_factor": 0.68, "fun": 2,
+        })
+    return out
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # SWAP CATEGORIES — voor de smart swap functie
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -870,59 +1435,84 @@ def get_swap_options(event: dict, category: str, ftp: int = 290) -> list[dict]:
 
     if is_bike:
         if category == "makkelijker":
+            # Herstelritten + coffee rides in verschillende lengtes
             options = [
-                recovery_spin(30),
-                endurance_ride(max(45, dur - 15)),
+                recovery_spin(20), recovery_spin(30), recovery_spin(40),
                 single_leg_drills(ftp),
-                zwift_group_ride(max(45, dur - 10)),
+                cadence_pyramids(ftp),
             ]
+            # Plus een paar lichtere endurance rides
+            options.extend(bike_endurance_variants(max(45, dur - 15))[:6])
         elif category == "vergelijkbaar":
             if "threshold" in e_name:
-                options = [sweetspot(ftp, 3), over_unders(ftp, 2), tempo_blocks(ftp)]
+                # Grote pool threshold varianten
+                options = bike_threshold_variants(ftp)
             elif "sweetspot" in e_name:
-                options = [threshold(ftp, 2), endurance_tempo_sandwich(ftp), over_unders(ftp, 2)]
+                options = bike_sweetspot_variants(ftp)
             elif "over-under" in e_name:
-                options = [threshold(ftp, 3), sweetspot(ftp, 3), microbursts(ftp)]
+                options = bike_over_under_variants(ftp)
+            elif "vo2" in e_name or "tabata" in e_name or "microburst" in e_name:
+                options = bike_vo2max_variants(ftp)
             else:
-                options = [zwift_group_ride(dur), endurance_ride(dur), single_leg_drills(ftp)]
+                # Endurance → andere endurance variaties
+                options = bike_endurance_variants(dur)
         elif category == "anders":
-            options = [
-                cadence_pyramids(ftp), microbursts(ftp),
-                endurance_tempo_sandwich(ftp), single_leg_drills(ftp),
-            ]
+            # Ander type workout — mix van alles
+            options = []
+            options.extend(bike_sweetspot_variants(ftp)[:6])
+            options.extend(bike_over_under_variants(ftp)[:4])
+            options.append(cadence_pyramids(ftp))
+            options.append(microbursts(ftp))
+            options.append(single_leg_drills(ftp))
+            options.append(endurance_tempo_sandwich(ftp))
         elif category == "harder":
-            options = [
-                threshold(ftp, 4), vo2max_short(ftp),
-                race_simulation_bike(ftp), tabata_bike(ftp),
-            ]
+            # Zware opties: threshold high-end, VO2max, race sim
+            options = []
+            options.extend(bike_threshold_variants(ftp)[-10:])  # de zwaarste
+            options.extend(bike_vo2max_variants(ftp))
+            options.append(race_simulation_bike(ftp))
+            options.append(tabata_bike(ftp))
 
     elif is_run:
         if category == "makkelijker":
-            options = [
-                recovery_run(max(20, dur - 10)),
-                z2_treadmill(dur),
-                z2_standard(max(30, dur - 10)),
-            ]
+            options = run_easy_variants(dur)
+            options.append(z2_treadmill(dur))
         elif category == "vergelijkbaar":
-            options = [
-                z2_standard(dur), z2_progression(dur), z2_fartlek(dur),
-                z2_trail(dur), z2_with_pickups(dur), z2_negative_split(dur),
-                z2_hilly(dur),
-            ]
+            # Classificeer op huidige workout
+            if any(k in e_name for k in ["interval", "tempo", "threshold", "cruise", "yasso"]):
+                # Zelfde type: tempo/interval varianten
+                options = run_tempo_variants() + run_interval_variants()
+            elif any(k in e_name for k in ["lange duurloop", "long run"]):
+                # Zelfde type: long run varianten
+                options = [
+                    long_run(15), long_run(16), long_run(18), long_run(20),
+                    long_run(22), long_run(24),
+                    long_run_negative_split(18), long_run_negative_split(20),
+                    long_run_negative_split(22),
+                ]
+            else:
+                # Z2 variant gevraagd
+                options = run_z2_variants(dur)
         elif category == "anders":
-            options = [
-                z2_trail(dur), z2_hilly(dur),
-                z2_fartlek(dur), z2_with_pickups(dur),
-                hill_sprints(dur),
-            ]
+            # Mix: heuvels, strides, fartlek, pickups
+            options = []
+            options.extend(run_z2_variants(dur)[:8])
+            options.append(hill_sprints(dur))
+            options.append(strides(dur, 6))
+            options.append(strides(dur, 8))
+            options.append(strides(dur, 10))
+            options.extend(run_tempo_variants()[:5])
         elif category == "harder":
-            options = [
-                z2_progression(dur), marathon_pace_segments(dur),
-                strides(dur), marathon_tempo(),
-            ]
+            options = run_tempo_variants() + run_interval_variants()
+            options.append(marathon_pace_segments(dur))
+            options.append(marathon_pace_segments(dur + 15))
 
     # Filter: niet dezelfde als huidige workout
-    return [o for o in options if o["naam"].lower() != e_name][:5]
+    filtered = [o for o in options if o["naam"].lower() != e_name]
+    # Randomiseer volgorde zodat elke swap-klik een frisse selectie geeft
+    import random as _rnd
+    _rnd.shuffle(filtered)
+    return filtered[:15]
 
 
 def pick_z2_run(duration_min: int, variety_index: int) -> dict:

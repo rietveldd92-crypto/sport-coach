@@ -5,6 +5,7 @@ Sport Coach — Web UI (Streamlit)
 """
 
 import os
+import random
 import sys
 import json
 from datetime import date, timedelta
@@ -132,6 +133,61 @@ def get_alternatives(event, category: str = "vergelijkbaar"):
     return lib.get_swap_options(event, category, ftp=290)
 
 
+def perform_instant_swap(event: dict, category: str, ftp: int = 290) -> dict | None:
+    """Pak een random keuze uit de top-3 opties en schrijf meteen naar intervals.icu.
+
+    Zet een success flash + undo payload in session_state voor show_swap_flash().
+    Returns het nieuwe workout-dict bij succes, None bij geen opties of fout.
+
+    Waarom top-3 random: de library ranked op "best match", maar altijd #0
+    pakken maakt zelfde categorie-klik voorspelbaar saai. Variëteit uit
+    top-3 houdt het fris zonder slechte swaps te riskeren.
+    """
+    options = lib.get_swap_options(event, category, ftp=ftp)
+    if not options:
+        st.session_state["swap_flash"] = {
+            "ok": False, "msg": f"Geen alternatieven gevonden in categorie '{category}'"
+        }
+        return None
+
+    # Vermijd dezelfde workout als we toch al hebben — filter op naam
+    current_name = (event.get("name") or "").lower()
+    options = [o for o in options if o.get("naam", "").lower() != current_name]
+    if not options:
+        st.session_state["swap_flash"] = {
+            "ok": False, "msg": "Alleen deze workout-variant beschikbaar in library"
+        }
+        return None
+
+    pick_pool = options[:3]  # top 3
+    chosen = random.choice(pick_pool)
+
+    try:
+        api.update_event(
+            event["id"],
+            name=chosen["naam"],
+            description=chosen["beschrijving"],
+            type=chosen.get("sport", event.get("type")),
+        )
+        # Success flash + undo payload
+        st.session_state["swap_flash"] = {
+            "ok": True,
+            "msg": f"→ Gewisseld naar '{chosen['naam']}'",
+            "undo": {
+                "event_id": event["id"],
+                "orig_name": event.get("name", ""),
+                "orig_description": event.get("description", ""),
+                "orig_type": event.get("type", ""),
+            },
+        }
+        return chosen
+    except Exception as exc:
+        st.session_state["swap_flash"] = {
+            "ok": False, "msg": f"Swap mislukt: {exc}"
+        }
+        return None
+
+
 def check_week_quality(matched_events: list, swap_event_id: str = None, swap_to: dict = None) -> dict:
     """Check of de week na een swap nog genoeg kwaliteitsprikkels heeft.
 
@@ -192,6 +248,120 @@ def ctl_to_human(ctl: float) -> str:
         return "Sterke basis. Hier wordt het serieus."
     else:
         return "Topfitness. Je bent klaar voor de marathon."
+
+
+# ── TP SYNC BUTTON HELPER ───────────────────────────────────────────────────
+
+def render_tp_sync_button(event: dict, key_suffix: str, container=None):
+    """Render de TP-sync knop voor één event.
+
+    Toont niets als:
+    - feature-flag `TP_SYNC_ENABLED` uit staat
+    - sport wordt niet ondersteund
+
+    Toont "✅ TP" label als event al gesynced is (volgens state.json).
+    Anders: "→ TP" knop die tp_sync_service.sync_event() triggert, met
+    double-submit guard en exception-handling die via session_state in
+    een flash-message eindigt.
+
+    `container` is optioneel — als meegegeven wordt de knop in die column/container gerenderd,
+    anders inline.
+
+    Returns True als de knop werd getoond (voor caller om layout te kunnen beslissen).
+    """
+    tp_enabled = config.get_bool("TP_SYNC_ENABLED", default=False)
+    if not tp_enabled:
+        return False
+
+    e_type = event.get("type", "?")
+    if e_type not in tp_sync_service.SUPPORTED_SPORTS:
+        return False
+
+    event_id = str(event.get("id", ""))
+    target = container if container is not None else st
+
+    if tp_sync_service.is_synced(event_id):
+        target.caption("✅ TP")
+        return True
+
+    pending_key = f"tp_sync_pending_{event_id}"
+    button_key = f"tp_sync_{event_id}_{key_suffix}"
+    if target.button(
+        "→ TP",
+        key=button_key,
+        disabled=st.session_state.get(pending_key, False),
+    ):
+        st.session_state[pending_key] = True
+        cookie = config.get_secret("TP_AUTH_COOKIE") or ""
+        try:
+            result = tp_sync_service.sync_event(event, cookie)
+            st.session_state["tp_sync_flash"] = {
+                "ok": True,
+                "msg": f"Gesynced naar TP (workoutId {result['tp_workout_id']})",
+            }
+        except TPAuthError as exc:
+            st.session_state["tp_sync_flash"] = {
+                "ok": False, "msg": f"Cookie verlopen — {exc}",
+            }
+        except TPConversionError as exc:
+            st.session_state["tp_sync_flash"] = {
+                "ok": False, "msg": f"Conversie mislukt — {exc}",
+            }
+        except TPAPIError as exc:
+            st.session_state["tp_sync_flash"] = {
+                "ok": False, "msg": f"TP API fout — {exc}",
+            }
+        finally:
+            st.session_state[pending_key] = False
+        st.rerun()
+    return True
+
+
+def show_tp_flash():
+    """Render de TP-sync flash message als die er is (overleeft één rerun)."""
+    flash = st.session_state.pop("tp_sync_flash", None)
+    if flash:
+        if flash["ok"]:
+            st.success(flash["msg"])
+        else:
+            st.error(flash["msg"])
+
+
+def show_swap_flash():
+    """Render de swap flash message. Bij success toont een undo-knop."""
+    flash = st.session_state.pop("swap_flash", None)
+    if not flash:
+        return
+
+    if not flash.get("ok"):
+        st.error(flash["msg"])
+        return
+
+    # Success — toon banner met "undo"
+    col_msg, col_undo = st.columns([4, 1])
+    col_msg.success(flash["msg"])
+
+    # Undo payload bevat: event_id, original name/description/type
+    undo = flash.get("undo")
+    if undo:
+        if col_undo.button("↶ Terug", key=f"undo_swap_{undo['event_id']}"):
+            try:
+                api.update_event(
+                    undo["event_id"],
+                    name=undo["orig_name"],
+                    description=undo["orig_description"],
+                    type=undo["orig_type"],
+                )
+                st.cache_data.clear()
+                st.session_state["swap_flash"] = {
+                    "ok": True,
+                    "msg": f"↶ Teruggezet naar '{undo['orig_name']}'",
+                }
+            except Exception as exc:
+                st.session_state["swap_flash"] = {
+                    "ok": False, "msg": f"Undo mislukt: {exc}",
+                }
+            st.rerun()
 
 
 # ── FEEDBACK GENERATION ────────────────────────────────────────────────────
@@ -554,113 +724,36 @@ if today_event:
         unsafe_allow_html=True
     )
 
-    # Sync-knop + Wissel-knop. TP-sync alleen tonen als:
-    # (1) feature-flag aan staat
-    # (2) sport wordt ondersteund
-    # (3) event nog niet is gesynced in state.json
+    # Sync-knop + Wissel-knop — gebruik de gedeelde TP helper
     tp_enabled = config.get_bool("TP_SYNC_ENABLED", default=False)
     tp_supported = e_type in tp_sync_service.SUPPORTED_SPORTS
-    event_id = str(event.get("id", ""))
-    tp_existing = tp_sync_service.is_synced(event_id) if tp_enabled else None
 
     if tp_enabled and tp_supported:
         _, col_tp, col_swap = st.columns([4, 1, 1])
+        render_tp_sync_button(event, key_suffix="today", container=col_tp)
     else:
         _, col_swap = st.columns([5, 1])
-        col_tp = None
-
-    if col_tp is not None:
-        with col_tp:
-            if tp_existing:
-                st.caption(f"✅ TP")
-            else:
-                # Double-submit guard via session_state — Streamlit rerunt
-                # bij elke interactie, dus zonder dit kan dubbele push.
-                pending_key = f"tp_sync_pending_{event_id}"
-                if st.button("→ TP", key=f"tp_sync_{event_id}",
-                             disabled=st.session_state.get(pending_key, False)):
-                    st.session_state[pending_key] = True
-                    cookie = config.get_secret("TP_AUTH_COOKIE") or ""
-                    try:
-                        result = tp_sync_service.sync_event(event, cookie)
-                        st.session_state["tp_sync_flash"] = {
-                            "ok": True,
-                            "msg": f"Gesynced naar TP (workoutId {result['tp_workout_id']})"
-                        }
-                    except TPAuthError as exc:
-                        st.session_state["tp_sync_flash"] = {
-                            "ok": False,
-                            "msg": f"Cookie verlopen — {exc}",
-                        }
-                    except TPConversionError as exc:
-                        st.session_state["tp_sync_flash"] = {
-                            "ok": False, "msg": f"Conversie mislukt — {exc}"
-                        }
-                    except TPAPIError as exc:
-                        st.session_state["tp_sync_flash"] = {
-                            "ok": False, "msg": f"TP API fout — {exc}"
-                        }
-                    finally:
-                        st.session_state[pending_key] = False
-                    st.rerun()
 
     with col_swap:
         if st.button("Wissel", key="swap_today"):
             st.session_state["show_swap_today"] = True
 
     # Flash message na sync-actie (overleeft de rerun)
-    flash = st.session_state.pop("tp_sync_flash", None)
-    if flash:
-        if flash["ok"]:
-            st.success(flash["msg"])
-        else:
-            st.error(flash["msg"])
+    show_tp_flash()
 
+    # Instant-swap categorie-picker — klik = direct swap, geen tussenmenu
     if st.session_state.get("show_swap_today"):
-        swap_cat_key = "swap_cat_today"
-        if swap_cat_key not in st.session_state:
-            st.caption("Wat wil je?")
-            cat_cols = st.columns(4)
-            for ci, (cat_id, cat_info) in enumerate(lib.SWAP_CATEGORIES.items()):
-                if cat_cols[ci].button(cat_info["label"], key=f"cat_today_{cat_id}"):
-                    st.session_state[swap_cat_key] = cat_id
-                    st.rerun()
-            if st.button("Annuleer", key="cancel_swap_today"):
+        st.caption("Wissel naar...")
+        cat_cols = st.columns(len(lib.SWAP_CATEGORIES) + 1)
+        for ci, (cat_id, cat_info) in enumerate(lib.SWAP_CATEGORIES.items()):
+            if cat_cols[ci].button(cat_info["label"], key=f"cat_today_{cat_id}"):
+                perform_instant_swap(event, cat_id)
+                st.cache_data.clear()
                 st.session_state["show_swap_today"] = False
                 st.rerun()
-        else:
-            chosen_cat = st.session_state[swap_cat_key]
-            alts = get_alternatives(event, category=chosen_cat)
-            if alts:
-                for j, alt in enumerate(alts):
-                    quality_warning = ""
-                    if chosen_cat == "makkelijker":
-                        qcheck = check_week_quality(matched, event.get("id"), alt)
-                        if not qcheck["has_enough_quality"]:
-                            quality_warning = qcheck["message"]
-                    c1, c2 = st.columns([5, 1])
-                    c1.write(f"{alt['naam']}")
-                    if quality_warning:
-                        c1.caption(f"⚠ {quality_warning}")
-                    if c2.button("Kies", key=f"pick_today_{j}"):
-                        try:
-                            api.update_event(event["id"], name=alt["naam"],
-                                             description=alt["beschrijving"],
-                                             type=alt.get("sport", e_type))
-                            st.cache_data.clear()
-                            del st.session_state[swap_cat_key]
-                            st.session_state["show_swap_today"] = False
-                            st.rerun()
-                        except Exception as e:
-                            st.error(str(e))
-            c1, c2 = st.columns(2)
-            if c1.button("Terug", key="back_today"):
-                del st.session_state[swap_cat_key]
-                st.rerun()
-            if c2.button("Annuleer", key="cancel_today"):
-                del st.session_state[swap_cat_key]
-                st.session_state["show_swap_today"] = False
-                st.rerun()
+        if cat_cols[-1].button("✕", key="cancel_swap_today"):
+            st.session_state["show_swap_today"] = False
+            st.rerun()
 
     st.markdown("")  # spacing instead of divider
 
@@ -674,6 +767,10 @@ st.markdown(f'<div class="week-progress">{done_count} / {len(matched)} sessies</
             unsafe_allow_html=True)
 if total_planned > 0:
     st.progress(min(1.0, total_done / total_planned))
+
+# Flash messages boven de week-list — werken voor alle rows
+show_tp_flash()
+show_swap_flash()
 
 # ── WORKOUT LIST ───────────────────────────────────────────────────────────
 
@@ -715,6 +812,14 @@ for i, item in enumerate(matched):
     )
 
     # Action buttons — compact, inline
+    # TP-sync is relevant voor NOT-done workouts behalve today (die staat al op de Today card)
+    show_tp_here = (
+        not done
+        and not is_today
+        and config.get_bool("TP_SYNC_ENABLED", default=False)
+        and e_type in tp_sync_service.SUPPORTED_SPORTS
+    )
+
     if done or not is_today:
         if done:
             btn_cols = st.columns([1, 1, 4])
@@ -724,14 +829,22 @@ for i, item in enumerate(matched):
                 st.session_state[f"show_swap_{i}"] = not st.session_state.get(f"show_swap_{i}", False)
         elif not is_today:
             feel = get_feel_note(event)
-            if feel:
-                btn_cols = st.columns([1, 1, 4])
+            # Layout afhankelijk van welke knoppen er zijn
+            if feel and show_tp_here:
+                btn_cols = st.columns([1, 1, 1, 3])  # Wissel | Feel | TP | filler
+            elif feel or show_tp_here:
+                btn_cols = st.columns([1, 1, 4])     # Wissel | (Feel|TP) | filler
             else:
-                btn_cols = st.columns([1, 5])
+                btn_cols = st.columns([1, 5])        # Wissel | filler
             if btn_cols[0].button("Wissel", key=f"swap_{i}"):
                 st.session_state[f"show_swap_{i}"] = not st.session_state.get(f"show_swap_{i}", False)
-            if feel and btn_cols[1].button("Hoe voelt dit?", key=f"feel_{i}"):
-                st.session_state[f"show_feel_{i}"] = not st.session_state.get(f"show_feel_{i}", False)
+            col_idx = 1
+            if feel:
+                if btn_cols[col_idx].button("Hoe voelt dit?", key=f"feel_{i}"):
+                    st.session_state[f"show_feel_{i}"] = not st.session_state.get(f"show_feel_{i}", False)
+                col_idx += 1
+            if show_tp_here:
+                render_tp_sync_button(event, key_suffix=f"row{i}", container=btn_cols[col_idx])
 
     # Coach feedback — analytische bericht-stijl
     if st.session_state.get(f"show_fb_{i}"):
@@ -754,64 +867,19 @@ for i, item in enumerate(matched):
             if st.session_state.get(f"show_feel_{i}"):
                 st.markdown(f'<div class="feel-note">{feel}</div>', unsafe_allow_html=True)
 
-    # Smart Swap panel
+    # Instant-swap categorie-picker — klik = direct swap, geen tussenmenu
     if st.session_state.get(f"show_swap_{i}"):
-        swap_cat_key = f"swap_cat_{i}"
-
-        # Stap 1: kies categorie
-        if swap_cat_key not in st.session_state:
-            st.caption("Wat wil je?")
-            cat_cols = st.columns(4)
-            for ci, (cat_id, cat_info) in enumerate(lib.SWAP_CATEGORIES.items()):
-                if cat_cols[ci].button(cat_info["label"], key=f"cat_{i}_{cat_id}"):
-                    st.session_state[swap_cat_key] = cat_id
-                    st.rerun()
-            if st.button("Annuleer", key=f"cancel_{i}"):
+        st.caption("Wissel naar...")
+        cat_cols = st.columns(len(lib.SWAP_CATEGORIES) + 1)
+        for ci, (cat_id, cat_info) in enumerate(lib.SWAP_CATEGORIES.items()):
+            if cat_cols[ci].button(cat_info["label"], key=f"cat_{i}_{cat_id}"):
+                perform_instant_swap(event, cat_id)
+                st.cache_data.clear()
                 st.session_state[f"show_swap_{i}"] = False
                 st.rerun()
-
-        # Stap 2: toon opties in gekozen categorie
-        else:
-            chosen_cat = st.session_state[swap_cat_key]
-            cat_label = lib.SWAP_CATEGORIES[chosen_cat]["label"]
-            st.caption(f"{cat_label}")
-
-            alts = get_alternatives(event, category=chosen_cat)
-            if alts:
-                for j, alt in enumerate(alts):
-                    # Check weekbalans als makkelijker
-                    quality_warning = ""
-                    if chosen_cat == "makkelijker":
-                        qcheck = check_week_quality(matched, event.get("id"), alt)
-                        if not qcheck["has_enough_quality"]:
-                            quality_warning = qcheck["message"]
-
-                    ca, cb = st.columns([5, 1])
-                    ca.write(f"{alt['naam']}")
-                    if quality_warning:
-                        ca.caption(f"⚠ {quality_warning}")
-                    if cb.button("Kies", key=f"pick_{i}_{j}"):
-                        try:
-                            api.update_event(event["id"], name=alt["naam"],
-                                             description=alt["beschrijving"],
-                                             type=alt.get("sport", e_type))
-                            st.cache_data.clear()
-                            del st.session_state[swap_cat_key]
-                            st.session_state[f"show_swap_{i}"] = False
-                            st.rerun()
-                        except Exception as e:
-                            st.error(str(e))
-            else:
-                st.write("Geen alternatieven in deze categorie.")
-
-            c1, c2 = st.columns(2)
-            if c1.button("Terug", key=f"back_{i}"):
-                del st.session_state[swap_cat_key]
-                st.rerun()
-            if c2.button("Annuleer", key=f"cancel_{i}"):
-                del st.session_state[swap_cat_key]
-                st.session_state[f"show_swap_{i}"] = False
-                st.rerun()
+        if cat_cols[-1].button("✕", key=f"cancel_swap_{i}"):
+            st.session_state[f"show_swap_{i}"] = False
+            st.rerun()
 
 # ── FOOTER QUOTE ───────────────────────────────────────────────────────────
 
