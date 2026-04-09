@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import intervals_client as api
 import config
 import tp_sync_service
+import ui_components as ui
 from agents import workout_library as lib
 from agents import feedback_engine
 from agents.workout_feel import get_feel_note
@@ -492,225 +493,10 @@ def generate_feedback(event, activity, matched=None):
     )
 
 
-# ── CUSTOM CSS ─────────────────────────────────────────────────────────────
-
-CUSTOM_CSS = """
-<style>
-    /* ── Foundation ─────────────────────────────────────── */
-    .block-container {
-        max-width: 680px !important;
-        padding-top: 1.5rem !important;
-        padding-bottom: 3rem !important;
-    }
-    h1, h2, h3 {
-        font-weight: 600 !important;
-        letter-spacing: -0.03em !important;
-        color: #1a1a1a !important;
-    }
-    h1 { font-size: 1.6rem !important; }
-    h3 { font-size: 1.05rem !important; margin-bottom: 0.2rem !important; }
-
-    /* Kill default Streamlit metric chrome */
-    .stMetric label { font-size: 0.7rem !important; color: #999 !important; text-transform: uppercase; letter-spacing: 0.05em; }
-    .stMetric [data-testid="stMetricValue"] { font-size: 1.05rem !important; font-weight: 600 !important; }
-
-    /* ── Today Card ────────────────────────────────────── */
-    .today-card {
-        background: linear-gradient(135deg, #f4f8ee 0%, #eaf0dd 100%);
-        border: 1px solid #d4dfc4;
-        border-radius: 16px;
-        padding: 1.6rem 1.8rem 1.4rem 1.8rem;
-        margin: 0.5rem 0 1.5rem 0;
-    }
-    .today-card .today-label {
-        font-size: 0.7rem;
-        text-transform: uppercase;
-        letter-spacing: 0.1em;
-        color: #6b8a4e;
-        font-weight: 600;
-        margin-bottom: 0.3rem;
-    }
-    .today-card .today-title {
-        font-size: 1.3rem;
-        font-weight: 700;
-        color: #1a2e0a;
-        line-height: 1.3;
-        margin-bottom: 0.15rem;
-    }
-    .today-card .today-sport {
-        font-size: 0.82rem;
-        color: #6b8a4e;
-        margin-bottom: 0.6rem;
-    }
-    .today-card .today-feel {
-        font-size: 0.88rem;
-        color: #3d5a1e;
-        line-height: 1.55;
-        background: rgba(255,255,255,0.55);
-        border-radius: 10px;
-        padding: 0.7rem 1rem;
-        margin-top: 0.5rem;
-    }
-
-    /* ── Workout Row ───────────────────────────────────── */
-    .workout-row {
-        padding: 0.75rem 1rem;
-        border-radius: 12px;
-        margin: 0.25rem 0;
-        transition: background 0.15s;
-    }
-    .workout-row:hover { background: #fafafa; }
-    .workout-row.is-done { opacity: 0.7; }
-    .workout-row .wr-day {
-        font-size: 0.72rem;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-        color: #999;
-        font-weight: 600;
-    }
-    .workout-row .wr-name {
-        font-size: 0.95rem;
-        font-weight: 600;
-        color: #1a1a1a;
-        line-height: 1.3;
-    }
-    .workout-row .wr-stats {
-        font-size: 0.78rem;
-        color: #888;
-        margin-top: 0.15rem;
-    }
-    .wr-check {
-        display: inline-block;
-        width: 20px; height: 20px;
-        border-radius: 50%;
-        text-align: center;
-        line-height: 20px;
-        font-size: 0.7rem;
-        margin-right: 0.5rem;
-        flex-shrink: 0;
-    }
-    .wr-check.done { background: #2d5016; color: white; }
-    .wr-check.pending { border: 2px solid #ddd; background: white; }
-
-    /* ── Coach Feedback ────────────────────────────────── */
-    .coach-feedback {
-        background: #faf9f7;
-        border-radius: 14px;
-        padding: 1.3rem 1.5rem;
-        margin: 0.5rem 0 1rem 0;
-        border: 1px solid #eee;
-        font-size: 0.92rem;
-        line-height: 1.65;
-        color: #2a2a2a;
-    }
-    .coach-feedback .coach-avatar {
-        font-size: 0.72rem;
-        font-weight: 600;
-        color: #999;
-        text-transform: uppercase;
-        letter-spacing: 0.06em;
-        margin-bottom: 0.5rem;
-    }
-    .coach-quote {
-        color: #888;
-        font-style: italic;
-        margin-top: 0.8rem;
-        padding-top: 0.6rem;
-        border-top: 1px solid #eee;
-        font-size: 0.82rem;
-    }
-
-    /* ── Feel Note ─────────────────────────────────────── */
-    .feel-note {
-        background: #f7f5f0;
-        border-radius: 10px;
-        padding: 0.7rem 1rem;
-        margin: 0.3rem 0 0.6rem 0;
-        font-size: 0.85rem;
-        color: #555;
-        line-height: 1.5;
-    }
-
-    /* ── Week Progress ─────────────────────────────────── */
-    .week-progress {
-        font-size: 0.78rem;
-        color: #999;
-        font-weight: 500;
-        letter-spacing: 0.02em;
-        margin-bottom: 0.3rem;
-    }
-    /* Streamlit progress bar color override */
-    .stProgress > div > div > div > div {
-        background-color: #2d5016 !important;
-        border-radius: 8px !important;
-    }
-    .stProgress > div > div > div {
-        background-color: #eee !important;
-        border-radius: 8px !important;
-    }
-
-    /* ── Sidebar ───────────────────────────────────────── */
-    section[data-testid="stSidebar"] {
-        background: #fafaf8 !important;
-        border-right: 1px solid #eee !important;
-    }
-    section[data-testid="stSidebar"] .block-container {
-        padding-top: 2rem !important;
-    }
-    .sidebar-phase {
-        font-size: 1.0rem;
-        font-weight: 600;
-        color: #1a1a1a;
-        line-height: 1.45;
-        margin-bottom: 0.3rem;
-    }
-    .sidebar-fitness {
-        font-size: 0.85rem;
-        color: #666;
-        line-height: 1.5;
-        margin-bottom: 1rem;
-    }
-    .sidebar-weeks {
-        display: inline-block;
-        background: #2d5016;
-        color: white;
-        font-size: 0.72rem;
-        font-weight: 600;
-        letter-spacing: 0.06em;
-        text-transform: uppercase;
-        padding: 0.3rem 0.8rem;
-        border-radius: 20px;
-        margin-bottom: 1rem;
-    }
-
-    /* Hide Streamlit branding */
-    #MainMenu, footer, header { visibility: hidden; }
-
-    /* Button styling */
-    .stButton > button {
-        border-radius: 8px !important;
-        font-size: 0.8rem !important;
-        padding: 0.25rem 0.75rem !important;
-        border: 1px solid #ddd !important;
-        background: white !important;
-        color: #555 !important;
-        font-weight: 500 !important;
-    }
-    .stButton > button:hover {
-        border-color: #2d5016 !important;
-        color: #2d5016 !important;
-    }
-
-    /* Divider subtler */
-    hr { border-color: #f0f0f0 !important; }
-</style>
-"""
-
-
 # ── PAGE CONFIG ─────────────────────────────────────────────────────────────
 
 st.set_page_config(page_title="Coach", page_icon="", layout="centered")
-st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
+ui.inject_global_css()
 
 state = load_state()
 monday = this_monday()
@@ -776,9 +562,10 @@ recent = fetch_recent()
 matched = match_events_activities(events, activities)
 
 if not matched:
-    quote = DELAHAIJE_QUOTES[date.today().timetuple().tm_yday % len(DELAHAIJE_QUOTES)]
-    st.markdown(f"Geen workouts deze week.")
-    st.markdown(f'<div class="coach-quote">"{quote}"</div>', unsafe_allow_html=True)
+    ui.coach_card(
+        "Geen workouts deze week. Plan er een of wacht op het volgende schema.",
+        tone="neutral",
+    )
     st.stop()
 
 # ── TODAY CARD (als we deze week bekijken) ─────────────────────────────────
@@ -798,18 +585,41 @@ if today_event:
     e_type = event.get("type", "")
     sport = "Hardlopen" if e_type == "Run" else "Fietsen"
 
-    feel = get_feel_note(event)
-    feel_html = f'<div class="today-feel">{feel}</div>' if feel else ""
+    # Stats line voor de today hero: duur + TSS target uit het event
+    hero_stats = []
+    target_tss = event.get("load_target")
+    if target_tss:
+        hero_stats.append(f"TSS ~{target_tss:.0f}")
+    # Duur proberen te detecteren uit de naam (bijv. "— 45 min")
+    for part in (e_name or "").lower().replace("min", " ").split():
+        try:
+            dur_min = int(part)
+            if 10 <= dur_min <= 300:
+                hero_stats.insert(0, f"{dur_min} min")
+                break
+        except ValueError:
+            pass
 
-    st.markdown(
-        f'<div class="today-card">'
-        f'<div class="today-label">Vandaag</div>'
-        f'<div class="today-title">{e_name}</div>'
-        f'<div class="today-sport">{sport}</div>'
-        f'{feel_html}'
-        f'</div>',
-        unsafe_allow_html=True
+    ui.today_hero(
+        title=e_name,
+        sport=sport,
+        stats_parts=hero_stats,
+        coach_note=get_feel_note(event),
+        label="Vandaag",
     )
+
+    # Workout structuur — uitklapbaar onder de hero
+    description = event.get("description", "")
+    if description.strip():
+        show_details_key = "show_details_today"
+        col_detail, _ = st.columns([2, 4])
+        with col_detail:
+            label = "Verberg workout ↑" if st.session_state.get(show_details_key) else "Bekijk workout ↓"
+            if st.button(label, key="toggle_details_today"):
+                st.session_state[show_details_key] = not st.session_state.get(show_details_key, False)
+                st.rerun()
+        if st.session_state.get(show_details_key):
+            ui.workout_details(description)
 
     # Sync-knop + Wissel-knop — gebruik de gedeelde TP helper
     tp_enabled = config.get_bool("TP_SYNC_ENABLED", default=False)
@@ -916,31 +726,53 @@ for i, item in enumerate(matched):
         and tp_sync_service.is_syncable_date(e_date)
     )
 
+    # Heeft dit event workout-structuur om te tonen?
+    has_details = bool((event.get("description") or "").strip())
+
     if done or not is_today:
         if done:
-            btn_cols = st.columns([1, 1, 4])
+            # Done row: Coach | Details | Wissel | filler
+            btn_cols = st.columns([1, 1, 1, 3]) if has_details else st.columns([1, 1, 4])
             if btn_cols[0].button("Coach", key=f"fb_{i}"):
                 st.session_state[f"show_fb_{i}"] = not st.session_state.get(f"show_fb_{i}", False)
-            if btn_cols[1].button("Wissel", key=f"swap_{i}"):
+            col_idx = 1
+            if has_details:
+                if btn_cols[col_idx].button("Details", key=f"det_{i}"):
+                    st.session_state[f"show_det_{i}"] = not st.session_state.get(f"show_det_{i}", False)
+                col_idx += 1
+            if btn_cols[col_idx].button("Wissel", key=f"swap_{i}"):
                 st.session_state[f"show_swap_{i}"] = not st.session_state.get(f"show_swap_{i}", False)
         elif not is_today:
             feel = get_feel_note(event)
-            # Layout afhankelijk van welke knoppen er zijn
-            if feel and show_tp_here:
-                btn_cols = st.columns([1, 1, 1, 3])  # Wissel | Feel | TP | filler
-            elif feel or show_tp_here:
-                btn_cols = st.columns([1, 1, 4])     # Wissel | (Feel|TP) | filler
-            else:
-                btn_cols = st.columns([1, 5])        # Wissel | filler
+            # Dynamische kolomberekening: Wissel + Details + (Feel) + (TP)
+            button_count = 1  # Wissel
+            if has_details:
+                button_count += 1
+            if feel:
+                button_count += 1
+            if show_tp_here:
+                button_count += 1
+            # Maak 1-kolom-per-knop met een filler zodat buttons niet te breed worden
+            col_widths = [1] * button_count + [max(1, 5 - button_count)]
+            btn_cols = st.columns(col_widths)
+
             if btn_cols[0].button("Wissel", key=f"swap_{i}"):
                 st.session_state[f"show_swap_{i}"] = not st.session_state.get(f"show_swap_{i}", False)
             col_idx = 1
+            if has_details:
+                if btn_cols[col_idx].button("Details", key=f"det_{i}"):
+                    st.session_state[f"show_det_{i}"] = not st.session_state.get(f"show_det_{i}", False)
+                col_idx += 1
             if feel:
-                if btn_cols[col_idx].button("Hoe voelt dit?", key=f"feel_{i}"):
+                if btn_cols[col_idx].button("Voel", key=f"feel_{i}"):
                     st.session_state[f"show_feel_{i}"] = not st.session_state.get(f"show_feel_{i}", False)
                 col_idx += 1
             if show_tp_here:
                 render_tp_sync_button(event, key_suffix=f"row{i}", container=btn_cols[col_idx])
+
+    # Workout details expand (alleen als toggle aan)
+    if st.session_state.get(f"show_det_{i}") and has_details:
+        ui.workout_details(event.get("description") or "")
 
     # Coach feedback — analytische bericht-stijl
     if st.session_state.get(f"show_fb_{i}"):
@@ -981,14 +813,4 @@ for i, item in enumerate(matched):
             st.session_state[f"show_swap_{i}"] = False
             st.rerun()
 
-# ── FOOTER QUOTE ───────────────────────────────────────────────────────────
-
-quote = DELAHAIJE_QUOTES[date.today().timetuple().tm_yday % len(DELAHAIJE_QUOTES)]
-st.markdown(
-    f'<div style="text-align:center; color:#bbb; font-style:italic; '
-    f'margin-top:3rem; padding:1.5rem 0; font-size:0.82rem; '
-    f'border-top:1px solid #f0f0f0;">'
-    f'"{quote}"<br><span style="font-size:0.7rem; font-style:normal; '
-    f'color:#ccc;">— Louis Delahaije</span></div>',
-    unsafe_allow_html=True
-)
+# Footer is bewust leeg — analytische tone wil geen quote-spam.

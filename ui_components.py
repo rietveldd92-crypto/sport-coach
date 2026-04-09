@@ -20,6 +20,7 @@ Gebruik:
 """
 from __future__ import annotations
 
+import re
 from datetime import date
 from typing import Optional, Literal
 
@@ -30,144 +31,481 @@ import streamlit as st
 
 _GLOBAL_CSS_INJECTED_KEY = "_ui_global_css_injected"
 
-# Placeholder CSS. Fase 1 vervangt dit door de volledige design-taal.
-# Voor nu: hide Streamlit chrome, smalle mobile-first container, basis dark
-# mode met warme accent. Geen Google Fonts nog — komt in Fase 1.
-_GLOBAL_CSS = """
-<style>
-    /* Reset + hide Streamlit chrome */
-    #MainMenu, footer, header { visibility: hidden; }
+# ── DESIGN TOKENS ──────────────────────────────────────────────────────────
+# Één plek om het palet aan te passen. Accent is terracotta #C4603C —
+# bewuste keuze (DECISIONS.md): warmer/ruger dan ember, past bij "30%
+# trainer / 70% coach". Dark mode is default.
+#
+# Tokens staan expliciet in CSS variabelen — het hele design trekt aan
+# deze handles. Als je ooit light mode wilt: body[data-theme="light"]
+# override met nieuwe waardes van dezelfde variabelen.
 
-    /* Mobile-first container: 680px max zoals huidige app */
+_GLOBAL_CSS = """
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<style>
+    :root {
+        /* Base */
+        --bg: #0E0F12;
+        --bg-raised: #17181C;
+        --bg-elevated: #1E1F24;
+        --border: #24262D;
+        --border-strong: #2E3038;
+
+        /* Text */
+        --text: #F4F2EE;
+        --text-muted: #8A8680;
+        --text-dim: #5B5852;
+
+        /* Accent — terracotta */
+        --accent: #C4603C;
+        --accent-hover: #D47049;
+        --accent-bg: rgba(196, 96, 60, 0.08);
+        --accent-border: rgba(196, 96, 60, 0.35);
+
+        /* Status */
+        --positive: #5B8C5A;
+        --positive-bg: rgba(91, 140, 90, 0.1);
+        --warning: #D4A24C;
+        --warning-bg: rgba(212, 162, 76, 0.1);
+        --alert: #B84646;
+        --alert-bg: rgba(184, 70, 70, 0.1);
+
+        /* Type */
+        --font-display: "Fraunces", Georgia, "Times New Roman", serif;
+        --font-body: "Inter", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+        --font-mono: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+    }
+
+    /* Reset + hide Streamlit chrome */
+    #MainMenu, footer, header,
+    [data-testid="stToolbar"],
+    [data-testid="stDecoration"],
+    [data-testid="stStatusWidget"] { display: none !important; }
+
+    /* App background — full dark */
+    .stApp,
+    [data-testid="stAppViewContainer"],
+    [data-testid="stHeader"] {
+        background: var(--bg) !important;
+    }
+    .stApp > header { display: none; }
+
+    /* Mobile-first container */
     .block-container {
         max-width: 680px !important;
-        padding-top: 1.5rem !important;
-        padding-bottom: 4rem !important;
+        padding-top: 1.4rem !important;
+        padding-bottom: 5rem !important;
+        padding-left: 1.1rem !important;
+        padding-right: 1.1rem !important;
     }
 
-    /* Typography baseline — Fase 1 vervangt families */
-    html, body, [class*="css"] {
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
-                     system-ui, sans-serif;
+    /* ── Typography baseline ─────────────────────────────────── */
+    html, body, .stApp, [class*="css"] {
+        font-family: var(--font-body);
+        color: var(--text);
+        font-feature-settings: "tnum" 1, "cv11" 1;
     }
-
-    /* Section header — klein, uppercase, letterspacing */
-    .ui-section-header {
-        font-size: 0.72rem;
-        text-transform: uppercase;
-        letter-spacing: 0.12em;
-        color: #8A8680;
+    .stMarkdown, .stMarkdown p, .stMarkdown li, .stMarkdown span {
+        color: var(--text) !important;
+        font-family: var(--font-body);
+    }
+    h1, h2, h3, h4, h5, h6 {
+        font-family: var(--font-display);
+        color: var(--text) !important;
         font-weight: 600;
-        margin: 1.5rem 0 0.4rem 0;
+        letter-spacing: -0.02em;
+    }
+    p, li, span { line-height: 1.6; }
+    code, pre { font-family: var(--font-mono); }
+
+    /* Tabular numbers waar het telt */
+    .stMetric [data-testid="stMetricValue"],
+    .ui-stat-inline .value,
+    .ui-today-hero .stats,
+    .ui-workout-details { font-variant-numeric: tabular-nums; }
+
+    /* ── Section header ──────────────────────────────────────── */
+    .ui-section-header {
+        font-family: var(--font-body);
+        font-size: 0.68rem;
+        text-transform: uppercase;
+        letter-spacing: 0.14em;
+        color: var(--text-muted);
+        font-weight: 600;
+        margin: 1.6rem 0 0.5rem 0;
     }
 
-    /* Coach card — warme quote styling */
+    /* ── Coach card — warme quote styling ────────────────────── */
     .ui-coach-card {
-        border-left: 3px solid #E56A3E;
-        padding: 0.9rem 1.1rem 0.9rem 1.2rem;
+        border-left: 2px solid var(--accent);
+        padding: 1rem 1.2rem 1rem 1.3rem;
         margin: 0.8rem 0;
-        background: rgba(229, 106, 62, 0.04);
-        border-radius: 0 10px 10px 0;
-        font-size: 0.94rem;
-        line-height: 1.65;
-        color: #2a2a2a;
+        background: var(--accent-bg);
+        border-radius: 0 12px 12px 0;
+        font-family: var(--font-display);
+        font-size: 1rem;
+        line-height: 1.7;
+        color: var(--text);
     }
     .ui-coach-card.tone-positive {
-        border-left-color: #5B8C5A;
-        background: rgba(91, 140, 90, 0.05);
+        border-left-color: var(--positive);
+        background: var(--positive-bg);
     }
     .ui-coach-card.tone-warning {
-        border-left-color: #D4A24C;
-        background: rgba(212, 162, 76, 0.06);
+        border-left-color: var(--warning);
+        background: var(--warning-bg);
     }
     .ui-coach-card.tone-alert {
-        border-left-color: #B84646;
-        background: rgba(184, 70, 70, 0.05);
+        border-left-color: var(--alert);
+        background: var(--alert-bg);
     }
 
-    /* Today hero — grote workout card */
+    /* ── Today hero — grote workout card ─────────────────────── */
     .ui-today-hero {
-        padding: 1.4rem 1.6rem;
-        margin: 0.6rem 0 1.2rem 0;
-        background: linear-gradient(135deg, #fbfaf7 0%, #f5f1ea 100%);
-        border: 1px solid #e8e2d6;
-        border-radius: 18px;
+        padding: 1.6rem 1.8rem 1.4rem 1.8rem;
+        margin: 0.2rem 0 1.4rem 0;
+        background: var(--bg-raised);
+        border: 1px solid var(--border);
+        border-radius: 20px;
+        position: relative;
+        overflow: hidden;
+    }
+    .ui-today-hero::before {
+        content: "";
+        position: absolute;
+        top: 0; left: 0; right: 0;
+        height: 2px;
+        background: linear-gradient(90deg, var(--accent) 0%, transparent 100%);
     }
     .ui-today-hero .label {
-        font-size: 0.7rem;
+        font-size: 0.66rem;
         text-transform: uppercase;
-        letter-spacing: 0.12em;
-        color: #8A8680;
+        letter-spacing: 0.16em;
+        color: var(--accent);
         font-weight: 600;
-        margin-bottom: 0.4rem;
+        margin-bottom: 0.5rem;
     }
     .ui-today-hero .title {
-        font-size: 1.5rem;
-        font-weight: 700;
-        color: #0E0F12;
-        line-height: 1.25;
-        margin-bottom: 0.25rem;
+        font-family: var(--font-display);
+        font-size: 1.75rem;
+        font-weight: 600;
+        color: var(--text);
+        line-height: 1.15;
+        letter-spacing: -0.02em;
+        margin-bottom: 0.4rem;
     }
     .ui-today-hero .stats {
         font-size: 0.82rem;
-        color: #8A8680;
-        margin-bottom: 0.9rem;
+        color: var(--text-muted);
+        margin-bottom: 1rem;
     }
     .ui-today-hero .note {
-        font-size: 0.9rem;
-        color: #3d3b38;
-        line-height: 1.6;
-        padding-top: 0.8rem;
-        border-top: 1px solid rgba(14, 15, 18, 0.08);
+        font-family: var(--font-display);
+        font-size: 0.95rem;
+        color: var(--text);
+        line-height: 1.65;
+        padding-top: 0.9rem;
+        border-top: 1px solid var(--border);
+        font-style: italic;
     }
 
-    /* Day card — één dag in weekview */
+    /* ── Day card — één dag in weekview ──────────────────────── */
     .ui-day-card {
-        padding: 0.85rem 1.1rem;
-        border-radius: 12px;
-        margin: 0.35rem 0;
-        border: 1px solid #f0ede6;
-        background: white;
+        padding: 0.95rem 1.2rem;
+        border-radius: 14px;
+        margin: 0.4rem 0;
+        border: 1px solid var(--border);
+        background: var(--bg-raised);
+        transition: border-color 0.15s ease;
     }
-    .ui-day-card.status-done { opacity: 0.65; }
-    .ui-day-card.status-missed { border-color: rgba(184, 70, 70, 0.25); }
+    .ui-day-card:hover { border-color: var(--border-strong); }
+    .ui-day-card.status-done {
+        opacity: 0.55;
+        background: transparent;
+    }
+    .ui-day-card.status-today {
+        border-color: var(--accent-border);
+        background: var(--accent-bg);
+    }
+    .ui-day-card.status-missed {
+        border-color: rgba(184, 70, 70, 0.3);
+    }
     .ui-day-card .day {
-        font-size: 0.7rem;
+        font-size: 0.66rem;
         text-transform: uppercase;
-        letter-spacing: 0.1em;
-        color: #8A8680;
+        letter-spacing: 0.14em;
+        color: var(--text-muted);
         font-weight: 600;
     }
     .ui-day-card .name {
-        font-size: 0.96rem;
+        font-family: var(--font-display);
+        font-size: 1.02rem;
         font-weight: 600;
-        color: #0E0F12;
-        margin-top: 0.15rem;
+        color: var(--text);
+        margin-top: 0.2rem;
+        letter-spacing: -0.01em;
     }
     .ui-day-card .reason {
-        font-size: 0.8rem;
-        color: #6b6661;
-        margin-top: 0.3rem;
-        line-height: 1.5;
+        font-size: 0.78rem;
+        color: var(--text-muted);
+        margin-top: 0.35rem;
+        line-height: 1.55;
     }
 
-    /* Stat inline — klein grijs tabular */
+    /* ── Workout details — structuur blok ────────────────────── */
+    .ui-workout-details {
+        background: var(--bg-elevated);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 0.9rem 1.1rem;
+        margin: 0.4rem 0 0.6rem 0;
+        font-family: var(--font-mono);
+        font-size: 0.78rem;
+        line-height: 1.75;
+        color: var(--text);
+        white-space: pre-wrap;
+        overflow-x: auto;
+    }
+    .ui-workout-details .wd-section {
+        color: var(--accent);
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        font-size: 0.7rem;
+        margin-top: 0.5rem;
+        margin-bottom: 0.2rem;
+        display: block;
+    }
+    .ui-workout-details .wd-section:first-child { margin-top: 0; }
+    .ui-workout-details .wd-reps {
+        color: var(--warning);
+        font-weight: 600;
+    }
+    .ui-workout-details .wd-step {
+        color: var(--text);
+        padding-left: 0.5rem;
+        display: block;
+    }
+    .ui-workout-details .wd-note {
+        color: var(--text-muted);
+        font-family: var(--font-body);
+        font-style: italic;
+        font-size: 0.78rem;
+        display: block;
+        margin-top: 0.8rem;
+        padding-top: 0.7rem;
+        border-top: 1px dashed var(--border);
+    }
+
+    /* ── Stat inline — klein grijs tabular ───────────────────── */
     .ui-stat-inline {
         display: inline-block;
         font-variant-numeric: tabular-nums;
-        font-size: 0.8rem;
-        color: #8A8680;
-        margin-right: 0.9rem;
+        font-size: 0.78rem;
+        color: var(--text-muted);
+        margin-right: 1rem;
     }
     .ui-stat-inline .label {
         text-transform: uppercase;
-        letter-spacing: 0.08em;
-        font-size: 0.66rem;
-        margin-right: 0.25rem;
+        letter-spacing: 0.1em;
+        font-size: 0.62rem;
+        margin-right: 0.3rem;
+        color: var(--text-dim);
     }
     .ui-stat-inline .value {
-        color: #0E0F12;
+        color: var(--text);
         font-weight: 600;
+    }
+
+    /* ── Sidebar overrides ───────────────────────────────────── */
+    section[data-testid="stSidebar"] {
+        background: var(--bg-raised) !important;
+        border-right: 1px solid var(--border) !important;
+    }
+    section[data-testid="stSidebar"] .block-container {
+        padding-top: 2rem !important;
+    }
+    section[data-testid="stSidebar"] * {
+        color: var(--text);
+    }
+    section[data-testid="stSidebar"] label {
+        color: var(--text-muted) !important;
+    }
+
+    /* ── Button styling — dark, warm hover ──────────────────── */
+    .stButton > button {
+        background: var(--bg-raised) !important;
+        color: var(--text) !important;
+        border: 1px solid var(--border) !important;
+        border-radius: 10px !important;
+        font-family: var(--font-body) !important;
+        font-size: 0.82rem !important;
+        font-weight: 500 !important;
+        padding: 0.4rem 0.9rem !important;
+        transition: all 0.15s ease !important;
+    }
+    .stButton > button:hover {
+        border-color: var(--accent) !important;
+        color: var(--accent) !important;
+        background: var(--accent-bg) !important;
+    }
+    .stButton > button:focus {
+        box-shadow: 0 0 0 2px var(--accent-bg) !important;
+    }
+    .stButton > button[kind="primary"] {
+        background: var(--accent) !important;
+        color: var(--bg) !important;
+        border-color: var(--accent) !important;
+    }
+
+    /* ── Metric styling (sidebar) ────────────────────────────── */
+    [data-testid="stMetric"] { background: transparent; }
+    [data-testid="stMetricLabel"] {
+        color: var(--text-dim) !important;
+        font-size: 0.62rem !important;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+    }
+    [data-testid="stMetricValue"] {
+        color: var(--text) !important;
+        font-family: var(--font-display) !important;
+        font-size: 1.4rem !important;
+        font-weight: 600 !important;
+    }
+
+    /* ── Progress bar — warme accent ────────────────────────── */
+    .stProgress > div > div > div > div {
+        background: var(--accent) !important;
+    }
+    .stProgress > div > div > div {
+        background: var(--border) !important;
+    }
+
+    /* ── Week progress caption ───────────────────────────────── */
+    .week-progress {
+        font-size: 0.74rem;
+        color: var(--text-muted);
+        font-weight: 500;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        margin: 1rem 0 0.4rem 0;
+    }
+
+    /* ── Verberg oude legacy workout-row styling (rest van app) ─ */
+    .workout-row {
+        background: var(--bg-raised);
+        border-radius: 14px;
+        border: 1px solid var(--border);
+        padding: 0.95rem 1.2rem;
+        margin: 0.4rem 0;
+    }
+    .workout-row.is-done { opacity: 0.55; }
+    .workout-row .wr-day {
+        font-size: 0.66rem;
+        text-transform: uppercase;
+        letter-spacing: 0.14em;
+        color: var(--text-muted);
+        font-weight: 600;
+    }
+    .workout-row .wr-name {
+        font-family: var(--font-display);
+        font-size: 1rem;
+        font-weight: 600;
+        color: var(--text);
+        margin-top: 0.15rem;
+    }
+    .workout-row .wr-stats {
+        font-size: 0.74rem;
+        color: var(--text-muted);
+        margin-top: 0.3rem;
+    }
+    .wr-check {
+        display: inline-block;
+        width: 18px; height: 18px;
+        border-radius: 50%;
+        text-align: center;
+        line-height: 18px;
+        font-size: 0.66rem;
+        margin-right: 0.6rem;
+        flex-shrink: 0;
+    }
+    .wr-check.done {
+        background: var(--positive);
+        color: var(--bg);
+    }
+    .wr-check.pending {
+        border: 1.5px solid var(--border-strong);
+        background: transparent;
+    }
+
+    /* Coach feedback card (oude Gemini output) */
+    .coach-feedback {
+        background: var(--bg-elevated);
+        border-radius: 14px;
+        padding: 1.2rem 1.4rem;
+        margin: 0.5rem 0 1rem 0;
+        border: 1px solid var(--border);
+        font-family: var(--font-body);
+        font-size: 0.9rem;
+        line-height: 1.7;
+        color: var(--text);
+    }
+    .coach-feedback .coach-avatar {
+        font-size: 0.66rem;
+        font-weight: 600;
+        color: var(--accent);
+        text-transform: uppercase;
+        letter-spacing: 0.14em;
+        margin-bottom: 0.6rem;
+    }
+
+    /* Feel note pre-workout */
+    .feel-note {
+        background: var(--bg-raised);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 0.8rem 1.1rem;
+        margin: 0.4rem 0 0.6rem 0;
+        font-family: var(--font-display);
+        font-size: 0.88rem;
+        font-style: italic;
+        color: var(--text);
+        line-height: 1.6;
+    }
+
+    /* Divider subtler */
+    hr { border-color: var(--border) !important; }
+
+    /* Sidebar: fase/context tekst */
+    .sidebar-phase {
+        font-family: var(--font-display);
+        font-size: 1.15rem;
+        font-weight: 600;
+        color: var(--text);
+        line-height: 1.35;
+        margin-bottom: 0.4rem;
+        letter-spacing: -0.01em;
+    }
+    .sidebar-fitness {
+        font-size: 0.84rem;
+        color: var(--text-muted);
+        line-height: 1.55;
+        margin-bottom: 1rem;
+    }
+    .sidebar-weeks {
+        display: inline-block;
+        background: var(--accent);
+        color: var(--bg);
+        font-size: 0.68rem;
+        font-weight: 600;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        padding: 0.35rem 0.9rem;
+        border-radius: 20px;
+        margin-bottom: 1.1rem;
     }
 </style>
 """
@@ -286,3 +624,115 @@ def availability_slider_row(day_label: str, key_prefix: str) -> tuple[Optional[i
     """
     # TODO Fase 4: custom pill buttons voor duur + intensiteit
     return (None, None)
+
+
+# ── WORKOUT DETAILS ────────────────────────────────────────────────────────
+
+# Labels die een "section" openen in onze workout-descriptions.
+# Case-insensitive match op regel-start.
+_SECTION_LABELS = {
+    "warmup", "warm up", "warm-up", "opwarming",
+    "main set", "hoofdset", "hoofd set", "main",
+    "cooldown", "cool down", "cool-down", "afkoelen",
+    "rehab", "activatie", "mobiliteit",
+    "neuromusculair", "strides",
+}
+
+# Regex die een herhalingsmarker herkent: "4x", "3 x", "5×"
+_REPS_RE = re.compile(r"^\s*(\d+)\s*[x×]\s*$", re.IGNORECASE)
+
+# Regex voor een step-regel: "- 8m 95% 85rpm" of "• 5m ramp 45-65%"
+_STEP_RE = re.compile(r"^\s*[-•·]\s+(.+)$")
+
+
+def _parse_workout_description(description: str) -> list[tuple[str, str]]:
+    """Parse een workout description naar (kind, text) tuples.
+
+    Kind is een van: section, reps, step, note, blank.
+    Laat onbekende regels als 'note' doorvallen zodat niks verloren gaat.
+    """
+    out: list[tuple[str, str]] = []
+    if not description:
+        return out
+
+    for raw_line in description.splitlines():
+        line = raw_line.rstrip()
+        if not line.strip():
+            out.append(("blank", ""))
+            continue
+
+        # Section header? (exact match, case-insensitive, evt met ":")
+        stripped = line.strip().rstrip(":").lower()
+        if stripped in _SECTION_LABELS:
+            out.append(("section", line.strip().rstrip(":")))
+            continue
+
+        # Reps marker?
+        reps_match = _REPS_RE.match(line)
+        if reps_match:
+            out.append(("reps", f"{reps_match.group(1)}×"))
+            continue
+
+        # Step (begint met - of •)
+        step_match = _STEP_RE.match(line)
+        if step_match:
+            out.append(("step", step_match.group(1)))
+            continue
+
+        # Alles anders = coach commentaar / note
+        out.append(("note", line.strip()))
+
+    return out
+
+
+def workout_details(description: str) -> None:
+    """Render de workout structuur in een leesbare, getypeerde weergave.
+
+    Parsert de description naar sections (Warmup/Main/Cooldown), rep-
+    markers (4x), steps en notes. Kleurt de delen volgens het palet:
+    accent voor section labels, warning voor rep counts, body voor steps,
+    gedimd italic voor notes.
+    """
+    if not description or not description.strip():
+        return
+
+    parsed = _parse_workout_description(description)
+    if not parsed:
+        return
+
+    # Build HTML
+    parts = ['<div class="ui-workout-details">']
+    in_notes = False  # flip na de eerste niet-step/section/reps note-block
+    last_was_step_like = False
+
+    for kind, text in parsed:
+        if kind == "blank":
+            if last_was_step_like:
+                parts.append("")  # whitespace line
+            continue
+
+        safe = (
+            text.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+        )
+
+        if kind == "section":
+            parts.append(f'<span class="wd-section">{safe}</span>')
+            last_was_step_like = True
+            in_notes = False
+        elif kind == "reps":
+            parts.append(f'<span class="wd-reps">{safe}</span>')
+            last_was_step_like = True
+        elif kind == "step":
+            parts.append(f'<span class="wd-step">• {safe}</span>')
+            last_was_step_like = True
+        elif kind == "note":
+            # Notes aan het einde (na alle steps) krijgen de 'wd-note' stijl;
+            # notes tussendoor krijgen ook muted styling maar inline.
+            parts.append(f'<span class="wd-note">{safe}</span>')
+            last_was_step_like = False
+            in_notes = True
+
+    parts.append("</div>")
+    st.markdown("".join(parts), unsafe_allow_html=True)
