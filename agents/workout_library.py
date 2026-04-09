@@ -1406,23 +1406,28 @@ SWAP_CATEGORIES = {
 }
 
 
-def get_swap_options(event: dict, category: str, ftp: int = 290) -> list[dict]:
+def get_swap_options(event: dict, category: str, ftp: int = 290,
+                      target_tss: float | None = None) -> list[dict]:
     """Geef swap-opties voor een event in een bepaalde categorie.
 
     Args:
         event: Het huidige event
         category: "makkelijker", "vergelijkbaar", "anders", "harder"
         ftp: FTP in watt
+        target_tss: Gewenste TSS voor deze swap. Als meegegeven, wordt de
+            pool gesorteerd op |option.tss - target_tss| zodat opties die
+            het best in het week-TSS-budget passen bovenaan komen. Als
+            None: random volgorde (oude gedrag).
 
     Returns:
-        Lijst van workout dicts, automatisch gesorteerd op beste match
+        Lijst van workout dicts. Top items passen het beste bij target_tss.
     """
     e_type = event.get("type", "")
     e_name = (event.get("name") or "").lower()
     is_bike = e_type in ("Ride", "VirtualRide")
     is_run = e_type == "Run"
 
-    # Detecteer duur
+    # Detecteer duur (voor pools die duur-dependent zijn)
     dur = 45
     for p in e_name.replace("min", " ").split():
         try:
@@ -1509,9 +1514,17 @@ def get_swap_options(event: dict, category: str, ftp: int = 290) -> list[dict]:
 
     # Filter: niet dezelfde als huidige workout
     filtered = [o for o in options if o["naam"].lower() != e_name]
-    # Randomiseer volgorde zodat elke swap-klik een frisse selectie geeft
-    import random as _rnd
-    _rnd.shuffle(filtered)
+
+    if target_tss is not None:
+        # Sorteer op TSS-afstand — opties die het beste in het week-budget
+        # passen komen bovenaan. Het systeem mag langer/korter gaan als
+        # dat helpt om het weekelijkse TSS-target te halen.
+        filtered.sort(key=lambda o: abs((o.get("tss_geschat") or 0) - target_tss))
+    else:
+        # Geen TSS-context: random volgorde (legacy gedrag)
+        import random as _rnd
+        _rnd.shuffle(filtered)
+
     return filtered[:15]
 
 

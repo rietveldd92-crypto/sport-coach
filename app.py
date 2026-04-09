@@ -139,17 +139,48 @@ def get_alternatives(event, category: str = "vergelijkbaar"):
     return lib.get_swap_options(event, category, ftp=290)
 
 
-def perform_instant_swap(event: dict, category: str, ftp: int = 290) -> dict | None:
-    """Pak een random keuze uit de top-3 opties en schrijf meteen naar intervals.icu.
+def compute_ideal_tss(matched: list, current_event_id, weekly_target: float) -> float:
+    """Bereken hoeveel TSS deze ene workout 'idealiter' zou leveren.
+
+    Logica: het weekelijkse TSS-target minus wat al voltooid is minus wat er
+    nog op andere dagen gepland staat. Dat is het gat dat deze ene workout
+    zou moeten vullen om het weekplan rond te krijgen.
+
+    - Te veel TSS al gedaan/gepland → lagere target voor deze swap
+    - Te weinig → hogere target
+    - Clamp [30, 200] om extreme targets te voorkomen bij lege of volle weken.
+    """
+    done_tss = 0.0
+    other_planned_tss = 0.0
+    current_id = str(current_event_id)
+
+    for item in matched:
+        event = item.get("event", {})
+        eid = str(event.get("id", ""))
+
+        if item.get("done") and item.get("activity"):
+            done_tss += item["activity"].get("icu_training_load") or 0
+        elif eid != current_id:
+            # Niet de huidige workout én nog niet voltooid → plan TSS
+            other_planned_tss += event.get("load_target") or 0
+
+    ideal = weekly_target - done_tss - other_planned_tss
+    return max(30.0, min(200.0, ideal))
+
+
+def perform_instant_swap(event: dict, category: str, ftp: int = 290,
+                          ideal_tss: float | None = None) -> dict | None:
+    """Pak de best-passende (op TSS) keuze uit de top opties en schrijf meteen.
+
+    Als `ideal_tss` is meegegeven: library sorteert op TSS-afstand en we
+    pakken random uit top-5 (variatie binnen passende opties).
+
+    Als `ideal_tss` is None: library doet random shuffle en we pakken random
+    uit top-3 (legacy gedrag).
 
     Zet een success flash + undo payload in session_state voor show_swap_flash().
-    Returns het nieuwe workout-dict bij succes, None bij geen opties of fout.
-
-    Waarom top-3 random: de library ranked op "best match", maar altijd #0
-    pakken maakt zelfde categorie-klik voorspelbaar saai. Variëteit uit
-    top-3 houdt het fris zonder slechte swaps te riskeren.
     """
-    options = lib.get_swap_options(event, category, ftp=ftp)
+    options = lib.get_swap_options(event, category, ftp=ftp, target_tss=ideal_tss)
     if not options:
         st.session_state["swap_flash"] = {
             "ok": False, "msg": f"Geen alternatieven gevonden in categorie '{category}'"
@@ -165,7 +196,10 @@ def perform_instant_swap(event: dict, category: str, ftp: int = 290) -> dict | N
         }
         return None
 
-    pick_pool = options[:3]  # top 3
+    # Bij TSS-sorting: variatie uit top-5 passende opties.
+    # Bij random: top-3 zoals voorheen.
+    pool_size = 5 if ideal_tss is not None else 3
+    pick_pool = options[:pool_size]
     chosen = random.choice(pick_pool)
 
     try:
@@ -174,16 +208,28 @@ def perform_instant_swap(event: dict, category: str, ftp: int = 290) -> dict | N
             name=chosen["naam"],
             description=chosen["beschrijving"],
             type=chosen.get("sport", event.get("type")),
+            load_target=chosen.get("tss_geschat"),
         )
-        # Success flash + undo payload
+        # Success flash + undo payload. Toon TSS zodat je ziet hoe het past.
+        new_tss = chosen.get("tss_geschat") or 0
+        orig_tss = event.get("load_target") or 0
+        tss_info = f" ({new_tss:.0f} TSS"
+        if orig_tss:
+            delta = new_tss - orig_tss
+            tss_info += f", {delta:+.0f} vs origineel"
+        if ideal_tss is not None:
+            tss_info += f", week-target {ideal_tss:.0f}"
+        tss_info += ")"
+
         st.session_state["swap_flash"] = {
             "ok": True,
-            "msg": f"→ Gewisseld naar '{chosen['naam']}'",
+            "msg": f"→ Gewisseld naar '{chosen['naam']}'{tss_info}",
             "undo": {
                 "event_id": event["id"],
                 "orig_name": event.get("name", ""),
                 "orig_description": event.get("description", ""),
                 "orig_type": event.get("type", ""),
+                "orig_load_target": event.get("load_target"),
             },
         }
         return chosen
@@ -347,17 +393,19 @@ def show_swap_flash():
     col_msg, col_undo = st.columns([4, 1])
     col_msg.success(flash["msg"])
 
-    # Undo payload bevat: event_id, original name/description/type
+    # Undo payload bevat: event_id, original name/description/type/load_target
     undo = flash.get("undo")
     if undo:
         if col_undo.button("↶ Terug", key=f"undo_swap_{undo['event_id']}"):
             try:
-                api.update_event(
-                    undo["event_id"],
-                    name=undo["orig_name"],
-                    description=undo["orig_description"],
-                    type=undo["orig_type"],
-                )
+                kwargs = {
+                    "name": undo["orig_name"],
+                    "description": undo["orig_description"],
+                    "type": undo["orig_type"],
+                }
+                if undo.get("orig_load_target") is not None:
+                    kwargs["load_target"] = undo["orig_load_target"]
+                api.update_event(undo["event_id"], **kwargs)
                 st.cache_data.clear()
                 st.session_state["swap_flash"] = {
                     "ok": True,
@@ -751,9 +799,15 @@ if today_event:
     if st.session_state.get("show_swap_today"):
         st.caption("Wissel naar...")
         cat_cols = st.columns(len(lib.SWAP_CATEGORIES) + 1)
+        # Bereken wat deze workout idealiter nog aan TSS moet leveren om het
+        # weekelijkse target te halen. Swap-pool wordt dan gesorteerd op
+        # afstand tot dat target.
+        weekly_target = state.get("load", {}).get("weekly_tss_target", 400)
+        ideal_tss = compute_ideal_tss(matched, event.get("id"), weekly_target)
+
         for ci, (cat_id, cat_info) in enumerate(lib.SWAP_CATEGORIES.items()):
             if cat_cols[ci].button(cat_info["label"], key=f"cat_today_{cat_id}"):
-                perform_instant_swap(event, cat_id)
+                perform_instant_swap(event, cat_id, ideal_tss=ideal_tss)
                 st.cache_data.clear()
                 st.session_state["show_swap_today"] = False
                 st.rerun()
@@ -877,9 +931,13 @@ for i, item in enumerate(matched):
     if st.session_state.get(f"show_swap_{i}"):
         st.caption("Wissel naar...")
         cat_cols = st.columns(len(lib.SWAP_CATEGORIES) + 1)
+        # Week-TSS-budget voor deze swap (zie Today card voor uitleg)
+        weekly_target = state.get("load", {}).get("weekly_tss_target", 400)
+        ideal_tss = compute_ideal_tss(matched, event.get("id"), weekly_target)
+
         for ci, (cat_id, cat_info) in enumerate(lib.SWAP_CATEGORIES.items()):
             if cat_cols[ci].button(cat_info["label"], key=f"cat_{i}_{cat_id}"):
-                perform_instant_swap(event, cat_id)
+                perform_instant_swap(event, cat_id, ideal_tss=ideal_tss)
                 st.cache_data.clear()
                 st.session_state[f"show_swap_{i}"] = False
                 st.rerun()
