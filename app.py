@@ -66,8 +66,14 @@ def fetch_week(monday_str: str):
     sunday = monday + timedelta(days=6)
     # resolve=True bundelt workout_doc direct in elk event — nodig voor de
     # TP-sync knop op de Today Card (anders zou die nog een losse fetch
-    # moeten doen per klik).
-    events = api.get_events(monday, sunday, resolve=True)
+    # moeten doen per klik). Fallback voor het geval intervals_client op de
+    # cloud nog een oudere versie is zonder de resolve-parameter.
+    try:
+        events = api.get_events(monday, sunday, resolve=True)
+    except TypeError:
+        # Oude signature zonder resolve — TP sync werkt dan niet vanaf de UI
+        # maar de rest blijft draaien.
+        events = api.get_events(monday, sunday)
     try:
         activities = api.get_activities(start=monday, end=sunday)
     except Exception:
