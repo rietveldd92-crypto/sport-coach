@@ -19,3 +19,8 @@ state.json
 # One-off exploration dumps (scripts/_*.json contain real athlete data).
 # The scripts themselves are kept; their raw outputs are gitignored.
 scripts/_*.json
+
+# SQLite history — contains wellness data, TP sync state, weekly summaries.
+# Schema lives in history_db.py (migrations run at app start).
+history.db
+history.db-*
