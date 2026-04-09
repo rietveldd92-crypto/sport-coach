@@ -479,6 +479,56 @@ _GLOBAL_CSS = """
     /* Divider subtler */
     hr { border-color: var(--border) !important; }
 
+    /* ── Morning check-in ────────────────────────────────── */
+    .ui-checkin {
+        background: var(--bg-raised);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 1.2rem 1.4rem;
+        margin: 0.8rem 0 1.2rem 0;
+    }
+    .ui-checkin .ci-title {
+        font-family: var(--font-display);
+        font-size: 1.05rem;
+        font-weight: 600;
+        color: var(--text);
+        margin-bottom: 0.2rem;
+        letter-spacing: -0.01em;
+    }
+    .ui-checkin .ci-subtitle {
+        font-size: 0.78rem;
+        color: var(--text-muted);
+        margin-bottom: 1rem;
+    }
+
+    /* Slider label styling override voor de check-in */
+    .ui-checkin + div [data-testid="stSlider"] label {
+        font-family: var(--font-body);
+        font-size: 0.78rem !important;
+        color: var(--text-muted) !important;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+    }
+
+    /* ── Data-to-human snippet ───────────────────────────── */
+    .ui-human-line {
+        font-family: var(--font-display);
+        font-size: 0.95rem;
+        color: var(--text);
+        line-height: 1.65;
+        margin: 0.3rem 0 0.6rem 0;
+        font-style: italic;
+    }
+    .ui-human-line .numbers {
+        font-family: var(--font-body);
+        font-style: normal;
+        color: var(--text-muted);
+        font-size: 0.78rem;
+        letter-spacing: 0.02em;
+        display: block;
+        margin-top: 0.2rem;
+    }
+
     /* Sidebar: fase/context tekst */
     .sidebar-phase {
         font-family: var(--font-display);
@@ -683,6 +733,87 @@ def _parse_workout_description(description: str) -> list[tuple[str, str]]:
         out.append(("note", line.strip()))
 
     return out
+
+
+def human_line(sentence: str, numbers: Optional[str] = None) -> None:
+    """Een menselijke zin met optioneel de ruwe getallen klein eronder.
+
+    Voorbeeld: human_line("Je basis groeit gestaag.", "CTL 44 · TSB +3")
+    """
+    num_html = f'<span class="numbers">{numbers}</span>' if numbers else ""
+    st.markdown(
+        f'<div class="ui-human-line">{sentence}{num_html}</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def morning_checkin(
+    existing: Optional[dict] = None,
+    key_prefix: str = "checkin",
+) -> Optional[dict]:
+    """Render de morning check-in (4 sliders) en return de waardes bij submit.
+
+    Args:
+        existing: huidig record uit history_db.get_wellness(today) — wordt
+            gebruikt om de sliders te pre-fillen. None = eerste keer invullen.
+        key_prefix: uniek prefix voor session-state keys.
+
+    Returns:
+        None als er niet is ingevuld/opgeslagen.
+        Dict {sleep_score, energy, soreness, motivation} bij submit.
+    """
+    st.markdown(
+        '<div class="ui-checkin">'
+        '<div class="ci-title">Morning check-in</div>'
+        '<div class="ci-subtitle">Hoe voel je je vandaag? 30 sec, stuurt je training aan.</div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+    defaults = existing or {}
+    sleep = st.slider(
+        "Slaap",
+        min_value=1, max_value=5,
+        value=int(defaults.get("sleep_score") or 3),
+        key=f"{key_prefix}_sleep",
+        help="1 = slecht geslapen, 5 = diep en lang",
+    )
+    energy = st.slider(
+        "Energie",
+        min_value=1, max_value=5,
+        value=int(defaults.get("energy") or 3),
+        key=f"{key_prefix}_energy",
+        help="1 = leeg, 5 = bruisend",
+    )
+    soreness = st.slider(
+        "Spierpijn (omgekeerd: 5 = geen pijn)",
+        min_value=1, max_value=5,
+        value=int(defaults.get("soreness") or 3),
+        key=f"{key_prefix}_soreness",
+        help="1 = overal pijn, 5 = fris en ontspannen",
+    )
+    motivation = st.slider(
+        "Motivatie",
+        min_value=1, max_value=5,
+        value=int(defaults.get("motivation") or 3),
+        key=f"{key_prefix}_motivation",
+        help="1 = geen zin, 5 = ik wil NU trainen",
+    )
+
+    col_save, col_skip = st.columns([2, 1])
+    submitted = col_save.button(
+        "Opslaan", key=f"{key_prefix}_save", use_container_width=True
+    )
+    col_skip.button("Later", key=f"{key_prefix}_skip")
+
+    if submitted:
+        return {
+            "sleep_score": sleep,
+            "energy": energy,
+            "soreness": soreness,
+            "motivation": motivation,
+        }
+    return None
 
 
 def workout_details(description: str) -> None:

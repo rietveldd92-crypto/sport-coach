@@ -19,12 +19,17 @@ load_dotenv()
 sys.path.insert(0, str(Path(__file__).parent))
 import intervals_client as api
 import config
+import history_db
 import tp_sync_service
 import ui_components as ui
 from agents import workout_library as lib
 from agents import feedback_engine
 from agents.workout_feel import get_feel_note
 from trainingpeaks_errors import TPAPIError, TPAuthError, TPConversionError
+
+# Zorg dat de history-db migraties zijn toegepast (idempotent).
+# Dit moet één keer per app-run gebeuren, vóór de eerste query.
+history_db.ensure_migrations()
 
 STATE_PATH = Path(__file__).parent / "state.json"
 
@@ -334,6 +339,20 @@ def ctl_to_human(ctl: float) -> str:
         return "Topfitness. Je bent klaar voor de marathon."
 
 
+def tsb_to_human(tsb: float) -> str:
+    """Vertaal TSB (form) naar menselijke taal."""
+    if tsb < -20:
+        return "Diep vermoeid. Dit is opbouw-territorium."
+    elif tsb < -10:
+        return "Licht vermoeid. Normaal voor een opbouwweek."
+    elif tsb < 0:
+        return "Redelijk hersteld. Kwaliteit mag je aan."
+    elif tsb < 10:
+        return "Fris en klaar. Goede dag voor een harde sessie."
+    else:
+        return "Piek-fris. Je bent getapered of rustig geweest."
+
+
 # ── TP SYNC BUTTON HELPER ───────────────────────────────────────────────────
 
 def render_tp_sync_button(event: dict, key_suffix: str, container=None):
@@ -407,10 +426,8 @@ def show_tp_flash():
     """Render de TP-sync flash message als die er is (overleeft één rerun)."""
     flash = st.session_state.pop("tp_sync_flash", None)
     if flash:
-        if flash["ok"]:
-            st.success(flash["msg"])
-        else:
-            st.error(flash["msg"])
+        tone = "positive" if flash["ok"] else "alert"
+        ui.coach_card(flash["msg"], tone=tone)
 
 
 def show_swap_flash():
@@ -420,12 +437,13 @@ def show_swap_flash():
         return
 
     if not flash.get("ok"):
-        st.error(flash["msg"])
+        ui.coach_card(flash["msg"], tone="alert")
         return
 
-    # Success — toon banner met "undo"
+    # Success — toon coach_card met undo-knop ernaast
     col_msg, col_undo = st.columns([4, 1])
-    col_msg.success(flash["msg"])
+    with col_msg:
+        ui.coach_card(flash["msg"], tone="positive")
 
     # Undo payload bevat: event_id, original name/description/type/load_target
     undo = flash.get("undo")
@@ -516,8 +534,9 @@ with st.sidebar:
     phase_label = phase_to_human(phase, weeks_left)
     # Split de fase-zin (voor de punt) van het "Nog X weken" deel (dat staat al hierboven)
     phase_main = phase_label.split(". Nog")[0]
+    tsb = state.get("load", {}).get("tsb_estimate", 0)
     st.markdown(f'<div class="sidebar-phase">{phase_main}</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="sidebar-fitness">{ctl_to_human(ctl)}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="sidebar-fitness">{ctl_to_human(ctl)}<br>{tsb_to_human(tsb)}</div>', unsafe_allow_html=True)
 
     st.markdown("")  # spacing
     week_offset = st.slider("Week", -4, 8, 0, label_visibility="collapsed")
@@ -568,9 +587,59 @@ if not matched:
     )
     st.stop()
 
-# ── TODAY CARD (als we deze week bekijken) ─────────────────────────────────
+# ── MORNING CHECK-IN (alleen bij deze week) ────────────────────────────────
 
 today_str = date.today().isoformat()
+today_date = date.today()
+
+checkin_existing = None
+checkin_score = None
+if week_offset == 0:
+    checkin_existing = history_db.get_wellness(today_date)
+    checkin_score = history_db.morning_checkin_score(today_date)
+
+# Toon check-in form alleen als niet voltooid vandaag EN we deze week bekijken
+if week_offset == 0 and not checkin_existing:
+    result = ui.morning_checkin(existing=None, key_prefix="checkin_main")
+    if result is not None:
+        history_db.record_wellness(
+            today_date,
+            sleep_score=result["sleep_score"],
+            energy=result["energy"],
+            soreness=result["soreness"],
+            motivation=result["motivation"],
+        )
+        st.rerun()
+
+# Al ingevuld: korte bevestigingsregel met de score + optie om te wijzigen
+elif week_offset == 0 and checkin_existing and checkin_score is not None:
+    # Compacte bevestiging — geen full form
+    score_text = f"Check-in vandaag: {checkin_score:.1f}/5"
+    if checkin_score < 3:
+        ui.coach_card(
+            f"{score_text}. Je lichaam geeft aan dat het wat minder gaat vandaag. "
+            "Overweeg de training rustiger te maken — klik 'Wissel → Rustiger' op je workout.",
+            tone="warning",
+            title="Signaal van vandaag",
+        )
+    elif checkin_score >= 4.5:
+        ui.coach_card(
+            f"{score_text}. Alles groen — een goed moment om een kwaliteitssessie "
+            "aan te pakken als dat in je plan past.",
+            tone="positive",
+            title="Groen licht",
+        )
+    else:
+        # Stille bevestiging, geen card
+        st.markdown(
+            f'<div style="color: var(--text-dim); font-size: 0.78rem; '
+            f'text-align: right; margin: -0.4rem 0 0.8rem 0;">'
+            f'✓ {score_text}</div>',
+            unsafe_allow_html=True,
+        )
+
+# ── TODAY CARD (als we deze week bekijken) ─────────────────────────────────
+
 today_event = None
 if week_offset == 0:
     for item in matched:
