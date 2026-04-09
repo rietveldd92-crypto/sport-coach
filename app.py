@@ -210,34 +210,65 @@ def perform_instant_swap(event: dict, category: str, ftp: int = 290,
             type=chosen.get("sport", event.get("type")),
             load_target=chosen.get("tss_geschat"),
         )
-        # Success flash + undo payload. Toon TSS zodat je ziet hoe het past.
-        new_tss = chosen.get("tss_geschat") or 0
-        orig_tss = event.get("load_target") or 0
-        tss_info = f" ({new_tss:.0f} TSS"
-        if orig_tss:
-            delta = new_tss - orig_tss
-            tss_info += f", {delta:+.0f} vs origineel"
-        if ideal_tss is not None:
-            tss_info += f", week-target {ideal_tss:.0f}"
-        tss_info += ")"
-
-        st.session_state["swap_flash"] = {
-            "ok": True,
-            "msg": f"→ Gewisseld naar '{chosen['naam']}'{tss_info}",
-            "undo": {
-                "event_id": event["id"],
-                "orig_name": event.get("name", ""),
-                "orig_description": event.get("description", ""),
-                "orig_type": event.get("type", ""),
-                "orig_load_target": event.get("load_target"),
-            },
-        }
-        return chosen
     except Exception as exc:
         st.session_state["swap_flash"] = {
             "ok": False, "msg": f"Swap mislukt: {exc}"
         }
         return None
+
+    # --- TP swap-propagatie ---
+    # Als deze workout al gesynced was naar TP (en Zwift), moet de nieuwe
+    # versie daar ook komen. is_synced() check is goedkoop; alleen als
+    # die hit doet propagate_swap_if_synced het echte delete+post werk.
+    tp_propagation_msg = ""
+    if config.get_bool("TP_SYNC_ENABLED", default=False) and tp_sync_service.is_synced(event.get("id")):
+        try:
+            # Fresh event fetchen met workout_doc voor de converter
+            def _fetch_fresh():
+                start = date.fromisoformat((event.get("start_date_local") or "")[:10])
+                events_new = api.get_events(start, start, resolve=True)
+                for ev in events_new:
+                    if str(ev.get("id")) == str(event.get("id")):
+                        return ev
+                return None
+
+            result = tp_sync_service.propagate_swap_if_synced(
+                event,
+                _fetch_fresh,
+                config.get_secret("TP_AUTH_COOKIE") or "",
+            )
+            if result and result.get("replaced"):
+                tp_propagation_msg = " · ✅ ook in TP ververst"
+        except TPAuthError as exc:
+            tp_propagation_msg = f" · ⚠ TP niet ververst: cookie verlopen"
+        except TPConversionError as exc:
+            tp_propagation_msg = f" · ⚠ TP niet ververst: {exc}"
+        except TPAPIError as exc:
+            tp_propagation_msg = f" · ⚠ TP niet ververst: {exc}"
+
+    # Success flash + undo payload. Toon TSS zodat je ziet hoe het past.
+    new_tss = chosen.get("tss_geschat") or 0
+    orig_tss = event.get("load_target") or 0
+    tss_info = f" ({new_tss:.0f} TSS"
+    if orig_tss:
+        delta = new_tss - orig_tss
+        tss_info += f", {delta:+.0f} vs origineel"
+    if ideal_tss is not None:
+        tss_info += f", week-target {ideal_tss:.0f}"
+    tss_info += ")"
+
+    st.session_state["swap_flash"] = {
+        "ok": True,
+        "msg": f"→ Gewisseld naar '{chosen['naam']}'{tss_info}{tp_propagation_msg}",
+        "undo": {
+            "event_id": event["id"],
+            "orig_name": event.get("name", ""),
+            "orig_description": event.get("description", ""),
+            "orig_type": event.get("type", ""),
+            "orig_load_target": event.get("load_target"),
+        },
+    }
+    return chosen
 
 
 def check_week_quality(matched_events: list, swap_event_id: str = None, swap_to: dict = None) -> dict:
@@ -310,16 +341,13 @@ def render_tp_sync_button(event: dict, key_suffix: str, container=None):
     Toont niets als:
     - feature-flag `TP_SYNC_ENABLED` uit staat
     - sport wordt niet ondersteund
+    - workout-datum is NIET vandaag of morgen (zie DECISIONS.md — de
+      atleet syncd alleen op de dag zelf om Zwift te laden)
 
     Toont "✅ TP" label als event al gesynced is (volgens state.json).
-    Anders: "→ TP" knop die tp_sync_service.sync_event() triggert, met
-    double-submit guard en exception-handling die via session_state in
-    een flash-message eindigt.
+    Anders: "→ TP" knop die tp_sync_service.sync_event() triggert.
 
-    `container` is optioneel — als meegegeven wordt de knop in die column/container gerenderd,
-    anders inline.
-
-    Returns True als de knop werd getoond (voor caller om layout te kunnen beslissen).
+    Returns True als er iets werd gerenderd (knop of check).
     """
     tp_enabled = config.get_bool("TP_SYNC_ENABLED", default=False)
     if not tp_enabled:
@@ -327,6 +355,11 @@ def render_tp_sync_button(event: dict, key_suffix: str, container=None):
 
     e_type = event.get("type", "?")
     if e_type not in tp_sync_service.SUPPORTED_SPORTS:
+        return False
+
+    # Constraint: alleen vandaag/morgen sync-knop tonen.
+    event_date = (event.get("start_date_local") or "")[:10]
+    if not tp_sync_service.is_syncable_date(event_date):
         return False
 
     event_id = str(event.get("id", ""))
@@ -872,12 +905,15 @@ for i, item in enumerate(matched):
     )
 
     # Action buttons — compact, inline
-    # TP-sync is relevant voor NOT-done workouts behalve today (die staat al op de Today card)
+    # TP-sync knop verschijnt alleen op workouts van morgen. Vandaag staat
+    # al op de Today-card. Gister/verder in de toekomst komt geen knop —
+    # zie DECISIONS.md (atleet syncd primair voor Zwift op de dag zelf).
     show_tp_here = (
         not done
         and not is_today
         and config.get_bool("TP_SYNC_ENABLED", default=False)
         and e_type in tp_sync_service.SUPPORTED_SPORTS
+        and tp_sync_service.is_syncable_date(e_date)
     )
 
     if done or not is_today:

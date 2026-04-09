@@ -29,6 +29,7 @@ BASE_URL = "https://tpapi.trainingpeaks.com"
 TOKEN_PATH = "/users/v3/token"
 USER_PATH = "/users/v3/user"
 CREATE_WORKOUT_PATH = "/fitness/v6/athletes/{user_id}/workouts"
+DELETE_WORKOUT_PATH = "/fitness/v6/athletes/{user_id}/workouts/{workout_id}"
 
 DEFAULT_TIMEOUT = 15  # seconds — TP's undocumented API can be slow
 
@@ -225,3 +226,44 @@ def create_workout(
     except ValueError:
         # Some TP endpoints return empty body on 201; treat that as OK.
         return {"status_code": response.status_code}
+
+
+def delete_workout(
+    token: str,
+    user_id: int,
+    workout_id: int,
+    timeout: int = DEFAULT_TIMEOUT,
+) -> None:
+    """Delete a planned workout from the user's TrainingPeaks calendar.
+
+    Used by the swap-propagation flow: when a lokaal workout wordt geswapt
+    en de oude versie stond al in TP, eerst oude weg, dan nieuwe push.
+
+    Args:
+        token: Bearer token from exchange_cookie_for_token().
+        user_id: athleteId from get_user_id().
+        workout_id: TP workoutId (int) — dat kregen we terug bij create.
+
+    Raises:
+        TPAuthError on 401/403.
+        TPAPIError on any other non-2xx or network failure.
+        Geen exception bij 404 (al weg = idempotent). Dat is belangrijk:
+        als een vorige retry de delete al deed maar de post faalde, moet
+        de volgende retry niet exploderen op "already gone".
+    """
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/json",
+    }
+    url = f"{BASE_URL}{DELETE_WORKOUT_PATH.format(user_id=user_id, workout_id=workout_id)}"
+    try:
+        response = requests.delete(url, headers=headers, timeout=timeout)
+    except requests.Timeout as exc:
+        raise TPAPIError(f"Delete workout timed out after {timeout}s") from exc
+    except requests.RequestException as exc:
+        raise TPAPIError(f"Delete workout network error: {exc}") from exc
+
+    # 404 = al weg, dat is OK (idempotent)
+    if response.status_code == 404:
+        return
+    _raise_for_status(response, "delete workout")

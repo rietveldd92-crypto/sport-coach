@@ -15,7 +15,7 @@ Centraliseert drie dingen die de UI anders zelf zou moeten weten:
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +29,28 @@ SYNC_LOG_KEY = "tp_sync_log"
 # Sporten die we aankunnen. De UI moet de sync-knop voor andere sporten
 # verbergen — dit is een vangnet voor als er toch iets doorlekt.
 SUPPORTED_SPORTS = {"Run", "Ride", "VirtualRide"}
+
+
+def is_syncable_date(event_date: date | str, today: date | None = None) -> bool:
+    """Is deze event-datum geldig om NU handmatig te syncen naar TP?
+
+    Regels (zie DECISIONS.md):
+    - De atleet gebruikt TP primair als Zwift-target en drukt op de dag
+      zelf op sync. 's Avonds de dag ervoor klaarzetten mag ook.
+    - Gister is te laat (workout is al over).
+    - Over 2+ dagen is te vroeg (plan kan nog schuiven).
+
+    Returns True als event_date in {vandaag, morgen} in lokale tijd.
+    """
+    if today is None:
+        today = date.today()
+    if isinstance(event_date, str):
+        try:
+            event_date = date.fromisoformat(event_date[:10])
+        except (ValueError, TypeError):
+            return False
+    tomorrow = today + timedelta(days=1)
+    return event_date in (today, tomorrow)
 
 
 # ---------------------------------------------------------------------------
@@ -112,6 +134,8 @@ def sync_event(
     event: dict[str, Any],
     cookie: str,
     state_file: Path = STATE_PATH,
+    *,
+    allow_replace: bool = False,
 ) -> dict[str, Any]:
     """Convert + push one intervals.icu event and record it in the sync log.
 
@@ -119,9 +143,19 @@ def sync_event(
     get_events with ``resolve=True``). The sport must be in
     :data:`SUPPORTED_SPORTS`.
 
-    Returns a dict with ``{tp_workout_id, title, workout_day}`` on success.
-    Raises TPConversionError, TPAuthError, or TPAPIError on failure —
-    the UI should catch those and render them in ``st.error``.
+    Args:
+        event: intervals.icu event met workout_doc.
+        cookie: TP auth cookie.
+        state_file: pad naar state.json (override voor tests).
+        allow_replace: als True en het event is al gesynced, wordt de
+            oude TP workout EERST verwijderd en daarna de nieuwe gepost
+            (swap-propagatie). Default False → TPConversionError bij
+            dubbele sync.
+
+    Returns a dict met ``{tp_workout_id, title, workout_day, replaced}``.
+    ``replaced`` is True als er een delete+post cyclus is gedaan.
+
+    Raises TPConversionError, TPAuthError, or TPAPIError on failure.
     """
     event_id = str(event.get("id") or "")
     if not event_id:
@@ -140,7 +174,7 @@ def sync_event(
         )
 
     existing = is_synced(event_id, state_file)
-    if existing:
+    if existing and not allow_replace:
         raise TPConversionError(
             f"Workout is al gesynced naar TP "
             f"(workoutId={existing.get('tp_workout_id')})"
@@ -149,7 +183,7 @@ def sync_event(
     # --- Conversion (pure, no network) ---
     conversion = convert(workout_doc, sport)
 
-    # --- Network: cookie → token → user → create workout ---
+    # --- Network: cookie → token → user ---
     token = tpc.exchange_cookie_for_token(cookie)
     user_id = tpc.get_user_id(token)
 
@@ -161,6 +195,25 @@ def sync_event(
     title = event.get("name") or "(untitled)"
     description = event.get("description") or ""
 
+    # --- Swap-propagatie: als er een oude versie in TP stond, eerst weg ---
+    replaced = False
+    if existing and allow_replace:
+        old_tp_id = existing.get("tp_workout_id")
+        if old_tp_id:
+            try:
+                tpc.delete_workout(
+                    token=token,
+                    user_id=user_id,
+                    workout_id=int(old_tp_id),
+                )
+                replaced = True
+            except TPAPIError:
+                # Als delete faalt, wissen we de sync-state niet.
+                # Raise door zodat de UI dit als "sync mislukt, oude staat
+                # er nog" kan tonen — geen lege plek in de kalender.
+                raise
+
+    # --- Post nieuwe workout ---
     response = tpc.create_workout(
         token=token,
         user_id=user_id,
@@ -186,4 +239,52 @@ def sync_event(
         "tp_workout_id": tp_workout_id,
         "title": title,
         "workout_day": workout_day.isoformat(),
+        "replaced": replaced,
     }
+
+
+def propagate_swap_if_synced(
+    old_event: dict[str, Any],
+    new_event_fetch_fn,
+    cookie: str,
+    state_file: Path = STATE_PATH,
+) -> dict[str, Any] | None:
+    """Trigger delete+post in TP als het event al gesynced was.
+
+    Use case: user heeft eerder vandaag op sync-knop gedrukt. Daarna
+    swapt hij lokaal. We willen dat de nieuwe versie in TP/Zwift staat.
+
+    Args:
+        old_event: het event zoals het was VOOR de lokale swap
+            (met de oude naam). Gebruikt om te detecteren of dit event
+            al gesynced was.
+        new_event_fetch_fn: callable() -> dict[str, Any]. Wordt pas
+            aangeroepen als we weten dat er gesynced was. Moet het
+            verse event met workout_doc returnen.
+        cookie: TP auth cookie.
+        state_file: pad naar state.json.
+
+    Returns:
+        - None als er niet gesynced was (niets te doen).
+        - Dict met {tp_workout_id, replaced: True, ...} bij geslaagde
+          propagatie.
+
+    Raises:
+        TPAuthError/TPAPIError/TPConversionError als de propagatie
+        faalt. Caller beslist hoe te tonen.
+    """
+    event_id = str(old_event.get("id") or "")
+    if not event_id:
+        return None
+
+    existing = is_synced(event_id, state_file)
+    if not existing:
+        return None  # was niet gesynced, swap heeft geen TP-consequenties
+
+    new_event = new_event_fetch_fn()
+    if not new_event:
+        raise TPConversionError(
+            "Kan verse event niet ophalen voor swap-propagatie"
+        )
+
+    return sync_event(new_event, cookie, state_file, allow_replace=True)
