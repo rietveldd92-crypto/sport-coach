@@ -29,6 +29,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import intervals_client as api
+import shared
 from agents import feedback_engine
 
 STATE_PATH = Path(__file__).parent / "state.json"
@@ -58,20 +59,7 @@ def _save_feedback_log(log: dict):
 
 def _build_week_matched(events: list, activities: list) -> list:
     """Bouw {event, activity, done}-lijst (matched-formaat van feedback_engine)."""
-    matched = []
-    for ev in events or []:
-        if ev.get("category") != "WORKOUT":
-            continue
-        e_date = ev.get("start_date_local", "")[:10]
-        e_type = ev.get("type", "")
-        act = next(
-            (a for a in activities or []
-             if a.get("start_date_local", "")[:10] == e_date
-             and _types_match(e_type, a.get("type", ""))),
-            None,
-        )
-        matched.append({"event": ev, "activity": act, "done": act is not None})
-    return matched
+    return shared.match_events_activities(events or [], activities or [])
 
 
 def find_new_completed_workouts() -> tuple[list[dict], list, list]:
@@ -126,22 +114,8 @@ def find_new_completed_workouts() -> tuple[list[dict], list, list]:
     return results, events, activities
 
 
-def _types_match(event_type: str, activity_type: str) -> bool:
-    run_types = {"Run"}
-    bike_types = {"Ride", "VirtualRide"}
-    if event_type in run_types and activity_type in run_types:
-        return True
-    if event_type in bike_types and activity_type in bike_types:
-        return True
-    return event_type == activity_type
-
-
-def _load_state() -> dict:
-    try:
-        with open(STATE_PATH) as f:
-            return json.load(f)
-    except Exception:
-        return {}
+_types_match = shared.types_match
+_load_state = shared.load_state
 
 
 def generate_feedback(event: dict, activity: dict, week_matched: list = None) -> str:
@@ -185,7 +159,9 @@ def post_feedback_to_intervals(event: dict, feedback: str, dry_run: bool = False
 
     # Voeg feedback toe aan de beschrijving
     current_desc = event.get("description", "")
-    feedback_block = f"\n\n--- Coach Feedback ---\n{feedback}"
+    # Strip **bold** markdown — intervals.icu rendert geen markdown
+    clean_feedback = feedback.replace("**", "")
+    feedback_block = f"\n\n--- Coach Feedback ---\n{clean_feedback}"
 
     if "--- Coach Feedback ---" in current_desc:
         # Al feedback gegeven, niet dubbel posten

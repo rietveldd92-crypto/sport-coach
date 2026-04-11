@@ -8,7 +8,7 @@ Gebruik:
     python adjust.py "Alles goed, geen klachten"
     python adjust.py --status
 
-Claude (Haiku) interpreteert de tekst en bepaalt:
+Gemini Flash interpreteert de tekst en bepaalt:
 - Welke injury-signalen er zijn
 - Welke sessies aangepast/verwijderd moeten worden
 - Of het weekdoel omhoog/omlaag moet
@@ -25,15 +25,21 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
 import intervals_client as api
+import shared
 from agents import injury_guard, load_manager
 
 STATE_PATH = Path(__file__).parent / "state.json"
 
 try:
-    import anthropic
-    CLAUDE_AVAILABLE = True
+    from google import genai
+    _gemini_key = os.getenv("GOOGLE_API_KEY")
+    if _gemini_key:
+        _gemini_client = genai.Client(api_key=_gemini_key)
+        GEMINI_AVAILABLE = True
+    else:
+        GEMINI_AVAILABLE = False
 except ImportError:
-    CLAUDE_AVAILABLE = False
+    GEMINI_AVAILABLE = False
 
 FEEDBACK_PROMPT = """Je bent de coach-AI van een hardloper die herstelt van een gluteus medius blessure.
 De atleet heeft een doel: sub 40 min op de 10km op 16 juni 2026.
@@ -57,14 +63,8 @@ Wees conservatief: bij twijfel liever minder belasting. Kniepin = altijd directe
 """
 
 
-def _load_state() -> dict:
-    with open(STATE_PATH) as f:
-        return json.load(f)
-
-
-def _save_state(state: dict) -> None:
-    with open(STATE_PATH, "w") as f:
-        json.dump(state, f, indent=4, ensure_ascii=False)
+_load_state = shared.load_state
+_save_state = shared.save_state
 
 
 def _rule_based_parse(feedback: str) -> dict:
@@ -166,19 +166,16 @@ def _rule_based_parse(feedback: str) -> dict:
     }
 
 
-def _claude_parse(feedback: str, current_status: str) -> dict:
-    """Gebruik Claude Haiku om feedback te interpreteren."""
-    client = anthropic.Anthropic()
+def _gemini_parse(feedback: str, current_status: str) -> dict:
+    """Gebruik Gemini Flash om feedback te interpreteren."""
     prompt = FEEDBACK_PROMPT.format(status=current_status, feedback=feedback)
 
-    response = client.messages.create(
-        model="claude-haiku-4-5-20251001",
-        max_tokens=512,
-        messages=[{"role": "user", "content": prompt}]
+    response = _gemini_client.models.generate_content(
+        model="gemini-2.0-flash",
+        contents=prompt,
     )
 
-    text = response.content[0].text.strip()
-    # Extraheer JSON uit de response
+    text = response.text.strip()
     if "```" in text:
         text = text.split("```")[1]
         if text.startswith("json"):
@@ -317,16 +314,16 @@ def main():
     status_str = f"Injury Guard: {ig['status']}, {ig['days_symptom_free']} symptoomvrije dagen."
 
     # Interpreteer feedback
-    if CLAUDE_AVAILABLE and os.getenv("ANTHROPIC_API_KEY"):
+    if GEMINI_AVAILABLE:
         try:
-            parsed = _claude_parse(feedback, status_str)
-            print("  (Claude Haiku analyse)")
+            parsed = _gemini_parse(feedback, status_str)
+            print("  (Gemini Flash analyse)")
         except Exception as e:
-            print(f"  ⚠️  Claude niet bereikbaar ({e}), rule-based analyse.")
+            print(f"  ⚠️  Gemini niet bereikbaar ({e}), rule-based analyse.")
             parsed = _rule_based_parse(feedback)
     else:
         parsed = _rule_based_parse(feedback)
-        print("  (Rule-based analyse — geen ANTHROPIC_API_KEY)")
+        print("  (Rule-based analyse — geen GOOGLE_API_KEY)")
 
     # Toon analyse
     print(f"\n  📊 Analyse:")

@@ -23,6 +23,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import intervals_client as api
+import shared
 from agents import workout_library as lib
 from agents import feedback_engine
 
@@ -120,12 +121,7 @@ def get_recent_activities(days: int = 7) -> list[dict]:
 
 # ── AI FEEDBACK ─────────────────────────────────────────────────────────────
 
-def _load_state() -> dict:
-    try:
-        with open(STATE_PATH) as f:
-            return json.load(f)
-    except Exception:
-        return {}
+_load_state = shared.load_state
 
 
 def _coach_events_to_engine_format(coach_events: list) -> list:

@@ -22,6 +22,7 @@ import config
 import history_db
 import tp_sync_service
 import ui_components as ui
+import shared
 from agents import workout_library as lib
 from agents import feedback_engine
 from agents import load_manager
@@ -34,6 +35,8 @@ history_db.ensure_migrations()
 
 STATE_PATH = Path(__file__).parent / "state.json"
 
+load_state = shared.load_state
+
 
 # ── HELPERS ─────────────────────────────────────────────────────────────────
 
@@ -41,30 +44,10 @@ DAYS_NL = {0: "ma", 1: "di", 2: "wo", 3: "do", 4: "vr", 5: "za", 6: "zo"}
 DAYS_FULL = {0: "Maandag", 1: "Dinsdag", 2: "Woensdag", 3: "Donderdag",
              4: "Vrijdag", 5: "Zaterdag", 6: "Zondag"}
 
-DELAHAIJE_QUOTES = [
-    "Volume triumphs quality all the time!",
-    "Een gelukkige atleet is een snelle atleet.",
-    "Ik ben dertig procent trainer, zeventig procent coach.",
-    "Gelukkige atleten presteren beter.",
-    "Pas wanneer de basis staat, bouw je snelheid en kracht op.",
-    "Don't try to speed it up.",
-    "De mitochondrien maken het niet uit of je ze traint door te fietsen of te lopen.",
-    "Loop 4x10 min zo hard als je kunt, maar de laatste moet net zo snel zijn als de eerste.",
-    "Welzijn staat altijd centraal.",
-]
-
 
 def this_monday():
     today = date.today()
     return today - timedelta(days=today.weekday())
-
-
-def load_state():
-    try:
-        with open(STATE_PATH) as f:
-            return json.load(f)
-    except Exception:
-        return {}
 
 
 @st.cache_data(ttl=120)
@@ -170,31 +153,7 @@ def fetch_wellness_window(days: int = 14):
         return []
 
 
-def match_events_activities(events, activities):
-    result = []
-    for event in events:
-        if event.get("category") != "WORKOUT":
-            continue
-        e_date = event.get("start_date_local", "")[:10]
-        e_type = event.get("type", "")
-        matched = None
-        for act in activities:
-            a_date = act.get("start_date_local", "")[:10]
-            a_type = act.get("type", "")
-            if a_date == e_date and types_match(e_type, a_type):
-                matched = act
-                break
-        result.append({"event": event, "activity": matched, "done": matched is not None})
-    result.sort(key=lambda x: x["event"].get("start_date_local", ""))
-    return result
-
-
-def types_match(et, at):
-    if et in ("Run",) and at in ("Run",):
-        return True
-    if et in ("Ride", "VirtualRide") and at in ("Ride", "VirtualRide"):
-        return True
-    return et == at
+match_events_activities = shared.match_events_activities
 
 
 def get_alternatives(event, category: str = "vergelijkbaar"):
