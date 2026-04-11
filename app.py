@@ -701,11 +701,23 @@ elif week_offset == 0 and checkin_existing and checkin_score is not None:
 
 today_event = None
 if week_offset == 0:
+    # Zoek eerst een niet-voltooid workout voor vandaag
     for item in matched:
+        if item.get("is_note"):
+            continue
         e_date = item["event"].get("start_date_local", "")[:10]
         if e_date == today_str and not item["done"]:
             today_event = item
             break
+    # Als er geen gepland event is, pak de eerste voltooide activiteit van vandaag
+    if not today_event:
+        for item in matched:
+            if item.get("is_note"):
+                continue
+            e_date = item["event"].get("start_date_local", "")[:10]
+            if e_date == today_str and item["done"]:
+                today_event = item
+                break
 
 if today_event:
     event = today_event["event"]
@@ -790,9 +802,11 @@ if today_event:
 
 # ── WEEK PROGRESS ──────────────────────────────────────────────────────────
 
-total_planned = sum(e["event"].get("load_target") or 0 for e in matched)
-total_done = sum((e["activity"].get("icu_training_load") or 0) if e["activity"] else 0 for e in matched)
-done_count = sum(1 for e in matched if e["done"])
+# Filter NOTE events uit de progress telling
+_workout_items = [e for e in matched if not e.get("is_note")]
+total_planned = sum(e["event"].get("load_target") or 0 for e in _workout_items)
+total_done = sum((e["activity"].get("icu_training_load") or 0) if e["activity"] else 0 for e in _workout_items)
+done_count = sum(1 for e in _workout_items if e["done"])
 
 st.markdown(f'<div class="week-progress">{done_count} / {len(matched)} sessies</div>',
             unsafe_allow_html=True)
@@ -809,6 +823,18 @@ for i, item in enumerate(matched):
     event = item["event"]
     activity = item["activity"]
     done = item["done"]
+
+    # NOTE events: compact inline, geen actieknoppen
+    if item.get("is_note"):
+        e_date = event.get("start_date_local", "")[:10]
+        e_name = event.get("name", "?")
+        st.markdown(
+            f'<div style="font-size: 0.72rem; color: var(--text-dim); '
+            f'padding: 0.2rem 0 0.1rem 1.4rem; font-style: italic;">'
+            f'{e_name}</div>',
+            unsafe_allow_html=True,
+        )
+        continue
 
     e_date = event.get("start_date_local", "")[:10]
     weekday_full = DAYS_FULL.get(date.fromisoformat(e_date).weekday(), "?") if e_date else "?"
