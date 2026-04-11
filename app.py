@@ -549,8 +549,10 @@ st.set_page_config(page_title="Coach", page_icon="", layout="centered")
 ui.inject_global_css()
 
 # Auto-recalc CTL/ATL/TSB als er nieuwe activiteiten zijn.
-# Draait vóór load_state() zodat state.json al bijgewerkt is voor de sidebar.
-auto_recalculate_load()
+try:
+    auto_recalculate_load()
+except Exception as e:
+    st.error(f"Auto-recalc fout: {e}")
 
 state = load_state()
 monday = this_monday()
@@ -560,7 +562,7 @@ monday = this_monday()
 with st.sidebar:
     # Menselijke context eerst — dat is wat telt
     ctl = state.get("load", {}).get("ctl_estimate", 0)
-    phase = state.get("current_phase", "herstel_opbouw_I")
+    phase = state.get("current_phase", "accumulatie_I")
     race_date = state.get("race_date", "2026-10-18")
     weeks_left = max(0, (date.fromisoformat(race_date) - date.today()).days // 7)
 
@@ -629,6 +631,26 @@ with st.sidebar:
 
 
 # ── MAIN ───────────────────────────────────────────────────────────────────
+
+# Week navigatie — compact, bovenaan als fallback voor sidebar
+_nav_cols = st.columns([1, 4, 1])
+if _nav_cols[0].button("← vorige", key="nav_prev", use_container_width=True):
+    st.session_state["week_offset_main"] = st.session_state.get("week_offset_main", 0) - 1
+    st.rerun()
+week_offset = st.session_state.get("week_offset_main", week_offset)
+selected_monday = monday + timedelta(weeks=week_offset)
+if week_offset == 0:
+    _nav_cols[1].markdown(
+        f'<div style="text-align:center; color: var(--text-muted); font-size: 0.78rem;">Deze week</div>',
+        unsafe_allow_html=True)
+else:
+    _nav_cols[1].markdown(
+        f'<div style="text-align:center; color: var(--text-muted); font-size: 0.78rem;">'
+        f'{selected_monday.strftime("%d %b")} — {(selected_monday + timedelta(days=6)).strftime("%d %b")}</div>',
+        unsafe_allow_html=True)
+if _nav_cols[2].button("volgende →", key="nav_next", use_container_width=True):
+    st.session_state["week_offset_main"] = st.session_state.get("week_offset_main", 0) + 1
+    st.rerun()
 
 # Flash van auto-recalc (eenmalig na herberekening)
 _recalc_flash = st.session_state.pop("load_recalc_flash", None)
