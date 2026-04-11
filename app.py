@@ -28,6 +28,7 @@ from agents import feedback_engine
 from agents import load_manager
 from agents.workout_feel import get_feel_note
 from trainingpeaks_errors import TPAPIError, TPAuthError, TPConversionError
+import fitness_trend
 
 # Zorg dat de history-db migraties zijn toegepast (idempotent).
 # Dit moet één keer per app-run gebeuren, vóór de eerste query.
@@ -140,6 +141,15 @@ def fetch_recent_28d():
     """Activiteiten van afgelopen 28 dagen — voor 'vergelijkbare workouts'."""
     try:
         return api.get_activities(start=date.today() - timedelta(days=28), end=date.today())
+    except Exception:
+        return []
+
+
+@st.cache_data(ttl=600)
+def fetch_activities_120d():
+    """Activiteiten van afgelopen 120 dagen — voor CTL curve."""
+    try:
+        return api.get_activities(start=date.today() - timedelta(days=120), end=date.today())
     except Exception:
         return []
 
@@ -916,5 +926,188 @@ for i, item in enumerate(matched):
         if cat_cols[-1].button("✕", key=f"cancel_swap_{i}", use_container_width=True):
             st.session_state[f"show_swap_{i}"] = False
             st.rerun()
+
+# ── FITNESS TREND (CTL curve) ─────────────────────────────────────────────
+
+if week_offset == 0:
+    ui.section_header("Fitness trend")
+
+    activities_120d = fetch_activities_120d()
+    if activities_120d:
+        import altair as alt
+        import pandas as pd
+
+        trend = fitness_trend.calculate_daily_trend(activities_120d, seed_ctl=20, seed_atl=20)
+
+        if trend:
+            # Projectie: huidige CTL + huidig weekdoel → tot racedag
+            current_ctl = trend[-1]["ctl"]
+            weekly_target = state.get("load", {}).get("weekly_tss_target", 350)
+            race_date_str = state.get("race_date", "2026-10-18")
+            race_dt = date.fromisoformat(race_date_str)
+            weeks_left = max(0, (race_dt - date.today()).days // 7)
+
+            projection = fitness_trend.project_ctl(current_ctl, weekly_target, weeks_left)
+
+            # DataFrame voor chart
+            df = pd.DataFrame(trend)
+            df["date"] = pd.to_datetime(df["date"])
+
+            # CTL lijn
+            ctl_line = alt.Chart(df).mark_line(
+                color="#C4603C", strokeWidth=2
+            ).encode(
+                x=alt.X("date:T", title=None, axis=alt.Axis(format="%d %b", labelColor="#8A8680", gridColor="#24262D")),
+                y=alt.Y("ctl:Q", title="CTL", scale=alt.Scale(zero=False), axis=alt.Axis(labelColor="#8A8680", gridColor="#24262D")),
+            )
+
+            # TSB area (achtergrond)
+            tsb_area = alt.Chart(df).mark_area(
+                opacity=0.15, color="#5B8C5A"
+            ).encode(
+                x="date:T",
+                y=alt.Y("tsb:Q", title=None),
+            )
+
+            # Projectie lijn (stippel)
+            if projection:
+                df_proj = pd.DataFrame(projection)
+                df_proj["date"] = pd.to_datetime(df_proj["date"])
+                proj_line = alt.Chart(df_proj).mark_line(
+                    color="#C4603C", strokeWidth=1.5, strokeDash=[6, 4]
+                ).encode(
+                    x="date:T",
+                    y="ctl:Q",
+                )
+
+                # Race target zone (CTL 65-80)
+                race_target = alt.Chart(df_proj).mark_area(
+                    opacity=0.08, color="#C4603C"
+                ).encode(
+                    x="date:T",
+                    y=alt.Y("y1:Q", title=None),
+                    y2="y2:Q",
+                ).transform_calculate(
+                    y1="65", y2="80"
+                )
+            else:
+                proj_line = alt.Chart(pd.DataFrame()).mark_point()
+                race_target = alt.Chart(pd.DataFrame()).mark_point()
+
+            chart = (ctl_line + proj_line + race_target).properties(
+                height=200,
+            ).configure(
+                background="#0E0F12",
+            ).configure_view(
+                strokeWidth=0,
+            )
+
+            st.altair_chart(chart, use_container_width=True)
+
+            # Compacte human-readable samenvatting
+            if projection:
+                race_ctl = projection[-1]["ctl"]
+                ui.human_line(
+                    f"Als je zo doorgaat, zit je op CTL {race_ctl:.0f} op racedag.",
+                    f"Nu {current_ctl:.0f} · target 65–80 · {weeks_left} weken",
+                )
+
+# ── KWALITEITSTRAINING HERSCHIKKEN ────────────────────────────────────────
+
+if week_offset == 0:
+    today_date_val = date.today()
+    quality_keywords = {"threshold", "sweetspot", "over-under", "tempo", "interval",
+                        "vo2max", "tabata", "race sim"}
+
+    # Vind gemiste kwaliteitssessies (datum verstreken, niet voltooid)
+    missed_quality = []
+    for item in matched:
+        if item["done"]:
+            continue
+        ev = item["event"]
+        e_date = (ev.get("start_date_local") or "")[:10]
+        if not e_date:
+            continue
+        try:
+            ev_date = date.fromisoformat(e_date)
+        except ValueError:
+            continue
+        if ev_date >= today_date_val:
+            continue
+        e_name = (ev.get("name") or "").lower()
+        if any(q in e_name for q in quality_keywords):
+            missed_quality.append(item)
+
+    # Vind swappable Z2/easy dagen later deze week
+    swappable_days = []
+    easy_keywords = {"z2", "easy", "recovery", "herstel", "rustig", "duurloop", "endurance spin"}
+    for item in matched:
+        if item["done"]:
+            continue
+        ev = item["event"]
+        e_date = (ev.get("start_date_local") or "")[:10]
+        if not e_date:
+            continue
+        try:
+            ev_date = date.fromisoformat(e_date)
+        except ValueError:
+            continue
+        if ev_date <= today_date_val:
+            continue
+        e_name = (ev.get("name") or "").lower()
+        if any(q in e_name for q in easy_keywords):
+            # Check: niet de dag na een al geplande harde sessie
+            day_before = ev_date - timedelta(days=1)
+            hard_day_before = any(
+                date.fromisoformat((m["event"].get("start_date_local") or "")[:10]) == day_before
+                and any(q in (m["event"].get("name") or "").lower() for q in quality_keywords)
+                and not m["done"]
+                for m in matched
+                if (m["event"].get("start_date_local") or "")[:10]
+            )
+            if not hard_day_before:
+                swappable_days.append(item)
+
+    # Toon suggestie als er een match is
+    if missed_quality and swappable_days:
+        missed_ev = missed_quality[0]["event"]
+        swap_ev = swappable_days[0]["event"]
+        missed_name = missed_ev.get("name", "?")
+        missed_date = (missed_ev.get("start_date_local") or "")[:10]
+        swap_name = swap_ev.get("name", "?")
+        swap_date = (swap_ev.get("start_date_local") or "")[:10]
+        swap_day = DAYS_FULL.get(date.fromisoformat(swap_date).weekday(), swap_date)
+
+        ui.coach_card(
+            f"Je hebt <b>{missed_name}</b> gemist op {missed_date}. "
+            f"{swap_day} staat <b>{swap_name}</b> gepland — "
+            f"wil je die swappen voor de kwaliteitssessie?",
+            tone="warning",
+            title="Kwaliteitstraining beschermen",
+        )
+
+        reschedule_key = f"reschedule_{missed_ev.get('id')}_{swap_ev.get('id')}"
+        col_yes, col_no, _ = st.columns([1, 1, 4])
+        if col_yes.button("Ja, swap", key=reschedule_key):
+            try:
+                api.update_event(
+                    swap_ev["id"],
+                    name=missed_name,
+                    description=missed_ev.get("description", ""),
+                    type=missed_ev.get("type", swap_ev.get("type")),
+                    load_target=missed_ev.get("load_target"),
+                )
+                st.cache_data.clear()
+                st.session_state["swap_flash"] = {
+                    "ok": True,
+                    "msg": f"Kwaliteitstraining verplaatst naar {swap_day}: {missed_name}",
+                }
+                st.rerun()
+            except Exception as exc:
+                st.session_state["swap_flash"] = {
+                    "ok": False, "msg": f"Swap mislukt: {exc}",
+                }
+                st.rerun()
+        col_no.button("Nee, laat maar", key=f"skip_{reschedule_key}")
 
 # Footer is bewust leeg — analytische tone wil geen quote-spam.
