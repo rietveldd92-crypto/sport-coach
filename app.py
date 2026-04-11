@@ -338,14 +338,20 @@ def check_week_quality(matched_events: list, swap_event_id: str = None, swap_to:
 def phase_to_human(phase: str, weeks_to_race: int) -> str:
     """Vertaal fase-code naar menselijke taal."""
     labels = {
+        # Delahaije blokperiodisering
+        "accumulatie_I": "Accumulatie — aerobe basis opbouwen",
+        "accumulatie_II": "Accumulatie — volume en tempoduur",
+        "transformatie_I": "Transformatie — scherpte erbij",
+        "accumulatie_III": "Accumulatie — piekvolume",
+        "transformatie_II": "Transformatie — race-specifiek",
+        "realisatie": "Realisatie — vertrouw op het werk",
+        # Legacy
         "herstel_opbouw_I": "We bouwen je fundament op",
-        "herstel_opbouw_II": "De basis wordt sterker",
-        "opbouw_I": "Volume groeit, de motor draait",
         "opbouw_II": "Stevige opbouw richting specifiek werk",
-        "specifiek_I": "Marathonspecifiek — hier word je snel",
-        "specifiek_II": "Piekbelasting, je bent bijna klaar",
-        "taper": "Afbouw — vertrouw op het werk dat gedaan is",
-        "race": "Race week. Dit is jouw moment.",
+        "algemene_basis": "Volume groeit, de motor draait",
+        "specifieke_opbouw": "Marathonspecifiek — hier word je snel",
+        "piek_volume": "Piekbelasting, bijna klaar",
+        "afbouw_race": "Afbouw — vertrouw op het werk",
     }
     label = labels.get(phase, phase.replace("_", " ").title())
     return f"{label}. Nog {weeks_to_race} weken."

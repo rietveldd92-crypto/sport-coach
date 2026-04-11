@@ -1,29 +1,27 @@
 """
 Marathon Periodizer — beheerst de langetermijn-fasering voor de Amsterdam Marathon.
 
-Amsterdam Marathon: 18 oktober 2026 (~28 weken vanaf 31 maart 2026)
+Amsterdam Marathon: 18 oktober 2026 (~28 weken vanaf 6 april 2026)
 Atleet: Dylsky (i85836), terugkeer uit gluteus medius blessure.
 
-Fasering gebaseerd op Louis Delahaije filosofie:
-- ~80-90% van looptraining in Z1-Z2 (gepolariseerd model)
-- Crosstraining (fietsen) als primaire blessurepreventiestrategie
-- Eerst aerobe basis bouwen, dan pas specifieke marathonvoorbereiding
-- Lichaamsbewustzijn boven schema: pas tempo aan op gevoel
-- "Gelukkige atleet = snelle atleet"
+Fasering gebaseerd op Louis Delahaije's blokperiodisering (Issurin):
+  Accumulatie → Transformatie → Realisatie, cyclisch herhaald.
+
+Delahaije kernprincipes:
+- Accumulatie = 100% Zone 1. Geen intervallen, geen drempelwerk.
+  Tempoduurloop (85% HRmax) valt NOG STEEDS onder Z1 (onder aerobe drempel).
+- "Volume triumphs quality all the time!" — uren, niet kilometers.
+- 90/10 verdeling (alleen in transformatie): 90% Z1, 10% Z3.
+  Het grijze middengebied (Z2 tussen aerobe en anaerobe drempel) vermijden.
+- Fiets = strategisch voordeel, niet concessie. Match tijd + hartslagzone.
+- Microritme: 3:1:2:1 (3 belasting, 1 licht, 2 belasting, 1 rust).
+- Mesostructuur: 2:1 (blessureherstel) → 3:1 (later).
+- Herstelblokken: 3-4 dagen, niet een volle week.
 
 Fysio-constraint bij start:
 - 3x per week hardlopen, start op 6 km per sessie
 - Elke week +1 km per sessie
-- 3x per week fietsen
-- Uitsluitend Z1-Z2 hardlopen totdat Injury Guard groen licht geeft
-
-6 fases:
-  Fase 1 — Herstel & Opbouw I    (wk 1-5)
-  Fase 2 — Opbouw II             (wk 6-10)
-  Fase 3 — Algemene Basis        (wk 11-15)
-  Fase 4 — Specifieke Opbouw     (wk 16-20)
-  Fase 5 — Piek & Volume         (wk 21-24)
-  Fase 6 — Afbouw & Race         (wk 25-28)
+- Uitsluitend Z1 hardlopen totdat Injury Guard groen licht geeft
 """
 
 from datetime import date, timedelta
@@ -31,112 +29,148 @@ from datetime import date, timedelta
 RACE_DATE = date(2026, 10, 18)
 PLAN_START = date(2026, 4, 6)  # maandag van week 1 (na deload week)
 
-# ── FASE DEFINITIES ─────────────────────────────────────────────────────────
+# ── FASE DEFINITIES (Delahaije blokperiodisering) ─────────────────────────
 
 PHASES = [
+    # ── ACCUMULATIE CYCLUS 1: herstel + aerobe basis ──
     {
-        "naam": "herstel_opbouw_I",
-        "label": "Herstel & Opbouw I",
-        "weken": (1, 5),
-        "beschrijving": "Terugkeer uit blessure. Loopfrequentie opbouwen, fiets als aerobe basis.",
-        "run_sessies_per_week": 3,
-        "fiets_sessies_per_week": 3,
-        "run_km_start": 6,       # km per sessie in week 1
-        "run_km_increment": 1,   # +1 km per sessie per week (fysio-advies)
-        "lange_duurloop": False,
-        "intensiteit_run": "geen",
-        "intensiteit_fiets": "sweetspot",
+        "naam": "accumulatie_I",
+        "label": "Accumulatie I — Herstel & Basis",
+        "weken": (1, 7),
+        "beschrijving": (
+            "Terugkeer uit blessure. 100% Zone 1. Fiets als aerobe vulling. "
+            "Tempoduurloop introduceren in week 3-4 (net onder aerobe drempel, "
+            "dit is nog steeds Z1 in Delahaije's model)."
+        ),
+        "run_sessies_per_week": 3,   # fysio: start 3x, groeit naar 4-5
+        "fiets_sessies_per_week": 2,
+        "run_km_start": 6,
+        "run_km_increment": 1,
+        "lange_duurloop": False,     # komt in week 3-4
+        "intensiteit_run": "geen",   # week 1-2: puur Z1; week 3+: tempoduur
+        "intensiteit_fiets": "z1",   # Delahaije: accumulatie = 100% Z1
         "ctl_doel": (43, 55),
         "tss_doel": (280, 400),
+        "meso_ritme": "2:1",         # 2 build, 1 herstel (blessureherstel)
+        "micro_ritme": "3:1:2:1",    # Delahaije dagritme
     },
+    # ── ACCUMULATIE CYCLUS 2: volume opbouwen ──
     {
-        "naam": "opbouw_II",
-        "label": "Opbouw II",
-        "weken": (6, 10),
-        "beschrijving": "Eerste lange duurloop introduceren. Strides na Injury Guard groen.",
-        "run_sessies_per_week": 4,  # 3 kort + 1 lang
-        "fiets_sessies_per_week": 3,
+        "naam": "accumulatie_II",
+        "label": "Accumulatie II — Volume",
+        "weken": (8, 14),
+        "beschrijving": (
+            "Volume opbouwen naar 8-10 uur/week. Lange duurloop groeit. "
+            "Tempoduurloop wordt sleutelsessie (4-6x 8min @ 85% HRmax). "
+            "Strides (4-6x 80m) in 2-3 sessies/week. Nog steeds 100% Z1."
+        ),
+        "run_sessies_per_week": 4,
+        "fiets_sessies_per_week": 2,
         "lange_duurloop": True,
         "long_run_km_start": 14,
         "long_run_km_increment": 1.5,
-        "intensiteit_run": "strides",  # alleen als Injury Guard groen + 14 dgn symptoomvrij
-        "intensiteit_fiets": "sweetspot",
-        "ctl_doel": (55, 65),
-        "tss_doel": (400, 520),
+        "intensiteit_run": "tempoduur_strides",
+        "intensiteit_fiets": "z1",
+        "ctl_doel": (55, 68),
+        "tss_doel": (400, 550),
+        "meso_ritme": "3:1",
+        "micro_ritme": "3:1:2:1",
     },
+    # ── TRANSFORMATIE CYCLUS 1: intensiteit introduceren ──
     {
-        "naam": "algemene_basis",
-        "label": "Algemene Basis",
-        "weken": (11, 15),
-        "beschrijving": "Volume opbouwen naar 65 km/week. Lange duurloop naar 25 km.",
-        "run_sessies_per_week": 5,  # 3 kort + 1 medium + 1 lang
-        "fiets_sessies_per_week": 2,
-        "lange_duurloop": True,
-        "long_run_km_start": 20,
-        "long_run_km_increment": 1,
-        "intensiteit_run": "lichte_tempo",  # alleen Injury Guard groen + 21 dgn symptoomvrij
-        "intensiteit_fiets": "sweetspot",
-        "ctl_doel": (65, 72),
-        "tss_doel": (480, 600),
-    },
-    {
-        "naam": "specifieke_opbouw",
-        "label": "Specifieke Opbouw",
-        "weken": (16, 20),
-        "beschrijving": "Marathon-specifieke tempowerk. Volume naar 80 km/week.",
+        "naam": "transformatie_I",
+        "label": "Transformatie I — Scherpte",
+        "weken": (15, 18),
+        "beschrijving": (
+            "Delahaije transformatiefase: Z1 volume blijft hoog, Z3 intervallen "
+            "erbij. 90/10 verdeling. Op de fiets: sweetspot/threshold mag weer. "
+            "'De intensieve trainingen gaan tot het gaatje.'"
+        ),
         "run_sessies_per_week": 5,
         "fiets_sessies_per_week": 2,
         "lange_duurloop": True,
         "long_run_km_start": 25,
-        "long_run_km_increment": 1.5,
+        "long_run_km_increment": 1,
         "intensiteit_run": "marathon_tempo",
-        "intensiteit_fiets": "herstel",
-        "ctl_doel": (72, 82),
+        "intensiteit_fiets": "sweetspot",
+        "ctl_doel": (68, 78),
         "tss_doel": (550, 700),
+        "meso_ritme": "3:1",
+        "micro_ritme": "3:1:2:1",
     },
+    # ── ACCUMULATIE CYCLUS 3: piekvolume ──
     {
-        "naam": "piek_volume",
-        "label": "Piek & Volume",
-        "weken": (21, 24),
-        "beschrijving": "Piekvolume 85-90 km/week. Langste duurloop 35 km.",
+        "naam": "accumulatie_III",
+        "label": "Accumulatie III — Piekvolume",
+        "weken": (19, 22),
+        "beschrijving": (
+            "Terug naar 100% Z1 maar op hoger volume. Langste duurlopen. "
+            "Aerobe residuele effecten houden 30-35 dagen aan — hier wordt "
+            "het fundament gelegd voor de laatste transformatie."
+        ),
         "run_sessies_per_week": 5,
         "fiets_sessies_per_week": 1,
         "lange_duurloop": True,
-        "long_run_km_start": 32,
+        "long_run_km_start": 30,
         "long_run_km_increment": 1,
-        "intensiteit_run": "marathon_tempo",
-        "intensiteit_fiets": "herstel",
-        "ctl_doel": (82, 90),
+        "intensiteit_run": "tempoduur_strides",
+        "intensiteit_fiets": "z1",
+        "ctl_doel": (78, 88),
         "tss_doel": (600, 750),
+        "meso_ritme": "3:1",
+        "micro_ritme": "3:1:2:1",
     },
+    # ── TRANSFORMATIE CYCLUS 2: race-specifiek ──
     {
-        "naam": "afbouw_race",
-        "label": "Afbouw & Race",
-        "weken": (25, 28),
-        "beschrijving": "Geleidelijk afbouwen. TSB naar +15 tot +25 op racedag.",
-        "run_sessies_per_week": 4,  # afnemend naar 3 in race week
+        "naam": "transformatie_II",
+        "label": "Transformatie II — Race-specifiek",
+        "weken": (23, 26),
+        "beschrijving": (
+            "Delahaije: 'Vanuit die algemene fitheid moet het mogelijk zijn "
+            "om binnen 4-5 weken naar een piek toe te werken.' "
+            "8x1000m, 5x2000m, marathon-tempo blokken."
+        ),
+        "run_sessies_per_week": 5,
         "fiets_sessies_per_week": 1,
         "lange_duurloop": True,
-        "long_run_km_start": 20,  # 3 wk voor race: laatste lange duurloop
-        "long_run_km_increment": -5,  # afbouwen
-        "intensiteit_run": "lichte_strides",
+        "long_run_km_start": 28,
+        "long_run_km_increment": -2,
+        "intensiteit_run": "marathon_tempo",
         "intensiteit_fiets": "herstel",
-        "ctl_doel": (85, 90),
-        "tss_doel": (350, 500),
+        "ctl_doel": (85, 92),
+        "tss_doel": (550, 700),
+        "meso_ritme": "3:1",
+        "micro_ritme": "3:1:2:1",
+    },
+    # ── REALISATIE (taper) ──
+    {
+        "naam": "realisatie",
+        "label": "Realisatie — Taper & Race",
+        "weken": (27, 28),
+        "beschrijving": (
+            "Delahaije: 'If it feels good and happy, it will work.' "
+            "Volumereductie met behoud van anaerobe prikkels. "
+            "TSB naar +15 tot +25 op racedag."
+        ),
+        "run_sessies_per_week": 3,
+        "fiets_sessies_per_week": 0,
+        "lange_duurloop": True,
+        "long_run_km_start": 15,
+        "long_run_km_increment": -5,
+        "intensiteit_run": "lichte_strides",
+        "intensiteit_fiets": "geen",
+        "ctl_doel": (85, 92),
+        "tss_doel": (250, 400),
+        "meso_ritme": "1:1",
+        "micro_ritme": "3:1:2:1",
     },
 ]
 
 
-# ── WEEK-VOOR-WEEK LOOPVOLUME (28 weken) ──────────────────────────────────
+# ── WEEK-VOOR-WEEK PLAN ──────────────────────────────────────────────────
 
 def _build_weekly_plan() -> list[dict]:
-    """
-    Bouwt het volledige 28-weken plan met per week:
-    - fase, week_nummer, week_in_fase
-    - run_km_totaal, sessies (kort/lang), lange_duurloop_km
-    - fiets_sessies, run_intensiteit, fiets_intensiteit
-    - tss_doel, ctl_doel
-    """
+    """Bouwt het volledige 28-weken plan."""
     plan = []
 
     for phase in PHASES:
@@ -145,121 +179,104 @@ def _build_weekly_plan() -> list[dict]:
             week_in_fase = wk - wk_start + 1
             monday = PLAN_START + timedelta(weeks=wk - 1)
 
+            # ── Bepaal of het een herstelweek is (mesostructuur) ──
+            meso = phase.get("meso_ritme", "3:1")
+            if meso == "2:1":
+                is_recovery = (week_in_fase % 3 == 0)
+            elif meso == "3:1":
+                is_recovery = (week_in_fase % 4 == 0)
+            else:
+                is_recovery = (week_in_fase % 2 == 0)
+
+            # Delahaije: herstelblokken 3-4 dagen, niet volle week.
+            # We modelleren dit als -30% volume (niet -50%).
+            recovery_mod = 0.70 if is_recovery else 1.0
+
             # ── Loopvolume berekenen ──
-            if phase["naam"] == "herstel_opbouw_I":
+            if phase["naam"] == "accumulatie_I":
                 # Fysio: 3x per week, start 6km, +1km/sessie/week
                 km_per_sessie = phase["run_km_start"] + (wk - 1) * phase["run_km_increment"]
                 run_sessions_count = phase["run_sessies_per_week"]
-                run_km_total = round(km_per_sessie * run_sessions_count, 1)
-                long_run_km = 0
-                short_sessions = run_sessions_count
+                # Vanaf week 3: 4e sessie (korte herstelrun) toevoegen als knie ok
+                if wk >= 3:
+                    run_sessions_count = 4
+                # Vanaf week 5: tempoduurloop als sleutelsessie
+                intensiteit = "geen" if wk <= 4 else "tempoduur"
+                # Lange duurloop vanaf week 4
+                if wk >= 4:
+                    long_run_km = km_per_sessie + 2
+                    run_km_total = round((km_per_sessie * (run_sessions_count - 1) + long_run_km) * recovery_mod, 1)
+                else:
+                    long_run_km = 0
+                    run_km_total = round(km_per_sessie * run_sessions_count * recovery_mod, 1)
+                short_sessions = run_sessions_count - (1 if long_run_km > 0 else 0)
                 medium_sessions = 0
 
-            elif phase["naam"] == "opbouw_II":
-                # Transitie: 4e sessie (long run) introduceren, korte sessies terugschroeven
-                # Week 5 was 3x 10km = 30km. Max +10% per week.
-                # Week 6: 3x 8km + 10km long = 34km (+13%)
-                # Week 7: 3x 8km + 12km long = 36km (+6%)
-                # Week 8: 3x 9km + 14km long = 41km (+14% — grenswaarde)
-                # Week 9: 3x 9km + 16km long = 43km (+5%)
-                # Week 10: 3x 10km + 18km long = 48km (+12%)
-                prev_week_km = 30  # week 5 eindvolume
-                short_km_schedule = [8, 8, 9, 9, 10]  # per korte sessie per week-in-fase
-                long_km_schedule = [10, 12, 14, 16, 18]  # lange duurloop per week-in-fase
+            elif phase["naam"] == "accumulatie_II":
+                # Volume opbouwen: 4 sessies + lange duurloop
+                short_km_schedule = [8, 8, 9, 9, 10, 10, 10]
+                long_km_schedule = [14, 16, 18, 20, 22, 23, 24]
                 idx = min(week_in_fase - 1, len(short_km_schedule) - 1)
                 short_km = short_km_schedule[idx]
                 long_run_km = long_km_schedule[idx]
-                run_km_total = round(short_km * 3 + long_run_km, 1)
+                run_km_total = round((short_km * 3 + long_run_km) * recovery_mod, 1)
                 short_sessions = 3
                 medium_sessions = 0
                 run_sessions_count = 4
+                intensiteit = "tempoduur_strides"
 
-            elif phase["naam"] == "algemene_basis":
-                # Transitie van fase 2 (48km, 4 sessies) naar 5 sessies.
-                # 5e sessie (medium) introduceren, geleidelijk opbouwen.
-                # Wk 10 was ~48km. Wk 11 moet ~53km zijn (+10%).
-                # Wk 11: 3x 8km + 1x 10km medium + 19km long = 53km
-                # Wk 12: 3x 8km + 1x 11km + 20km = 55km
-                # Wk 13: 3x 9km + 1x 12km + 22km = 61km
-                # Wk 14: 3x 9km + 1x 13km + 23km = 63km
-                # Wk 15: 3x 10km + 1x 13km + 24km = 67km
-                short_schedule = [8, 8, 9, 9, 10]
-                medium_schedule = [10, 11, 12, 13, 13]
-                long_schedule = [19, 20, 22, 23, 24]
-                idx = min(week_in_fase - 1, 4)
+            elif phase["naam"] == "transformatie_I":
+                short_schedule = [9, 9, 10, 10]
+                medium_schedule = [12, 13, 14, 14]
+                long_schedule = [25, 26, 27, 28]
+                idx = min(week_in_fase - 1, 3)
                 short_km = short_schedule[idx]
                 medium_km = medium_schedule[idx]
                 long_run_km = long_schedule[idx]
-                run_km_total = round(short_km * 3 + medium_km + long_run_km, 1)
+                run_km_total = round((short_km * 3 + medium_km + long_run_km) * recovery_mod, 1)
                 short_sessions = 3
                 medium_sessions = 1
                 run_sessions_count = 5
+                intensiteit = "marathon_tempo"
 
-            elif phase["naam"] == "specifieke_opbouw":
-                # Wk 15 was ~67km. Geleidelijk naar 80km.
-                # Wk 16: 2x 10km + 14km med + 12km easy + 25km long = 71km
-                # Wk 17: 2x 10km + 14km + 12km + 27km = 73km
-                # Wk 18: 2x 10km + 15km + 13km + 28km = 76km
-                # Wk 19: 2x 10km + 15km + 13km + 30km = 78km
-                # Wk 20: 2x 10km + 16km + 13km + 31km = 80km
-                short_schedule = [10, 10, 10, 10, 10]
-                medium_schedule = [14, 14, 15, 15, 16]
-                easy_schedule = [12, 12, 13, 13, 13]
-                long_schedule = [25, 27, 28, 30, 31]
-                idx = min(week_in_fase - 1, 4)
+            elif phase["naam"] == "accumulatie_III":
+                short_schedule = [10, 10, 10, 10]
+                long_schedule = [30, 32, 33, 34]
+                idx = min(week_in_fase - 1, 3)
                 short_km = short_schedule[idx]
-                medium_km = medium_schedule[idx]
-                easy_km = easy_schedule[idx]
                 long_run_km = long_schedule[idx]
-                run_km_total = round(short_km * 2 + medium_km + easy_km + long_run_km, 1)
+                medium_km = 14
+                run_km_total = round((short_km * 2 + medium_km + 12 + long_run_km) * recovery_mod, 1)
                 short_sessions = 2
                 medium_sessions = 1
                 run_sessions_count = 5
+                intensiteit = "tempoduur_strides"
 
-            elif phase["naam"] == "piek_volume":
-                # Wk 20 was ~80km. Piek naar 85km, deload wk 23 (-20%).
-                # Wk 21: 2x 10km + 16km + 14km + 32km = 82km
-                # Wk 22: 2x 10km + 16km + 14km + 33km = 83km
-                # Wk 23 (deload): 2x 8km + 14km + 12km + 24km = 66km (-20%)
-                # Wk 24: 2x 10km + 16km + 14km + 32km = 82km (terug naar pre-deload)
-                if week_in_fase == 3:  # deload
-                    short_km = 8
-                    medium_km = 14
-                    easy_km = 12
-                    long_run_km = 24
-                else:
-                    long_schedule = [32, 33, 24, 32]
-                    idx = min(week_in_fase - 1, 3)
-                    short_km = 10
-                    medium_km = 16
-                    easy_km = 14
-                    long_run_km = long_schedule[idx]
-                run_km_total = round(short_km * 2 + medium_km + easy_km + long_run_km, 1)
+            elif phase["naam"] == "transformatie_II":
+                short_schedule = [10, 10, 10, 10]
+                long_schedule = [28, 26, 24, 22]
+                idx = min(week_in_fase - 1, 3)
+                short_km = short_schedule[idx]
+                long_run_km = long_schedule[idx]
+                medium_km = 14
+                run_km_total = round((short_km * 2 + medium_km + 12 + long_run_km) * recovery_mod, 1)
                 short_sessions = 2
                 medium_sessions = 1
                 run_sessions_count = 5
+                intensiteit = "marathon_tempo"
 
-            elif phase["naam"] == "afbouw_race":
-                # Geleidelijke afbouw
+            elif phase["naam"] == "realisatie":
                 if week_in_fase == 1:
-                    long_run_km = 20
-                    run_km_total = round(8 * 3 + long_run_km, 1)
-                    run_sessions_count = 4
-                elif week_in_fase == 2:
                     long_run_km = 15
-                    run_km_total = round(8 * 2 + 6 + long_run_km, 1)
-                    run_sessions_count = 4
-                elif week_in_fase == 3:
-                    long_run_km = 10
-                    run_km_total = round(6 * 2 + long_run_km, 1)
+                    run_km_total = round(8 * 2 + long_run_km, 1)
                     run_sessions_count = 3
                 else:
-                    # Race week
-                    long_run_km = 0  # race = 42.2 km
-                    run_km_total = round(5 + 4 + 3, 1)  # shakeout runs
+                    long_run_km = 0
+                    run_km_total = round(5 + 4 + 3, 1)
                     run_sessions_count = 3
                 short_sessions = run_sessions_count - (1 if long_run_km > 0 else 0)
                 medium_sessions = 0
+                intensiteit = "lichte_strides"
 
             else:
                 run_km_total = 0
@@ -267,18 +284,22 @@ def _build_weekly_plan() -> list[dict]:
                 short_sessions = 0
                 medium_sessions = 0
                 run_sessions_count = 0
+                intensiteit = "geen"
 
             # ── TSS schatting ──
-            # Run TSS: ~1 TSS per km bij Z2 tempo (conservatief)
-            run_tss = round(run_km_total * 5.5)  # ~5.5 TSS/km bij Z2 voor 85kg loper
-            # Fiets TSS: afhankelijk van intensiteit
+            run_tss = round(run_km_total * 5.5)
             fiets_sessies = phase["fiets_sessies_per_week"]
-            if phase["intensiteit_fiets"] == "sweetspot":
-                fiets_tss_per_sessie = 65  # gemiddeld sweetspot sessie
-            elif phase["intensiteit_fiets"] == "herstel":
-                fiets_tss_per_sessie = 40
+            if is_recovery:
+                fiets_sessies = max(0, fiets_sessies - 1)
+            fiets_int = phase["intensiteit_fiets"]
+            if fiets_int == "sweetspot":
+                fiets_tss_per_sessie = 65
+            elif fiets_int == "z1":
+                fiets_tss_per_sessie = 45  # Z1 duurrit: langer maar lager IF
+            elif fiets_int == "herstel":
+                fiets_tss_per_sessie = 35
             else:
-                fiets_tss_per_sessie = 50
+                fiets_tss_per_sessie = 0
             fiets_tss = fiets_sessies * fiets_tss_per_sessie
             total_tss = run_tss + fiets_tss
 
@@ -297,10 +318,11 @@ def _build_weekly_plan() -> list[dict]:
                 "run_tss": run_tss,
                 "fiets_tss": fiets_tss,
                 "totaal_tss": total_tss,
-                "run_intensiteit": phase["intensiteit_run"],
-                "fiets_intensiteit": phase["intensiteit_fiets"],
+                "run_intensiteit": intensiteit,
+                "fiets_intensiteit": fiets_int,
                 "ctl_doel_min": phase["ctl_doel"][0],
                 "ctl_doel_max": phase["ctl_doel"][1],
+                "is_recovery": is_recovery,
             })
 
     return plan
@@ -320,13 +342,7 @@ def get_week_number(today: date = None) -> int:
 
 
 def get_current_phase(today: date = None) -> dict:
-    """
-    Geeft de huidige fase terug met alle context.
-
-    Returns:
-        dict met: fase_naam, fase_label, week_nummer, week_in_fase,
-        beschrijving, en alle fase-constraints
-    """
+    """Geeft de huidige fase terug met alle context."""
     if today is None:
         today = date.today()
     wk = get_week_number(today)
@@ -350,32 +366,25 @@ def get_current_phase(today: date = None) -> dict:
                 "weeks_to_race": max(0, (RACE_DATE - today).days // 7),
             }
 
-    # Voorbij het plan
     return {
-        "fase_naam": "afbouw_race",
+        "fase_naam": "realisatie",
         "fase_label": "Race Week",
         "week_nummer": 28,
-        "week_in_fase": 4,
+        "week_in_fase": 2,
         "beschrijving": "Race week!",
         "run_sessies_per_week": 3,
         "fiets_sessies_per_week": 0,
         "lange_duurloop": False,
         "intensiteit_run": "geen",
         "intensiteit_fiets": "geen",
-        "ctl_doel": (85, 90),
+        "ctl_doel": (85, 92),
         "tss_doel": (150, 200),
         "weeks_to_race": 0,
     }
 
 
 def calculate_weekly_run_volume(week_number: int) -> dict:
-    """
-    Berekent het loopvolume voor een specifieke week.
-
-    Returns:
-        dict met: run_km_totaal, korte_sessies_km, lange_duurloop_km,
-        run_sessies, intensiteit_toegestaan
-    """
+    """Berekent het loopvolume voor een specifieke week."""
     if week_number < 1:
         week_number = 1
     if week_number > 28:
@@ -383,17 +392,15 @@ def calculate_weekly_run_volume(week_number: int) -> dict:
 
     week_plan = WEEKLY_PLAN[week_number - 1]
 
-    # Bereken km per korte sessie
     total_km = week_plan["run_km_totaal"]
     long_km = week_plan["lange_duurloop_km"]
     korte_sessies = week_plan["korte_sessies"]
     medium_sessies = week_plan.get("medium_sessies", 0)
 
     if korte_sessies + medium_sessies > 0:
-        # Verdeel resterende km over korte en medium sessies
         rest_km = total_km - long_km
         if medium_sessies > 0 and korte_sessies > 0:
-            medium_km = rest_km * 0.35  # medium krijgt ~35% van de rest
+            medium_km = rest_km * 0.35
             kort_km = rest_km - medium_km
             km_per_korte = round(kort_km / korte_sessies, 1)
             km_per_medium = round(medium_km / medium_sessies, 1)
@@ -430,9 +437,9 @@ def calculate_weekly_run_volume(week_number: int) -> dict:
 def print_full_plan():
     """Print het volledige 28-weken periodiseringsplan."""
     print("\n" + "=" * 100)
-    print("  AMSTERDAM MARATHON 2026 — 28-WEKEN PERIODISERINGSPLAN")
+    print("  AMSTERDAM MARATHON 2026 — DELAHAIJE BLOKPERIODISERING")
     print("  Race: 18 oktober 2026 | Atleet: Dylsky (i85836)")
-    print("  Filosofie: Louis Delahaije — gepolariseerd, luister naar je lichaam")
+    print("  Accumulatie → Transformatie → Realisatie (cyclisch)")
     print("=" * 100)
 
     current_phase = ""
@@ -441,19 +448,18 @@ def print_full_plan():
             current_phase = wp["fase_label"]
             phase_info = next(p for p in PHASES if p["naam"] == wp["fase"])
             print(f"\n  {'─' * 96}")
-            print(f"  FASE: {current_phase.upper()} (wk {phase_info['weken'][0]}-{phase_info['weken'][1]})")
+            print(f"  {current_phase.upper()} (wk {phase_info['weken'][0]}-{phase_info['weken'][1]})")
             print(f"  {phase_info['beschrijving']}")
-            print(f"  CTL-doel: {phase_info['ctl_doel'][0]}-{phase_info['ctl_doel'][1]}")
+            print(f"  Meso: {phase_info.get('meso_ritme', '3:1')} | Fiets: {phase_info['intensiteit_fiets']}")
             print(f"  {'─' * 96}")
             print(f"  {'Wk':>3} | {'Maandag':>10} | {'Run km':>7} | {'Sessies':>7} | {'Lang km':>7} | "
-                  f"{'Fiets':>5} | {'Run TSS':>7} | {'Fiets TSS':>9} | {'Tot TSS':>7} | {'Intensiteit'}")
-            print(f"  {'---':>3} | {'----------':>10} | {'------':>7} | {'-------':>7} | {'------':>7} | "
-                  f"{'-----':>5} | {'-------':>7} | {'---------':>9} | {'-------':>7} | {'----------'}")
+                  f"{'Fiets':>5} | {'Tot TSS':>7} | {'Herstel':>7} | {'Intensiteit'}")
 
         long_str = f"{wp['lange_duurloop_km']:.0f}" if wp["lange_duurloop_km"] > 0 else "-"
+        rec_str = "ja" if wp.get("is_recovery") else ""
         print(f"  {wp['week']:3d} | {wp['monday']:>10} | {wp['run_km_totaal']:6.1f} | "
               f"{wp['run_sessies']:7d} | {long_str:>7} | {wp['fiets_sessies']:5d} | "
-              f"{wp['run_tss']:7d} | {wp['fiets_tss']:9d} | {wp['totaal_tss']:7d} | "
+              f"{wp['totaal_tss']:7d} | {rec_str:>7} | "
               f"{wp['run_intensiteit']}")
 
     print(f"\n  {'─' * 96}")

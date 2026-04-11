@@ -547,6 +547,44 @@ def long_run(km: float) -> dict:
     }
 
 
+def tempo_duurloop(reps: int = 4, rep_min: int = 8) -> dict:
+    """Delahaije tempoduurloop — sleuteltraining accumulatiefase.
+
+    Net onder de aerobe drempel (~85% HRmax). Dit is NOG STEEDS Zone 1
+    in Delahaije's model. Het voelt als 'comfortabel hard' — korte zinnen
+    spreken maar geen heel gesprek voeren.
+
+    Structuur: 2-8 series van 5-15 min met 2-5 min rustige duurloop ertussen.
+    """
+    rest_min = 3
+    wu_min = 15
+    cd_min = 10
+    total_min = wu_min + (reps * rep_min) + ((reps - 1) * rest_min) + cd_min
+    return {
+        "type": "tempoduurloop",
+        "naam": f"Tempoduurloop – {reps}x{rep_min} min",
+        "beschrijving": (
+            f"Warmup\n- {wu_min}m ramp 55-70% Pace\n\n"
+            f"Main Set\n"
+            f"{reps}x\n"
+            f"- {rep_min}m 82% Pace\n"
+            f"- {rest_min}m 62% Pace\n\n"
+            f"Cooldown\n- {cd_min}m ramp 68-55% Pace\n\n"
+            f"Delahaije tempoduurloop: de sterkste aerobe prikkel binnen Zone 1.\n"
+            f"Net onder je aerobe drempel (~85% HRmax). 'Comfortabel hard' — \n"
+            f"je kunt korte zinnen spreken maar geen heel gesprek voeren.\n"
+            f"Dit is GEEN drempeltraining. Het valt onder de eerste lactaatdrempel.\n"
+            f"Gevoel is leidend: als de HR te hoog is, verlaag tempo.\n"
+            f"{REHAB_PRE_RUN}"
+            f"{DELAHAIJE_RUN}"
+        ),
+        "duur_min": total_min,
+        "tss_geschat": _tss_run(total_min, 0.80),
+        "sport": "Run", "zone": "Z1 tempoduur",
+        "intensiteit_factor": 0.80, "fun": 3,
+    }
+
+
 def strides(duration_min: int, count: int = 8) -> dict:
     """Z2 met neuromusculaire strides."""
     main = max(10, duration_min - 13)

@@ -367,7 +367,14 @@ def _plan_marathon_sessions(
         duration = _km_to_minutes(km_per_kort)
 
         # Eerste sessie: intensiteit als toegestaan
-        if intensiteit == "strides" and strides_ok and i == 0:
+        # Delahaije: tempoduur = Z1 (net onder aerobe drempel, 85% HRmax)
+        if intensiteit == "tempoduur" and i == 0:
+            sessie = lib.tempo_duurloop(reps=4, rep_min=8)
+        elif intensiteit == "tempoduur_strides" and strides_ok and i == 0:
+            sessie = lib.tempo_duurloop(reps=4, rep_min=8)
+        elif intensiteit == "tempoduur_strides" and strides_ok and i == 1:
+            sessie = lib.strides(duration, count=6)
+        elif intensiteit == "strides" and strides_ok and i == 0:
             sessie = lib.strides(duration, count=8)
         elif intensiteit == "marathon_tempo" and tempo_ok and i == 0:
             sessie = lib.marathon_tempo(tempo_min=25)
@@ -397,7 +404,7 @@ def _plan_marathon_sessions(
             sessions.append({"dag": "zondag", "sessie": sessie})
 
     # ── AFBOUW/RACE WEEK ──
-    if fase == "afbouw_race":
+    if fase in ("afbouw_race", "realisatie"):
         # Lichte strides op dinsdag als het mag
         if strides_ok and sessions:
             for s in sessions:

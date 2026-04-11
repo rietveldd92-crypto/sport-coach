@@ -355,43 +355,60 @@ def plan_sessions(
 
         cycle = (week_number - 1) % 3
 
+        # Delahaije: accumulatiefases = 100% Zone 1, ook op de fiets.
+        # Alleen in transformatiefases mag sweetspot/threshold.
+        is_accumulatie = fiets_intensiteit == "z1"
+
         if fiets_sessies >= 3:
-            if bike_intensity_ok and fiets_intensiteit == "sweetspot":
-                # 2 harde + 1 makkelijke sessie, roterend uit de library
+            if is_accumulatie or not bike_intensity_ok:
+                # Accumulatie: alleen Z1 duurritten
+                sessions = [
+                    {"dag": "maandag", "sessie": lib.endurance_ride(spin_min)},
+                    {"dag": "woensdag", "sessie": lib.pick_bike_easy(spin_min, week_number)},
+                    {"dag": "vrijdag", "sessie": lib.endurance_ride(max(45, spin_min - 10))},
+                ]
+            elif bike_intensity_ok and fiets_intensiteit == "sweetspot":
                 hard_a = lib.pick_bike_hard(ftp, cycle, "A", t_step, ss_step, ou_step)
                 hard_b = lib.pick_bike_hard(ftp, cycle, "B", t_step, ss_step, ou_step)
                 easy = lib.pick_bike_easy(spin_min, week_number)
+                sessions = [
+                    {"dag": "maandag", "sessie": hard_a},
+                    {"dag": "woensdag", "sessie": hard_b},
+                    {"dag": "vrijdag", "sessie": easy},
+                ]
             else:
-                hard_a = lib.endurance_ride(spin_min)
-                hard_b = lib.endurance_ride(max(45, spin_min - 10))
-                easy = lib.endurance_ride(max(40, spin_min - 15))
+                sessions = [
+                    {"dag": "maandag", "sessie": lib.endurance_ride(spin_min)},
+                    {"dag": "woensdag", "sessie": lib.endurance_ride(max(45, spin_min - 10))},
+                    {"dag": "vrijdag", "sessie": lib.endurance_ride(max(40, spin_min - 15))},
+                ]
 
-            sessions = [
-                {"dag": "maandag", "sessie": hard_a},
-                {"dag": "woensdag", "sessie": hard_b},
-                {"dag": "vrijdag", "sessie": easy},
-            ]
             if not has_long_run:
                 sessions.append({"dag": "zondag",
                                  "sessie": lib.pick_bike_easy(long_ride_min, week_number + 2)})
 
         elif fiets_sessies == 2:
-            if bike_intensity_ok and fiets_intensiteit == "sweetspot":
+            if is_accumulatie or not bike_intensity_ok:
+                # Accumulatie: Z1 duurritten, +20% duur tov loopequivalent
+                sessions = [
+                    {"dag": "woensdag", "sessie": lib.endurance_ride(spin_min)},
+                    {"dag": "zaterdag", "sessie": lib.pick_bike_easy(max(45, spin_min - 10), week_number)},
+                ]
+            elif bike_intensity_ok and fiets_intensiteit == "sweetspot":
                 hard = lib.pick_bike_hard(ftp, cycle, "A", t_step, ss_step, ou_step)
                 easy = lib.pick_bike_easy(spin_min, week_number)
-            elif bike_intensity_ok:
-                hard = lib.endurance_ride(spin_min)
-                easy = lib.pick_bike_easy(max(45, spin_min - 10), week_number)
+                sessions = [
+                    {"dag": "woensdag", "sessie": hard},
+                    {"dag": "zaterdag", "sessie": easy},
+                ]
             else:
-                hard = lib.endurance_ride(max(45, spin_min - 10))
-                easy = lib.endurance_ride(max(40, spin_min - 15))
-            sessions = [
-                {"dag": "woensdag", "sessie": hard},
-                {"dag": "zaterdag", "sessie": easy},
-            ]
+                sessions = [
+                    {"dag": "woensdag", "sessie": lib.endurance_ride(spin_min)},
+                    {"dag": "zaterdag", "sessie": lib.endurance_ride(max(45, spin_min - 10))},
+                ]
 
         elif fiets_sessies == 1:
-            if fiets_intensiteit == "herstel":
+            if is_accumulatie or fiets_intensiteit in ("herstel", "geen"):
                 sessie = lib.pick_bike_easy(max(40, spin_min - 15), week_number)
             else:
                 sessie = lib.pick_bike_hard(ftp, cycle, "A", t_step, ss_step, ou_step)

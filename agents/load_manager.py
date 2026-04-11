@@ -21,15 +21,21 @@ STATE_PATH = Path(__file__).parent.parent / "state.json"
 RACE_DATE = date(2026, 10, 18)
 
 # Wekelijkse TSS targets per fase (bij volle belasting, Injury Guard GROEN)
-# Marathon-fasering (28 weken)
+# Delahaije blokperiodisering (28 weken)
 PHASE_TSS_TARGETS = {
+    "accumulatie_I":      (280, 400),
+    "accumulatie_II":     (400, 550),
+    "transformatie_I":    (550, 700),
+    "accumulatie_III":    (600, 750),
+    "transformatie_II":   (550, 700),
+    "realisatie":         (250, 400),
+    # Legacy fases (backwards compatible)
     "herstel_opbouw_I":  (280, 400),
     "opbouw_II":         (400, 520),
     "algemene_basis":    (480, 600),
     "specifieke_opbouw": (550, 700),
     "piek_volume":       (600, 750),
     "afbouw_race":       (350, 500),
-    # Legacy fases (backwards compatible)
     "basis_I":    (330, 420),
     "basis_II":   (380, 470),
     "opbouw_I":   (430, 530),
@@ -40,31 +46,42 @@ PHASE_TSS_TARGETS = {
 
 # CTL streefwaarden per fase
 PHASE_CTL_TARGETS = {
+    "accumulatie_I":      (43, 55),
+    "accumulatie_II":     (55, 68),
+    "transformatie_I":    (68, 78),
+    "accumulatie_III":    (78, 88),
+    "transformatie_II":   (85, 92),
+    "realisatie":         (85, 92),
+    # Legacy
     "herstel_opbouw_I":  (43, 55),
     "opbouw_II":         (55, 65),
     "algemene_basis":    (65, 72),
     "specifieke_opbouw": (72, 82),
     "piek_volume":       (82, 90),
     "afbouw_race":       (85, 90),
-    # Legacy
     "basis_I":   (42, 52),
     "basis_II":  (52, 62),
     "opbouw_I":  (60, 68),
-    "opbouw_II": (66, 72),
     "specifiek": (70, 80),
     "afbouw":    (72, 80),
     "race_week": (70, 80),
 }
 
-# TSB streefbereik per fase (positief = fris, negatief = vermoeid/adaptatie)
+# TSB streefbereik per fase
 PHASE_TSB_RANGE = {
+    "accumulatie_I":      (-12, -4),
+    "accumulatie_II":     (-15, -6),
+    "transformatie_I":    (-20, -10),
+    "accumulatie_III":    (-22, -12),
+    "transformatie_II":   (-20, -10),
+    "realisatie":         (-5, +25),
+    # Legacy
     "herstel_opbouw_I":  (-12, -4),
     "opbouw_II":         (-15, -6),
     "algemene_basis":    (-18, -8),
     "specifieke_opbouw": (-20, -10),
     "piek_volume":       (-22, -12),
     "afbouw_race":       (-5, +25),
-    # Legacy
     "basis_I":   (-12, -4),
     "basis_II":  (-15, -6),
     "opbouw_I":  (-18, -8),
