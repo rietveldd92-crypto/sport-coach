@@ -583,6 +583,24 @@ with st.sidebar:
     c1.metric("Fitness", f"{ctl:.0f}")
     c2.metric("Frisheid", f"{state.get('load', {}).get('tsb_estimate', 0):+.0f}")
 
+    # Recovery score — combineert morning check-in + TSB
+    _wellness_today = history_db.get_wellness(date.today())
+    _recovery = history_db.compute_recovery_score(_wellness_today, tsb)
+    _recovery_colors = {"go": "var(--positive)", "easy": "var(--warning)", "rust": "var(--alert)"}
+    _recovery_color = _recovery_colors.get(_recovery["level"], "var(--text-muted)")
+    st.markdown(
+        f'<div style="margin: 0.5rem 0 1rem 0; padding: 0.6rem 0.9rem; '
+        f'border-radius: 10px; border: 1px solid {_recovery_color}; '
+        f'background: rgba(0,0,0,0.2);">'
+        f'<div style="font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.1em; '
+        f'color: {_recovery_color}; font-weight: 600; margin-bottom: 0.2rem;">'
+        f'{_recovery["level"].upper()}</div>'
+        f'<div style="font-size: 0.78rem; color: var(--text-muted);">'
+        f'{_recovery["message"]}</div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
     st.markdown("")
     if st.button("Ververs", use_container_width=True):
         st.cache_data.clear()
@@ -1109,5 +1127,53 @@ if week_offset == 0:
                 }
                 st.rerun()
         col_no.button("Nee, laat maar", key=f"skip_{reschedule_key}")
+
+# ── WEEKREFLECTIE (zondag of bij terugkijken) ────────────────────────────
+
+# Toon weekreflectie als het zondag is of als we een vorige week bekijken
+_show_reflection = (
+    (week_offset == 0 and date.today().weekday() == 6)  # zondag
+    or week_offset < 0  # vorige weken
+)
+if _show_reflection:
+    _ref_monday = selected_monday
+    _existing_ref = history_db.get_week_reflection(_ref_monday)
+
+    if _existing_ref:
+        ui.section_header("Weekreflectie")
+        ui.coach_card(
+            f"<b>Genoten van:</b> {_existing_ref['enjoyed']}<br>"
+            f"<b>Energie gekost:</b> {_existing_ref['drained']}",
+            tone="positive",
+        )
+        if _existing_ref.get("ai_summary"):
+            ui.human_line(_existing_ref["ai_summary"])
+    else:
+        ui.section_header("Weekreflectie")
+        st.markdown(
+            '<div class="ui-checkin">'
+            '<div class="ci-title">Hoe was je week?</div>'
+            '<div class="ci-subtitle">Twee vragen, helpt de coach je beter te leren kennen.</div>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+        _ref_enjoyed = st.text_input(
+            "Waar genoot je van deze week?",
+            key=f"ref_enjoyed_{_ref_monday}",
+            placeholder="bijv. de lange duurloop voelde makkelijk",
+        )
+        _ref_drained = st.text_input(
+            "Wat kostte energie?",
+            key=f"ref_drained_{_ref_monday}",
+            placeholder="bijv. slechte nacht voor de intervals",
+        )
+        if st.button("Opslaan", key=f"ref_save_{_ref_monday}"):
+            if _ref_enjoyed or _ref_drained:
+                history_db.record_week_reflection(
+                    _ref_monday,
+                    enjoyed=_ref_enjoyed,
+                    drained=_ref_drained,
+                )
+                st.rerun()
 
 # Footer is bewust leeg — analytische tone wil geen quote-spam.

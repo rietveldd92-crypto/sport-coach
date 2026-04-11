@@ -76,9 +76,25 @@ def _migration_001_initial_schema(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migration_002_week_reflections(conn: sqlite3.Connection) -> None:
+    """v2: week_reflections tabel voor weekreflecties."""
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS week_reflections (
+            week_start TEXT PRIMARY KEY,
+            enjoyed TEXT,
+            drained TEXT,
+            ai_summary TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+        """
+    )
+
+
 # Registreer migraties in volgorde: (version, name, function)
 _MIGRATIONS = [
     (1, "initial_schema", _migration_001_initial_schema),
+    (2, "week_reflections", _migration_002_week_reflections),
 ]
 
 
@@ -299,6 +315,105 @@ def get_weekly_summaries(weeks: int = 16) -> list[dict]:
             (weeks,),
         ).fetchall()
         return list(reversed([dict(r) for r in rows]))
+
+
+# ── WEEK REFLECTIONS API ──────────────────────────────────────────────────
+
+def record_week_reflection(
+    week_start: date,
+    *,
+    enjoyed: str = "",
+    drained: str = "",
+    ai_summary: str = "",
+) -> None:
+    """Upsert een weekreflectie."""
+    with _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO week_reflections (week_start, enjoyed, drained, ai_summary)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(week_start) DO UPDATE SET
+                enjoyed=excluded.enjoyed,
+                drained=excluded.drained,
+                ai_summary=COALESCE(excluded.ai_summary, ai_summary)
+            """,
+            (week_start.isoformat(), enjoyed, drained, ai_summary),
+        )
+        conn.commit()
+
+
+def get_week_reflection(week_start: date) -> Optional[dict]:
+    """Haal weekreflectie op. None als niet ingevuld."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM week_reflections WHERE week_start = ?",
+            (week_start.isoformat(),),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def get_recent_reflections(weeks: int = 4) -> list[dict]:
+    """Laatste N weekreflecties, oudste eerst."""
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM week_reflections ORDER BY week_start DESC LIMIT ?",
+            (weeks,),
+        ).fetchall()
+        return list(reversed([dict(r) for r in rows]))
+
+
+# ── RECOVERY SCORE ────────────────────────────────────────────────────────
+
+def compute_recovery_score(
+    wellness: Optional[dict],
+    tsb: float,
+) -> dict:
+    """Bereken een samengestelde recovery score.
+
+    Combineert morning check-in (als beschikbaar) met TSB.
+    Returns {score: float 0-100, level: "go"|"easy"|"rust", message: str}.
+    """
+    components = []
+
+    # Morning check-in component (0-100 schaal)
+    if wellness:
+        checkin_vals = [
+            wellness.get("sleep_score"),
+            wellness.get("energy"),
+            wellness.get("soreness"),
+            wellness.get("motivation"),
+        ]
+        checkin_vals = [v for v in checkin_vals if v is not None]
+        if checkin_vals:
+            # 1-5 schaal → 0-100
+            checkin_score = (sum(checkin_vals) / len(checkin_vals) - 1) / 4 * 100
+            components.append(("checkin", checkin_score, 0.5))
+
+    # TSB component (genormaliseerd: -30 = 0, +15 = 100)
+    # Training in opbouw heeft TSB -10 tot -20, dat is normaal → "easy" range
+    tsb_score = max(0, min(100, (tsb + 30) / 45 * 100))
+    components.append(("tsb", tsb_score, 0.5 if not components else 0.5))
+
+    # Gewogen gemiddelde
+    if not components:
+        return {"score": 50, "level": "easy", "message": "Onvoldoende data"}
+
+    total_weight = sum(w for _, _, w in components)
+    score = sum(v * w for _, v, w in components) / total_weight
+
+    # Level bepalen — drempels afgestemd op marathontraining in opbouw.
+    # TSB -15 met gemiddelde check-in (~47) = "easy", niet "rust".
+    if score >= 60:
+        level = "go"
+        message = "Groen licht — klaar voor een kwaliteitssessie"
+    elif score >= 30:
+        level = "easy"
+        message = "Doe het rustig aan — focus op herstel en Z2"
+    else:
+        level = "rust"
+        message = "Rust is nu de beste training"
+
+    return {"score": round(score, 0), "level": level, "message": message}
 
 
 # ── SMOKE TEST ─────────────────────────────────────────────────────────────
