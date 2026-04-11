@@ -24,6 +24,7 @@ import tp_sync_service
 import ui_components as ui
 from agents import workout_library as lib
 from agents import feedback_engine
+from agents import load_manager
 from agents.workout_feel import get_feel_note
 from trainingpeaks_errors import TPAPIError, TPAuthError, TPConversionError
 
@@ -93,6 +94,62 @@ def fetch_recent():
         return api.get_activities(start=date.today() - timedelta(days=7), end=date.today())
     except Exception:
         return []
+
+
+@st.cache_data(ttl=300)
+def fetch_activities_42d():
+    """Activiteiten van afgelopen 42 dagen — voor CTL/ATL herberekening."""
+    try:
+        return api.get_activities(start=date.today() - timedelta(days=42), end=date.today())
+    except Exception:
+        return []
+
+
+def auto_recalculate_load():
+    """Herbereken CTL/ATL/TSB als er nieuwe activiteiten zijn sinds laatste berekening.
+
+    Draait maximaal 1x per sessie (session_state guard). Vergelijkt
+    last_calculated met de datum van de meest recente activiteit.
+    Bij een update wordt state.json herschreven door load_manager.analyze()
+    en toont de app een flash met de delta.
+    """
+    if st.session_state.get("_load_recalc_done"):
+        return
+
+    st.session_state["_load_recalc_done"] = True
+
+    state = load_state()
+    last_calc = state.get("load", {}).get("last_calculated", "")
+    if not last_calc:
+        return
+
+    activities_42d = fetch_activities_42d()
+    if not activities_42d:
+        return
+
+    # Nieuwste activiteitdatum bepalen
+    newest_activity_date = ""
+    for act in activities_42d:
+        act_date = (act.get("start_date_local") or "")[:10]
+        if act_date > newest_activity_date:
+            newest_activity_date = act_date
+
+    if not newest_activity_date or newest_activity_date <= last_calc:
+        return
+
+    # Er is een nieuwere activiteit — herbereken
+    old_ctl = state.get("load", {}).get("ctl_estimate", 0)
+    old_tsb = state.get("load", {}).get("tsb_estimate", 0)
+
+    result = load_manager.analyze(activities=activities_42d)
+
+    new_ctl = result["ctl"]
+    new_tsb = result["tsb"]
+    ctl_delta = new_ctl - old_ctl
+    st.session_state["load_recalc_flash"] = (
+        f"Load bijgewerkt: CTL {new_ctl:.0f} ({ctl_delta:+.1f}) · "
+        f"TSB {new_tsb:+.0f} · target {result['recommended_weekly_tss']} TSS"
+    )
 
 
 @st.cache_data(ttl=300)
@@ -516,6 +573,10 @@ def generate_feedback(event, activity, matched=None):
 st.set_page_config(page_title="Coach", page_icon="", layout="centered")
 ui.inject_global_css()
 
+# Auto-recalc CTL/ATL/TSB als er nieuwe activiteiten zijn.
+# Draait vóór load_state() zodat state.json al bijgewerkt is voor de sidebar.
+auto_recalculate_load()
+
 state = load_state()
 monday = this_monday()
 
@@ -575,6 +636,11 @@ with st.sidebar:
 
 
 # ── MAIN ───────────────────────────────────────────────────────────────────
+
+# Flash van auto-recalc (eenmalig na herberekening)
+_recalc_flash = st.session_state.pop("load_recalc_flash", None)
+if _recalc_flash:
+    ui.coach_card(_recalc_flash, tone="positive", title="Herberekend")
 
 events, activities = fetch_week(selected_monday.isoformat())
 recent = fetch_recent()
