@@ -191,6 +191,21 @@ def _empty_figure(message: str = "Structure not available"):
     return fig
 
 
+def _abs_label(pct: float, sport: str) -> str:
+    """Absolute waarde voor hover: watts bij bike, pace bij run."""
+    try:
+        from agents.workout_annotations import (
+            pct_to_pace_str, pct_to_watts, _is_bike, _is_run,
+        )
+    except Exception:
+        return f"{pct:.0f}%"
+    if _is_bike(sport):
+        return f"{pct:.0f}% ({pct_to_watts(pct)}W)"
+    if _is_run(sport):
+        return f"{pct:.0f}% ({pct_to_pace_str(pct)})"
+    return f"{pct:.0f}%"
+
+
 def render_workout_chart(
     workout: dict,
     actual_samples: list | None = None,
@@ -210,6 +225,7 @@ def render_workout_chart(
         return None
 
     beschrijving = (workout or {}).get("beschrijving") or ""
+    sport = (workout or {}).get("sport") or ""
     intervals = parse_workout_structure(beschrijving)
 
     if not intervals:
@@ -246,13 +262,20 @@ def render_workout_chart(
             seg_x = [t, t + iv.duration_min]
             seg_y = [iv.intensity_pct, iv.intensity_pct]
         color = _color_for_pct(iv.intensity_pct)
+        if iv.is_ramp and iv.start_pct is not None and iv.end_pct is not None:
+            hover = (
+                f"{iv.duration_min:.0f}m ramp<br>"
+                f"{_abs_label(iv.start_pct, sport)} → {_abs_label(iv.end_pct, sport)}"
+            )
+        else:
+            hover = f"{iv.duration_min:.0f}m<br>{_abs_label(iv.intensity_pct, sport)}"
         fig.add_trace(go.Scatter(
             x=seg_x, y=seg_y,
             fill="tozeroy",
             fillcolor=color,
             line=dict(color=color, width=0),
             mode="lines",
-            hoverinfo="skip",
+            hovertemplate=hover + "<extra></extra>",
             showlegend=False,
         ))
         t += iv.duration_min
