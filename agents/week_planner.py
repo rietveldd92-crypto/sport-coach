@@ -333,16 +333,47 @@ def build_week(
         from agents import availability as _av
         _week_avail = _av.get_week(week_start)
         _day_to_date = {dag: _day_label(week_start, dag) for dag in DAYS_NL}
+
+        # Stap 1: op rustdagen (0 min) bike-sessies remappen naar vrije dag,
+        # run-sessies droppen (endurance_coach had die al moeten skippen — als
+        # er toch één op een rustdag staat is dat een bug, niet iets om te
+        # verplaatsen). bike_coach respecteert skip_run_days niet; dit is de
+        # plek waar we dat opvangen.
+        def _day_space(dag_naam: str) -> int:
+            avail = _week_avail.get(_day_to_date[dag_naam].isoformat())
+            if avail is None or avail == 0:
+                return 0
+            used = sum((s.get("duur_min") or 0) for s in sessions_by_day.get(dag_naam, []))
+            return max(0, avail - used)
+
+        for dag in list(sessions_by_day.keys()):
+            avail = _week_avail.get(_day_to_date[dag].isoformat())
+            if avail != 0:
+                continue
+            keep: list[dict] = []
+            for s in sessions_by_day[dag]:
+                if (s.get("sport") or "") in ("Ride", "VirtualRide"):
+                    dur = s.get("duur_min") or 0
+                    target = next(
+                        (d for d in DAYS_NL
+                         if d != dag and _day_space(d) >= dur),
+                        None,
+                    )
+                    if target:
+                        s["dag"] = target
+                        s["datum"] = _day_label(week_start, target).isoformat()
+                        sessions_by_day.setdefault(target, []).append(s)
+                        print(f"  Fiets '{s.get('naam')}' verplaatst van {dag} → {target}")
+                    else:
+                        print(f"  Fiets '{s.get('naam')}' geskipt ({dag} rustdag, geen ruimte elders)")
+                else:
+                    print(f"  Sessie '{s.get('naam')}' geskipt ({dag} rustdag)")
+            sessions_by_day[dag] = keep
+
+        # Stap 2: per dag cappen naar beschikbare tijd (na remap).
         for dag, sess_list in list(sessions_by_day.items()):
             _avail_min = _week_avail.get(_day_to_date[dag].isoformat())
-            # Rustdag (0 min): dropp alle sessies — bike_coach respecteert
-            # skip_run_days niet, dus dit is onze backstop.
-            if _avail_min == 0:
-                if sess_list:
-                    print(f"  Dag {dag}: {len(sess_list)} sessie(s) geskipt (rustdag)")
-                sessions_by_day[dag] = []
-                continue
-            if _avail_min is None:
+            if _avail_min is None or _avail_min <= 0:
                 continue
             total_min = sum(s.get("duur_min") or 0 for s in sess_list)
             if total_min > _avail_min:
