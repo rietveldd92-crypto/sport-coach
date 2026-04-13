@@ -57,8 +57,12 @@ REHAB_DAILY_NOTE = (
     "Meld het via: python adjust.py"
 )
 
-# Dagen waarop krachttraining ingepland wordt (om de dag)
+# Dagen waarop krachttraining ingepland kan worden — fallback als de
+# slimme placement (zie _select_strength_days) faalt.
 STRENGTH_DAYS = ["dinsdag", "donderdag", "zaterdag"]
+
+# TSS-drempel waarboven een sessie als "zwaar" telt voor kracht-placering.
+HARD_TSS_FOR_STRENGTH = 70
 
 
 def _day_label(week_start: date, dag_naam: str) -> date:
@@ -71,6 +75,60 @@ def _is_hard_session(sessie: dict) -> bool:
     hard_types = {"sweetspot_kort", "sweetspot_lang", "vo2max_intervals",
                   "interval_10km", "tempoloon", "z2_met_strides"}
     return sessie.get("type") in hard_types
+
+
+def _select_strength_days(all_sessions: list, long_run_dag: str) -> list[str]:
+    """Kies kracht-dagen volgens twee regels:
+
+    1. NOOIT op de dag VOOR een zware sessie (kracht voor zwaar = slechte staat).
+    2. NOOIT 2 dagen achter elkaar (48u herstel tussen kracht-sessies).
+
+    Algoritme:
+    - Verzamel hard_days (TSS >= 70 of sacred/threshold/drempel/intervals).
+    - Forbidden = dag-voor-elke-hard-dag + long_run_dag.
+    - Kies uit overige dagen: max 3 sessies, minimum 2 dagen gap.
+    """
+    sessions_by_day: dict[str, list] = {}
+    for s in all_sessions:
+        sessions_by_day.setdefault(s["dag"], []).append(s)
+
+    # "Hard" voor kracht-placement = ALLEEN interval-/drempelsessies.
+    # Lange continue duurritten (long_slow, long_endurance, fatmax, lange duurloop)
+    # zijn aerobe motor — geen explosief/excentrisch werk dat kracht conflicteert.
+    hard_keywords = ("threshold", "drempel", "marathon_tempo", "tempo_duurloop",
+                     "cp_intervals", "vo2max", "interval", "over_unders",
+                     "over-unders", "pyramide", "surges", "vo2", "sweetspot")
+
+    def _day_is_hard(dag: str) -> bool:
+        # Alleen interval-/drempelsessies tellen als "hard" voor kracht-placement.
+        # TSS alleen is geen criterium: een 165 min long_slow heeft TSS 120 maar
+        # is puur aeroob — kracht ervoor is prima.
+        for s in sessions_by_day.get(dag, []):
+            sessie_type = (s.get("type") or "").lower()
+            naam = (s.get("naam") or "").lower()
+            if any(k in sessie_type or k in naam for k in hard_keywords):
+                return True
+        return False
+
+    forbidden: set[str] = set()
+    if long_run_dag:
+        forbidden.add(long_run_dag)
+    for i, dag in enumerate(DAYS_NL):
+        if _day_is_hard(dag) and i > 0:
+            forbidden.add(DAYS_NL[i - 1])  # dag VOOR een zware sessie
+
+    # Kandidaten: dagen die niet forbidden zijn, met spreiding ≥ 2 dagen
+    candidates: list[str] = []
+    last_picked_idx = -10
+    for i, dag in enumerate(DAYS_NL):
+        if dag in forbidden:
+            continue
+        if i - last_picked_idx >= 2:
+            candidates.append(dag)
+            last_picked_idx = i
+        if len(candidates) >= 3:
+            break
+    return candidates
 
 
 def _validate_no_back_to_back_hard(all_sessions: list) -> list:
@@ -147,9 +205,15 @@ def build_week(
         dag = s["dag"]
         sessions_by_day.setdefault(dag, []).append(s)
 
-    # Bepaal op welke dagen krachttraining past (niet op lange duurdag)
+    # Bepaal op welke dagen krachttraining past:
+    # 1. NOOIT op de dag VOOR een zware sessie
+    # 2. NOOIT 2 dagen achter elkaar
+    # 3. NOOIT op long-run dag
     long_run_dag = next((s["dag"] for s in run_sessions if s.get("type") == "lange_duur"), "zondag")
-    strength_days_this_week = [d for d in STRENGTH_DAYS if d != long_run_dag]
+    strength_days_this_week = _select_strength_days(all_sessions, long_run_dag)
+    if not strength_days_this_week:
+        # Fallback: oude vaste lijst minus long_run_dag — beter dan niks
+        strength_days_this_week = [d for d in STRENGTH_DAYS if d != long_run_dag]
 
     # Bouw het schema
     events_to_create = []
