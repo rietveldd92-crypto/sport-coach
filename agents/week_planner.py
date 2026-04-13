@@ -320,6 +320,25 @@ def build_week(
         dag = s["dag"]
         sessions_by_day.setdefault(dag, []).append(s)
 
+    # ── BESCHIKBAARHEID — duur cappen per dag ────────────────────────────────
+    # Als de atleet minder tijd heeft dan de geplande sessies, schaal
+    # proportioneel terug. 0-minuten dagen zijn al als skip_run_days uit
+    # de plan_sessions-chain gefilterd; hier handelen we de 30-240 range af.
+    try:
+        from agents import availability as _av
+        _week_avail = _av.get_week(week_start)
+        _day_to_date = {dag: _day_label(week_start, dag) for dag in DAYS_NL}
+        for dag, sess_list in list(sessions_by_day.items()):
+            _avail_min = _week_avail.get(_day_to_date[dag].isoformat())
+            if _avail_min is None or _avail_min <= 0:
+                continue
+            total_min = sum(s.get("duur_min") or 0 for s in sess_list)
+            if total_min > _avail_min:
+                sessions_by_day[dag] = _av.cap_sessions_for_day(sess_list, _avail_min)
+                print(f"  Dag {dag}: ingekort van {total_min} → {_avail_min} min")
+    except Exception as _e:
+        print(f"  Beschikbaarheid-cap overgeslagen: {_e}")
+
     # Bepaal op welke dagen krachttraining past:
     # 1. NOOIT op de dag VOOR een zware sessie
     # 2. NOOIT 2 dagen achter elkaar
