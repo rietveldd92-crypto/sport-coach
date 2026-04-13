@@ -849,6 +849,30 @@ if total_planned > 0:
 show_tp_flash()
 show_swap_flash()
 
+# ── BESCHIKBAARHEID ────────────────────────────────────────────────────────
+# Alleen voor huidige week of verder in de toekomst — verleden heeft geen zin
+if week_offset >= 0:
+    from agents import availability as _av
+
+    _weekly_target = state.get("load", {}).get("weekly_tss_target", 400)
+    _avail_default_open = (week_offset >= 1 and not _av.is_week_set(selected_monday))
+    with st.expander("Beschikbaarheid", expanded=_avail_default_open):
+        _new_avail = ui.availability_editor(
+            selected_monday,
+            weekly_tss_target=_weekly_target,
+            key_prefix=f"avail_w{week_offset}",
+        )
+        if _new_avail is not None:
+            _av.set_week(selected_monday, _new_avail)
+            st.cache_data.clear()
+            try:
+                import plan_week as _pw
+                _pw.run(selected_monday, dry_run=False)
+                st.success("Beschikbaarheid opgeslagen en week opnieuw gepland.")
+            except Exception as _exc:
+                st.error(f"Opslaan gelukt, maar replan faalde: {_exc}")
+            st.rerun()
+
 # ── WORKOUT LIST ───────────────────────────────────────────────────────────
 
 _current_day = None

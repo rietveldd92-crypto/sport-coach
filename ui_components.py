@@ -21,7 +21,7 @@ Gebruik:
 from __future__ import annotations
 
 import re
-from datetime import date
+from datetime import date, timedelta
 from typing import Optional, Literal
 
 import streamlit as st
@@ -734,15 +734,96 @@ def stat_inline(label: str, value: str) -> None:
     )
 
 
-def availability_slider_row(day_label: str, key_prefix: str) -> tuple[Optional[int], Optional[str]]:
-    """Scaffold: één rij voor beschikbaarheid per dag.
+_AVAIL_OPTIONS = [0, 30, 60, 90, 120, 150, 180, 210, 240]
 
-    Fase 0: returnt tuple (None, None) — echte implementatie komt in Fase 4
-    als de scheduler bestaat. Dit is hier puur om de signature te pinnen
-    zodat callers eraan kunnen bouwen.
+
+def _avail_fmt(m: int) -> str:
+    if m == 0:
+        return "rust"
+    if m % 60 == 0:
+        return f"{m // 60}u"
+    return f"{m // 60}u{m % 60:02d}"
+
+
+def availability_editor(
+    week_start: date,
+    weekly_tss_target: int,
+    key_prefix: str = "avail",
+) -> Optional[dict[str, int]]:
+    """Render de beschikbaarheids-editor voor een week.
+
+    Slider per dag in stappen van 30 min (max 240). Toont totaal en een
+    waarschuwing als het TSS-doel niet haalbaar is met de opgegeven tijd.
+
+    Returnt de nieuwe waardes wanneer de gebruiker op 'Opslaan' klikt,
+    anders None. Caller is verantwoordelijk voor persisteren + replan.
     """
-    # TODO Fase 4: custom pill buttons voor duur + intensiteit
-    return (None, None)
+    from agents import availability as av
+
+    # Als de week nog leeg is, pak de waardes van de vorige week als default.
+    av.copy_from_prev_week(week_start)
+    current = av.get_week(week_start)
+
+    st.markdown(
+        '<div class="ui-section-header">Beschikbaarheid deze week</div>',
+        unsafe_allow_html=True,
+    )
+    st.caption(
+        "Per dag hoeveel tijd heb je? Stappen van 30 min, max 4 uur. "
+        "Dagen op 'rust' worden overgeslagen bij het plannen."
+    )
+
+    new_values: dict[str, int] = {}
+    for i, day_name in enumerate(["Ma", "Di", "Wo", "Do", "Vr", "Za", "Zo"]):
+        d = week_start + timedelta(days=i)
+        key_iso = d.isoformat()
+        default = current.get(key_iso) or 0
+        cols = st.columns([1, 4])
+        cols[0].markdown(
+            f'<div style="padding-top: 0.45rem; font-weight: 600; '
+            f'color: var(--text); font-size: 0.9rem;">'
+            f'{day_name} <span style="color: var(--text-muted); font-weight: 400; '
+            f'font-size: 0.78rem;">{d.day}/{d.month}</span></div>',
+            unsafe_allow_html=True,
+        )
+        with cols[1]:
+            val = st.select_slider(
+                label=key_iso,
+                options=_AVAIL_OPTIONS,
+                value=default if default in _AVAIL_OPTIONS else 0,
+                format_func=_avail_fmt,
+                key=f"{key_prefix}_{key_iso}",
+                label_visibility="collapsed",
+            )
+        new_values[key_iso] = int(val)
+
+    # Totaal + budget-check
+    total_min = sum(new_values.values())
+    total_hr = total_min / 60
+    needed = int(round((weekly_tss_target / av.TSS_PER_HOUR) * 60))
+    shortfall = max(0, needed - total_min)
+
+    status_color = "var(--positive)" if shortfall == 0 else "var(--warning)"
+    status_msg = (
+        f"Budget: {total_hr:.1f}u beschikbaar / ~{needed/60:.1f}u nodig voor "
+        f"{weekly_tss_target} TSS"
+    )
+    if shortfall > 0:
+        status_msg += f" — <b>tekort {shortfall} min</b>"
+
+    st.markdown(
+        f'<div style="margin-top: 0.8rem; padding: 0.7rem 1rem; '
+        f'background: var(--bg-raised); border-left: 3px solid {status_color}; '
+        f'border-radius: 6px; font-size: 0.85rem; color: var(--text);">'
+        f'{status_msg}</div>',
+        unsafe_allow_html=True,
+    )
+
+    # Alleen een expliciete save triggert return → replan
+    if st.button("Opslaan & herplannen", key=f"{key_prefix}_save",
+                 use_container_width=True):
+        return new_values
+    return None
 
 
 # ── WORKOUT DETAILS ────────────────────────────────────────────────────────
