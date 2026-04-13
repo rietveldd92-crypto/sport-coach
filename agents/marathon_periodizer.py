@@ -31,6 +31,57 @@ PLAN_START = date(2026, 4, 6)  # maandag van week 1 (na deload week)
 
 # ── FASE DEFINITIES (Delahaije blokperiodisering) ─────────────────────────
 
+# ── RUN-PROGRESSIE TABEL (wk 1–12) ────────────────────────────────────────
+# Onderhandelde tabel met Dylsky: reflecteert werkelijke status (21 km/wk baseline).
+# Vorm: (run_km_totaal, run_sessies, lange_duurloop_km, is_recovery)
+RUN_PROGRESSION_TABLE = {
+    1:  (21, 3,  7, False),
+    2:  (24, 3,  8, False),
+    3:  (27, 3, 10, False),   # benchmark: vanaf hier +15% cap
+    4:  (19, 3,  7, True),    # deload −30%
+    5:  (31, 3, 11, False),
+    6:  (36, 3, 12, False),
+    7:  (41, 3, 14, False),   # crosses 40 km trigger voor 4e run
+    8:  (29, 3, 10, True),    # deload
+    9:  (47, 4, 14, False),   # 4e run ingevoerd
+    10: (54, 4, 16, False),
+    11: (58, 4, 17, False),
+    12: (40, 4, 13, True),    # deload
+}
+
+# ── RUN-INTENSITEIT GATING (per week, voor endurance_coach) ───────────────
+# "geen"      = puur Z1
+# "strides"   = Z1 + 4–6× 80m strides
+# "tempoduur" = Z1 + tempoduurloop (85% HRmax, nog onder aerobe drempel)
+# "drempel"   = vanaf wk 13+ drempelwerk @ 4:20/km startpace
+RUN_INTENSITEIT_GATING = {
+    1:  "geen",
+    2:  "geen",
+    3:  "geen",
+    4:  "geen",
+    5:  "strides",
+    6:  "strides",
+    7:  "tempoduur",
+    8:  "strides",
+    9:  "tempoduur",
+    10: "tempoduur",
+    11: "tempoduur",
+    12: "strides",
+    # wk 13+ → drempel (start @ 4:20/km) — ingevuld in PHASES.run_intensiteit_gating
+}
+
+# ── BIKE-TOOLKIT CATALOGUS ─────────────────────────────────────────────────
+# Threshold = vast anker in ELKE week, ALLE fases. 2e/3e slot rouleert.
+BIKE_TOOLKIT_TSS = {
+    "threshold":       85,
+    "fatmax_medium":   70,   # 75–90 min Z1/low Z2
+    "fatmax_lang":    110,   # 2:00–2:30 u Z1
+    "long_slow":      130,   # 2:30–3:00 u pure Z1
+    "cp_intervals":    90,   # critical-power, start 5×3 @ 115% FTP
+    "easy_spin":       55,   # 60–75 min Z1 herstel
+}
+
+
 PHASES = [
     # ── ACCUMULATIE CYCLUS 1: herstel + aerobe basis ──
     {
@@ -38,21 +89,21 @@ PHASES = [
         "label": "Accumulatie I — Herstel & Basis",
         "weken": (1, 7),
         "beschrijving": (
-            "Terugkeer uit blessure. 100% Zone 1. Fiets als aerobe vulling. "
-            "Tempoduurloop introduceren in week 3-4 (net onder aerobe drempel, "
-            "dit is nog steeds Z1 in Delahaije's model)."
+            "Terugkeer uit blessure, 21 → 41 km/wk in 3 runs. Threshold-anker op "
+            "de fiets + fatmax/long_slow roulerend. Strides vanaf wk 5, tempoduur "
+            "vanaf wk 7."
         ),
-        "run_sessies_per_week": 3,   # fysio: start 3x, groeit naar 4-5
-        "fiets_sessies_per_week": 2,
-        "run_km_start": 6,
-        "run_km_increment": 1,
-        "lange_duurloop": False,     # komt in week 3-4
-        "intensiteit_run": "geen",   # week 1-2: puur Z1; week 3+: tempoduur
-        "intensiteit_fiets": "z1",   # Delahaije: accumulatie = 100% Z1
+        "run_sessies_per_week": 3,
+        "fiets_sessies_per_week": 3,
+        "lange_duurloop": True,      # al vanaf wk 1 (7 km)
+        "intensiteit_run": "geen",   # gating per week — zie RUN_INTENSITEIT_GATING
+        "intensiteit_fiets": "toolkit",
+        "bike_toolkit": ["threshold", "fatmax_medium", "fatmax_lang",
+                          "threshold", "cp_intervals", "long_slow", "threshold"],
         "ctl_doel": (43, 55),
-        "tss_doel": (280, 400),
-        "meso_ritme": "2:1",         # 2 build, 1 herstel (blessureherstel)
-        "micro_ritme": "3:1:2:1",    # Delahaije dagritme
+        "tss_doel": (400, 550),
+        "meso_ritme": "2:1",
+        "micro_ritme": "3:1:2:1",
     },
     # ── ACCUMULATIE CYCLUS 2: volume opbouwen ──
     {
@@ -60,19 +111,20 @@ PHASES = [
         "label": "Accumulatie II — Volume",
         "weken": (8, 14),
         "beschrijving": (
-            "Volume opbouwen naar 8-10 uur/week. Lange duurloop groeit. "
-            "Tempoduurloop wordt sleutelsessie (4-6x 8min @ 85% HRmax). "
-            "Strides (4-6x 80m) in 2-3 sessies/week. Nog steeds 100% Z1."
+            "4e run vanaf wk 9 (47 km). Lange duurloop naar 17 km. Threshold-anker "
+            "blijft, CP-intervallen 1×/2–3 wk. Tempoduur sleutelsessie."
         ),
         "run_sessies_per_week": 4,
-        "fiets_sessies_per_week": 2,
+        "fiets_sessies_per_week": 3,
         "lange_duurloop": True,
         "long_run_km_start": 14,
         "long_run_km_increment": 1.5,
         "intensiteit_run": "tempoduur_strides",
-        "intensiteit_fiets": "z1",
+        "intensiteit_fiets": "toolkit",
+        "bike_toolkit": ["threshold", "fatmax_lang", "cp_intervals",
+                          "threshold", "long_slow", "fatmax_medium", "threshold"],
         "ctl_doel": (55, 68),
-        "tss_doel": (400, 550),
+        "tss_doel": (475, 625),
         "meso_ritme": "3:1",
         "micro_ritme": "3:1:2:1",
     },
@@ -82,9 +134,8 @@ PHASES = [
         "label": "Transformatie I — Scherpte",
         "weken": (15, 18),
         "beschrijving": (
-            "Delahaije transformatiefase: Z1 volume blijft hoog, Z3 intervallen "
-            "erbij. 90/10 verdeling. Op de fiets: sweetspot/threshold mag weer. "
-            "'De intensieve trainingen gaan tot het gaatje.'"
+            "Drempelwerk op de loop vanaf wk 13+ (@ 4:20/km). 90/10 verdeling. "
+            "Op de fiets: threshold + CP + marathon-pace blokken."
         ),
         "run_sessies_per_week": 5,
         "fiets_sessies_per_week": 2,
@@ -92,7 +143,8 @@ PHASES = [
         "long_run_km_start": 25,
         "long_run_km_increment": 1,
         "intensiteit_run": "marathon_tempo",
-        "intensiteit_fiets": "sweetspot",
+        "intensiteit_fiets": "toolkit",
+        "bike_toolkit": ["threshold", "cp_intervals", "fatmax_medium", "threshold"],
         "ctl_doel": (68, 78),
         "tss_doel": (550, 700),
         "meso_ritme": "3:1",
@@ -104,17 +156,17 @@ PHASES = [
         "label": "Accumulatie III — Piekvolume",
         "weken": (19, 22),
         "beschrijving": (
-            "Terug naar 100% Z1 maar op hoger volume. Langste duurlopen. "
-            "Aerobe residuele effecten houden 30-35 dagen aan — hier wordt "
-            "het fundament gelegd voor de laatste transformatie."
+            "Terug naar Z1-dominantie, maar hoger volume. Langste duurlopen. "
+            "Threshold-anker blijft, CP-intervallen elke 2 weken."
         ),
         "run_sessies_per_week": 5,
-        "fiets_sessies_per_week": 1,
+        "fiets_sessies_per_week": 2,
         "lange_duurloop": True,
         "long_run_km_start": 30,
         "long_run_km_increment": 1,
         "intensiteit_run": "tempoduur_strides",
-        "intensiteit_fiets": "z1",
+        "intensiteit_fiets": "toolkit",
+        "bike_toolkit": ["threshold", "long_slow", "threshold", "fatmax_lang"],
         "ctl_doel": (78, 88),
         "tss_doel": (600, 750),
         "meso_ritme": "3:1",
@@ -192,28 +244,16 @@ def _build_weekly_plan() -> list[dict]:
             # We modelleren dit als -30% volume (niet -50%).
             recovery_mod = 0.70 if is_recovery else 1.0
 
-            # ── Loopvolume berekenen ──
-            if phase["naam"] == "accumulatie_I":
-                # Fysio: 3x per week, start 6km, +1km/sessie/week
-                km_per_sessie = phase["run_km_start"] + (wk - 1) * phase["run_km_increment"]
-                run_sessions_count = phase["run_sessies_per_week"]
-                # Vanaf week 3: 4e sessie (korte herstelrun) toevoegen als knie ok
-                if wk >= 3:
-                    run_sessions_count = 4
-                # Vanaf week 5: tempoduurloop als sleutelsessie
-                intensiteit = "geen" if wk <= 4 else "tempoduur"
-                # Lange duurloop vanaf week 4
-                if wk >= 4:
-                    long_run_km = km_per_sessie + 2
-                    run_km_total = round((km_per_sessie * (run_sessions_count - 1) + long_run_km) * recovery_mod, 1)
-                else:
-                    long_run_km = 0
-                    run_km_total = round(km_per_sessie * run_sessions_count * recovery_mod, 1)
-                short_sessions = run_sessions_count - (1 if long_run_km > 0 else 0)
+            # ── Loopvolume uit tabel (wk 1–12) of formule (wk 13+) ──
+            if wk in RUN_PROGRESSION_TABLE:
+                run_km_total, run_sessions_count, long_run_km, is_recovery = RUN_PROGRESSION_TABLE[wk]
+                intensiteit = RUN_INTENSITEIT_GATING.get(wk, "geen")
+                short_sessions = run_sessions_count - 1
                 medium_sessions = 0
+                recovery_mod = 0.70 if is_recovery else 1.0
 
             elif phase["naam"] == "accumulatie_II":
-                # Volume opbouwen: 4 sessies + lange duurloop
+                # Wk 13–14: val terug op formule (tabel dekt 8–12)
                 short_km_schedule = [8, 8, 9, 9, 10, 10, 10]
                 long_km_schedule = [14, 16, 18, 20, 22, 23, 24]
                 idx = min(week_in_fase - 1, len(short_km_schedule) - 1)
@@ -223,7 +263,7 @@ def _build_weekly_plan() -> list[dict]:
                 short_sessions = 3
                 medium_sessions = 0
                 run_sessions_count = 4
-                intensiteit = "tempoduur_strides"
+                intensiteit = "drempel"  # wk 13+ drempelwerk @ 4:20/km
 
             elif phase["naam"] == "transformatie_I":
                 short_schedule = [9, 9, 10, 10]
@@ -289,19 +329,46 @@ def _build_weekly_plan() -> list[dict]:
             # ── TSS schatting ──
             run_tss = round(run_km_total * 5.5)
             fiets_sessies = phase["fiets_sessies_per_week"]
-            if is_recovery:
-                fiets_sessies = max(0, fiets_sessies - 1)
             fiets_int = phase["intensiteit_fiets"]
-            if fiets_int == "sweetspot":
-                fiets_tss_per_sessie = 65
+
+            # Toolkit-fases: bereken per geplande sessie-type (threshold + rotatie)
+            if fiets_int == "toolkit":
+                toolkit = phase.get("bike_toolkit", ["threshold"])
+                week_in_fase_idx = min(week_in_fase - 1, len(toolkit) - 1)
+                # Threshold = vast anker + roulerend 2e/3e slot
+                slot2 = toolkit[week_in_fase_idx]
+                # Bij deload: threshold_light + easy_spin
+                if is_recovery:
+                    fiets_tss = (BIKE_TOOLKIT_TSS["threshold"] * 0.65) + BIKE_TOOLKIT_TSS["easy_spin"]
+                    fiets_tss = round(fiets_tss)
+                    fiets_sessies = 2
+                else:
+                    # 3 sessies in accumulatie_I/II, 2 in transformatie/accumulatie_III
+                    fiets_tss = BIKE_TOOLKIT_TSS["threshold"] + BIKE_TOOLKIT_TSS.get(slot2, 70)
+                    if fiets_sessies >= 3:
+                        # 3e slot: altijd fatmax_medium of easy_spin invullen
+                        fiets_tss += BIKE_TOOLKIT_TSS["fatmax_medium"]
+            elif fiets_int == "sweetspot":
+                if is_recovery:
+                    fiets_sessies = max(0, fiets_sessies - 1)
+                fiets_tss = fiets_sessies * 65
             elif fiets_int == "z1":
-                fiets_tss_per_sessie = 45  # Z1 duurrit: langer maar lager IF
+                if is_recovery:
+                    fiets_sessies = max(0, fiets_sessies - 1)
+                fiets_tss = fiets_sessies * 45
             elif fiets_int == "herstel":
-                fiets_tss_per_sessie = 35
+                if is_recovery:
+                    fiets_sessies = max(0, fiets_sessies - 1)
+                fiets_tss = fiets_sessies * 35
             else:
-                fiets_tss_per_sessie = 0
-            fiets_tss = fiets_sessies * fiets_tss_per_sessie
+                fiets_tss = 0
             total_tss = run_tss + fiets_tss
+
+            # Bepaal welk type slot2 deze week krijgt (voor print/inspectie)
+            bike_slot2 = ""
+            if fiets_int == "toolkit":
+                toolkit = phase.get("bike_toolkit", ["threshold"])
+                bike_slot2 = toolkit[min(week_in_fase - 1, len(toolkit) - 1)]
 
             plan.append({
                 "week": wk,
@@ -320,6 +387,7 @@ def _build_weekly_plan() -> list[dict]:
                 "totaal_tss": total_tss,
                 "run_intensiteit": intensiteit,
                 "fiets_intensiteit": fiets_int,
+                "bike_slot2": bike_slot2,
                 "ctl_doel_min": phase["ctl_doel"][0],
                 "ctl_doel_max": phase["ctl_doel"][1],
                 "is_recovery": is_recovery,
@@ -350,6 +418,10 @@ def get_current_phase(today: date = None) -> dict:
     for phase in PHASES:
         wk_start, wk_end = phase["weken"]
         if wk_start <= wk <= wk_end:
+            # Week-specifieke gating overstijgt de fase-default
+            week_gating = RUN_INTENSITEIT_GATING.get(wk, phase["intensiteit_run"])
+            if wk >= 13 and wk not in RUN_INTENSITEIT_GATING:
+                week_gating = "drempel"
             return {
                 "fase_naam": phase["naam"],
                 "fase_label": phase["label"],
@@ -361,6 +433,8 @@ def get_current_phase(today: date = None) -> dict:
                 "lange_duurloop": phase["lange_duurloop"],
                 "intensiteit_run": phase["intensiteit_run"],
                 "intensiteit_fiets": phase["intensiteit_fiets"],
+                "run_intensiteit_gating": week_gating,
+                "bike_toolkit": phase.get("bike_toolkit", []),
                 "ctl_doel": phase["ctl_doel"],
                 "tss_doel": phase["tss_doel"],
                 "weeks_to_race": max(0, (RACE_DATE - today).days // 7),
@@ -450,17 +524,19 @@ def print_full_plan():
             print(f"\n  {'─' * 96}")
             print(f"  {current_phase.upper()} (wk {phase_info['weken'][0]}-{phase_info['weken'][1]})")
             print(f"  {phase_info['beschrijving']}")
-            print(f"  Meso: {phase_info.get('meso_ritme', '3:1')} | Fiets: {phase_info['intensiteit_fiets']}")
+            toolkit_str = ",".join(phase_info.get('bike_toolkit', [])) or phase_info['intensiteit_fiets']
+            print(f"  Meso: {phase_info.get('meso_ritme', '3:1')} | Fiets-toolkit: {toolkit_str}")
             print(f"  {'─' * 96}")
             print(f"  {'Wk':>3} | {'Maandag':>10} | {'Run km':>7} | {'Sessies':>7} | {'Lang km':>7} | "
-                  f"{'Fiets':>5} | {'Tot TSS':>7} | {'Herstel':>7} | {'Intensiteit'}")
+                  f"{'Fiets':>5} | {'Tot TSS':>7} | {'Herstel':>7} | {'Gating':>10} | {'Slot2'}")
 
         long_str = f"{wp['lange_duurloop_km']:.0f}" if wp["lange_duurloop_km"] > 0 else "-"
         rec_str = "ja" if wp.get("is_recovery") else ""
+        gating = RUN_INTENSITEIT_GATING.get(wp['week'], "drempel" if wp['week'] >= 13 else wp['run_intensiteit'])
+        slot2 = wp.get("bike_slot2", "")
         print(f"  {wp['week']:3d} | {wp['monday']:>10} | {wp['run_km_totaal']:6.1f} | "
               f"{wp['run_sessies']:7d} | {long_str:>7} | {wp['fiets_sessies']:5d} | "
-              f"{wp['totaal_tss']:7d} | {rec_str:>7} | "
-              f"{wp['run_intensiteit']}")
+              f"{wp['totaal_tss']:7d} | {rec_str:>7} | {gating:>10} | {slot2}")
 
     print(f"\n  {'─' * 96}")
     total_run_km = sum(wp["run_km_totaal"] for wp in WEEKLY_PLAN)
