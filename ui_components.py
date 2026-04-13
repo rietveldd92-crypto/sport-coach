@@ -822,6 +822,48 @@ def morning_checkin(
     return None
 
 
+def workout_intent_box(workout: dict | None) -> None:
+    """Render een donkere accent-box met de coach-intent boven de workout.
+
+    Intent is 1-3 zinnen directe cue, geen vervanging voor de beschrijving.
+    Stilhouden als workout None of geen type heeft — fallback zit in
+    get_intent zelf, maar we tonen dan bewust niks ipv een generiek
+    zinnetje dat niets toevoegt.
+    """
+    if not workout or not (workout.get("type") or workout.get("naam")):
+        return
+    try:
+        from agents.workout_intent import get_intent
+    except Exception:
+        return
+    msg = get_intent(workout)
+    if not msg:
+        return
+    # Toon niet als het puur de default-fallback is — geen meerwaarde.
+    if msg.startswith("Voer uit zoals beschreven"):
+        return
+    safe = (
+        msg.replace("&", "&amp;")
+           .replace("<", "&lt;")
+           .replace(">", "&gt;")
+    )
+    st.markdown(
+        f"""
+        <div style="background: #17181C; border-left: 3px solid var(--accent, #C4603C);
+                    border-radius: 8px; padding: 0.75rem 1rem; margin: 0.6rem 0;
+                    color: #E8E5DF; font-family: Georgia, 'Times New Roman', serif;
+                    font-style: italic; font-size: 0.95rem; line-height: 1.5;">
+            <span style="font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.14em;
+                         font-style: normal; font-family: Inter, sans-serif;
+                         color: var(--accent, #C4603C); font-weight: 600;
+                         display: block; margin-bottom: 0.35rem;">Coach-intent</span>
+            {safe}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def workout_details(description: str) -> None:
     """Render de workout structuur in een leesbare, getypeerde weergave.
 

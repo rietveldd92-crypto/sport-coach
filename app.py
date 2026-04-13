@@ -788,6 +788,7 @@ if today_event:
                 st.session_state[show_details_key] = not st.session_state.get(show_details_key, False)
                 st.rerun()
         if st.session_state.get(show_details_key):
+            ui.workout_intent_box(event)
             ui.workout_details(description)
 
     # Sync-knop + Wissel-knop — gebruik de gedeelde TP helper
@@ -965,6 +966,7 @@ for i, item in enumerate(matched):
 
     # Workout details expand (alleen als toggle aan)
     if st.session_state.get(f"show_det_{i}") and has_details:
+        ui.workout_intent_box(event)
         ui.workout_details(event.get("description") or "")
 
     # Coach feedback — analytische bericht-stijl
