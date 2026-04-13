@@ -212,7 +212,7 @@ def run(week_start: date, dry_run: bool = True, skip_run_days: list = None):
         "notes": ig_result["message"],
     })
     with open(STATE_PATH, "w") as f:
-        json.dump(state, f, indent=4, ensure_ascii=False)
+        json.dump(state, f, indent=2, ensure_ascii=False)
 
     return events
 

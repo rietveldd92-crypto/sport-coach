@@ -168,7 +168,7 @@ def _load_state() -> dict:
 
 def _save_state(state: dict) -> None:
     with open(STATE_PATH, "w") as f:
-        json.dump(state, f, indent=4, ensure_ascii=False)
+        json.dump(state, f, indent=2, ensure_ascii=False)
 
 
 def _weeks_to_race() -> int:
@@ -320,6 +320,8 @@ def analyze(activities: list = None, injury_guard_output: dict = None) -> dict:
         prev_plan = marathon_periodizer.WEEKLY_PLAN[max(0, min(wk_num, 28) - 2)]
 
         # HRV uit state (wellness context, optional)
+        # TODO: hrv_week_avg / hrv_prev_week_avg worden momenteel nog niet geschreven
+        # door een producer. Auto-deload blijft no-op tot wellness-ingestion die keys vult.
         hrv_now = state.get("hrv_week_avg")
         hrv_prev = state.get("hrv_prev_week_avg")
 
@@ -334,7 +336,9 @@ def analyze(activities: list = None, injury_guard_output: dict = None) -> dict:
         if consistency["force_deload"]:
             is_deload_week = True
         state["consistency_warnings"] = consistency["warnings"]
-    except Exception:
+    except (ImportError, IndexError, KeyError) as e:
+        import logging
+        logging.getLogger(__name__).warning("consistency-check skipped: %s", e)
         state["consistency_warnings"] = []
 
     if is_deload_week:

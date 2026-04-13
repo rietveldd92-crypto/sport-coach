@@ -35,7 +35,7 @@ def _load_state() -> dict:
 
 def _save_state(state: dict) -> None:
     with open(STATE_PATH, "w") as f:
-        json.dump(state, f, indent=4, ensure_ascii=False)
+        json.dump(state, f, indent=2, ensure_ascii=False)
 
 
 def _last_monday() -> date:
