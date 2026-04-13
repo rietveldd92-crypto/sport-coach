@@ -275,7 +275,9 @@ def render_workout_chart(
             fillcolor=color,
             line=dict(color=color, width=0),
             mode="lines",
+            hoveron="fills",
             hovertemplate=hover + "<extra></extra>",
+            text=hover,
             showlegend=False,
         ))
         t += iv.duration_min
@@ -300,6 +302,8 @@ def render_workout_chart(
         plot_bgcolor="#0A0A0A",
         font=dict(color="#EFEFEF", family="Inter, sans-serif"),
         showlegend=False,
+        hovermode="x",
+        hoverlabel=dict(bgcolor="#1A1A1A", font=dict(color="#EFEFEF")),
         margin=dict(l=10, r=10, t=10, b=30),
         height=height,
         xaxis=dict(
