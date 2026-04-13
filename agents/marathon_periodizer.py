@@ -35,18 +35,20 @@ PLAN_START = date(2026, 4, 6)  # maandag van week 1 (na deload week)
 # Onderhandelde tabel met Dylsky: reflecteert werkelijke status (21 km/wk baseline).
 # Vorm: (run_km_totaal, run_sessies, lange_duurloop_km, is_recovery)
 RUN_PROGRESSION_TABLE = {
-    1:  (21, 3,  7, False),
-    2:  (24, 3,  8, False),
-    3:  (27, 3, 10, False),   # benchmark: vanaf hier +15% cap
-    4:  (19, 3,  7, True),    # deload −30%
-    5:  (31, 3, 11, False),
-    6:  (36, 3, 12, False),
-    7:  (41, 3, 14, False),   # crosses 40 km trigger voor 4e run
-    8:  (29, 3, 10, True),    # deload
-    9:  (47, 4, 14, False),   # 4e run ingevoerd
-    10: (54, 4, 16, False),
-    11: (58, 4, 17, False),
-    12: (40, 4, 13, True),    # deload
+    # Long run is nu structureel ~40% van week zodat 'long' ook écht lang is
+    # (was bug: long == korte sessie). Korte runs schalen mee.
+    1:  (21, 3,  9, False),    # 6 + 6 + 9
+    2:  (24, 3, 10, False),    # 7 + 7 + 10
+    3:  (27, 3, 12, False),    # benchmark: vanaf hier +15% cap | 7.5 + 7.5 + 12
+    4:  (19, 3,  8, True),     # deload | 5.5 + 5.5 + 8
+    5:  (31, 3, 14, False),    # 8.5 + 8.5 + 14
+    6:  (36, 3, 16, False),    # 10 + 10 + 16
+    7:  (41, 3, 18, False),    # crosses 40 km → 4e run trigger | 11.5 + 11.5 + 18
+    8:  (29, 3, 12, True),     # deload | 8.5 + 8.5 + 12
+    9:  (47, 4, 20, False),    # 4e run ingevoerd | 9 + 9 + 9 + 20
+    10: (54, 4, 22, False),    # 10.5 + 10.5 + 10.5 + 22
+    11: (58, 4, 24, False),    # 11 + 11 + 11 + 24 (long ~41%)
+    12: (40, 4, 16, True),     # deload | 8 + 8 + 8 + 16
 }
 
 # ── RUN-INTENSITEIT GATING (per week, voor endurance_coach) ───────────────
