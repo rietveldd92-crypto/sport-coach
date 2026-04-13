@@ -335,7 +335,14 @@ def build_week(
         _day_to_date = {dag: _day_label(week_start, dag) for dag in DAYS_NL}
         for dag, sess_list in list(sessions_by_day.items()):
             _avail_min = _week_avail.get(_day_to_date[dag].isoformat())
-            if _avail_min is None or _avail_min <= 0:
+            # Rustdag (0 min): dropp alle sessies — bike_coach respecteert
+            # skip_run_days niet, dus dit is onze backstop.
+            if _avail_min == 0:
+                if sess_list:
+                    print(f"  Dag {dag}: {len(sess_list)} sessie(s) geskipt (rustdag)")
+                sessions_by_day[dag] = []
+                continue
+            if _avail_min is None:
                 continue
             total_min = sum(s.get("duur_min") or 0 for s in sess_list)
             if total_min > _avail_min:
