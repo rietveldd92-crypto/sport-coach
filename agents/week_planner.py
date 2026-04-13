@@ -135,6 +135,117 @@ def _select_strength_days(all_sessions: list, long_run_dag: str) -> list[str]:
     return candidates
 
 
+def add_brick_for_tss_gap(
+    sessions: list,
+    target_tss: int,
+    actual_tss: int,
+    ftp: int = 290,
+    is_deload: bool = False,
+    max_bricks: int = 2,
+) -> list:
+    """Vul TSS-gap op door brick-fietssessies te plakken op korte-run-dagen.
+
+    Een brick is een run + bike op dezelfde dag (na elkaar). We plaatsen
+    alleen op dagen met een korte Z1/herstel-run (di/do voorkeur), nooit op:
+    - long-run dag
+    - dag met bestaande fietssessie
+    - kracht-dag (kracht-placement heeft voorrang)
+    - deload-weken
+
+    Args:
+        sessions: gecombineerde run+bike sessie-lijst.
+        target_tss: weekelijks TSS-doel.
+        actual_tss: momenteel geplande TSS.
+        ftp: FTP voor tss-berekening van de brick.
+        is_deload: in deload-weken voegen we geen extra TSS toe.
+        max_bricks: harde cap op aantal bricks per week.
+
+    Returns:
+        Nieuwe sessie-lijst met toegevoegde brick-bikes. Gap wordt gesloten
+        tot ≤ 80 TSS of tot max_bricks bereikt is.
+    """
+    if is_deload:
+        return sessions
+
+    gap = target_tss - actual_tss
+    if gap <= 120:
+        return sessions
+
+    # Importeer hier om circulaire imports te voorkomen.
+    from agents.bike_coach import fatmax_medium_session
+
+    # Zoek brick-kandidaat-dagen: korte runs (Z1/recovery/easy, duur ≤ 60 min),
+    # geen bestaande bike, niet op zondag (long-run-dag conventie).
+    sessions_by_day: dict[str, list] = {}
+    for s in sessions:
+        sessions_by_day.setdefault(s["dag"], []).append(s)
+
+    # Dagen waar kracht op zou staan — vermijd die voor bricks
+    long_run_dag = next(
+        (s["dag"] for s in sessions if s.get("type") == "lange_duur"),
+        "zondag",
+    )
+    kracht_dagen = set(_select_strength_days(sessions, long_run_dag))
+
+    # Voorkeursvolgorde: di, do, wo, ma, vr, za (niet zondag)
+    voorkeur = ["dinsdag", "donderdag", "woensdag", "maandag", "vrijdag", "zaterdag"]
+
+    def _is_korte_run(s: dict) -> bool:
+        naam = (s.get("naam") or "").lower()
+        t = (s.get("type") or "").lower()
+        duur = s.get("duur_min") or 0
+        if s.get("sport") != "Run":
+            return False
+        if duur > 70:
+            return False
+        korte_types = ("recovery", "easy", "z2_standard", "z2_pickups", "strides",
+                       "easy_aerobic", "run_z2_")
+        return any(k in t for k in korte_types) or "herstel" in naam
+
+    nieuwe_sessies = list(sessions)
+    bricks_toegevoegd = 0
+
+    for dag in voorkeur:
+        if bricks_toegevoegd >= max_bricks:
+            break
+        if gap - (bricks_toegevoegd * 55) <= 80:
+            break
+        if dag in kracht_dagen:
+            continue
+        dag_sessies = sessions_by_day.get(dag, [])
+        # Skip als er al een fiets staat
+        if any((s.get("sport") or "") in ("Ride", "VirtualRide") for s in dag_sessies):
+            continue
+        # Skip als er geen korte run staat
+        if not any(_is_korte_run(s) for s in dag_sessies):
+            continue
+
+        # Maak een brick-bike: 45 min fatmax_medium, afgeslankt tot ±50-60 TSS.
+        brick = fatmax_medium_session(ftp)
+        brick["dag"] = dag
+        brick["naam"] = "Brick – 45 min high Z2 (na run)"
+        brick["duur_min"] = 45
+        # TSS schaal: fatmax_medium is 80 min / ~75 TSS → 45 min ≈ 42 TSS.
+        # We bumpen tot 55 voor betere gap-closure (high Z2, IF ~0.75).
+        brick["tss_geschat"] = 55
+        brick["beschrijving"] = (
+            "BRICK (na je korte run vanochtend/eerder vandaag).\n\n"
+            "Warmup\n- 5m ramp 50-65% 90rpm\n\n"
+            "Main Set\n- 35m 74% 88rpm (steady high Z2)\n\n"
+            "Cooldown\n- 5m ramp 60-50%\n\n"
+            "Doel: extra aerobe prikkel zonder intervaltraining. "
+            "Voeg minstens 2 uur rust toe tussen run en fiets. "
+            "Als benen zwaar zijn — skip de brick, geen schade."
+        )
+        brick["is_brick"] = True
+
+        nieuwe_sessies.append(brick)
+        sessions_by_day.setdefault(dag, []).append(brick)
+        bricks_toegevoegd += 1
+
+    return nieuwe_sessies
+
+
 def _validate_no_back_to_back_hard(all_sessions: list) -> list:
     """
     Controleer of er geen twee harde sessies op opeenvolgende dagen zijn.
