@@ -1095,7 +1095,7 @@ def workout_action_row(event: dict, key_prefix: str) -> None:
                     st.error(f"Skip mislukt: {exc}")
 
 
-def workout_structure_chart(workout: dict | None, actual_samples: list | None = None, height: int = 200) -> None:
+def workout_structure_chart(workout: dict | None, actual_samples: list | None = None, height: int = 200, key: Optional[str] = None) -> None:
     """Toon de workout-structuur als Plotly area chart (zone-gekleurd).
 
     Wordt boven de tekstuele beschrijving getoond. Als de parser niks kan
@@ -1116,7 +1116,7 @@ def workout_structure_chart(workout: dict | None, actual_samples: list | None = 
     fig = render_workout_chart({"beschrijving": beschrijving}, actual_samples=actual_samples, height=height)
     if fig is None:
         return
-    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False}, key=key)
 
 
 def workout_details(description: str) -> None:
