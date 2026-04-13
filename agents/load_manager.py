@@ -91,6 +91,76 @@ PHASE_TSB_RANGE = {
 }
 
 
+def enforce_consistency_rules(
+    week_target_km: float,
+    week_prev_km: float,
+    long_run_km: float,
+    days_symptom_free: int,
+    hrv_week_avg: float | None = None,
+    hrv_prev_week_avg: float | None = None,
+) -> dict:
+    """
+    Harde consistency-regels voor wekelijkse planning.
+
+    Regels:
+      - Run-km week-over-week groei: max +20% indien week_prev < 27 km,
+        anders max +15%.
+      - Long run ≤ 35% van weektotaal km.
+      - 4e run activeert pas als week_target_km > 40 én days_symptom_free >= 14.
+      - Auto-deload bij HRV weekgemiddelde >5 ms lager dan vorige week.
+
+    Returns:
+        {"adjusted_km": float, "warnings": list[str], "force_deload": bool}
+    """
+    warnings: list[str] = []
+    adjusted_km = week_target_km
+    force_deload = False
+
+    # 1. Run-km groei cap
+    if week_prev_km and week_prev_km > 0:
+        cap_factor = 1.15 if week_prev_km >= 27 else 1.20
+        max_allowed = week_prev_km * cap_factor
+        if week_target_km > max_allowed:
+            pct_used = "15%" if week_prev_km >= 27 else "20%"
+            warnings.append(
+                f"Run-km groei gecapt: {week_target_km:.1f} → {max_allowed:.1f} km "
+                f"(max +{pct_used} vanaf {week_prev_km:.1f} km)"
+            )
+            adjusted_km = round(max_allowed, 1)
+
+    # 2. Long run ≤ 35% van weektotaal
+    if adjusted_km > 0 and long_run_km > 0:
+        ratio = long_run_km / adjusted_km
+        if ratio > 0.35:
+            max_long = adjusted_km * 0.35
+            warnings.append(
+                f"Long run te groot: {long_run_km:.1f} km = {ratio*100:.0f}% van "
+                f"weektotaal (max 35% = {max_long:.1f} km)"
+            )
+
+    # 3. 4e run-trigger
+    if week_target_km > 40 and days_symptom_free < 14:
+        warnings.append(
+            f"4e run-trigger niet gehaald: {days_symptom_free} dagen symptoomvrij "
+            f"(vereist ≥14)"
+        )
+
+    # 4. HRV auto-deload
+    if hrv_week_avg is not None and hrv_prev_week_avg is not None:
+        if hrv_week_avg < hrv_prev_week_avg - 5:
+            warnings.append(
+                f"HRV-daling >5 ms: {hrv_week_avg:.1f} vs {hrv_prev_week_avg:.1f} "
+                f"— auto-deload geforceerd"
+            )
+            force_deload = True
+
+    return {
+        "adjusted_km": adjusted_km,
+        "warnings": warnings,
+        "force_deload": force_deload,
+    }
+
+
 def _load_state() -> dict:
     with open(STATE_PATH) as f:
         return json.load(f)
@@ -241,6 +311,31 @@ def analyze(activities: list = None, injury_guard_output: dict = None) -> dict:
     # Of als TSB te negatief is → geforceerde deload
     if tsb < -25:
         is_deload_week = True
+
+    # ── Consistency-regels (run-cap, long-run, HRV-deload) ──────────────
+    try:
+        from agents import marathon_periodizer
+        wk_num = state.get("week_number", 1)
+        cur_plan = marathon_periodizer.WEEKLY_PLAN[min(wk_num, 28) - 1]
+        prev_plan = marathon_periodizer.WEEKLY_PLAN[max(0, min(wk_num, 28) - 2)]
+
+        # HRV uit state (wellness context, optional)
+        hrv_now = state.get("hrv_week_avg")
+        hrv_prev = state.get("hrv_prev_week_avg")
+
+        consistency = enforce_consistency_rules(
+            week_target_km=cur_plan["run_km_totaal"],
+            week_prev_km=prev_plan["run_km_totaal"],
+            long_run_km=cur_plan["lange_duurloop_km"],
+            days_symptom_free=state.get("injury", {}).get("days_symptom_free", 0),
+            hrv_week_avg=hrv_now,
+            hrv_prev_week_avg=hrv_prev,
+        )
+        if consistency["force_deload"]:
+            is_deload_week = True
+        state["consistency_warnings"] = consistency["warnings"]
+    except Exception:
+        state["consistency_warnings"] = []
 
     if is_deload_week:
         target_tss = round(target_tss * deload_mod)
