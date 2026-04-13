@@ -235,11 +235,14 @@ def perform_instant_swap(event: dict, category: str, ftp: int = 290,
     chosen = random.choice(pick_pool)
 
     try:
+        from agents.workout_annotations import annotate_description
+        _new_sport = chosen.get("sport", event.get("type"))
+        _new_desc = annotate_description(chosen["beschrijving"], _new_sport)
         api.update_event(
             event["id"],
             name=chosen["naam"],
-            description=chosen["beschrijving"],
-            type=chosen.get("sport", event.get("type")),
+            description=_new_desc,
+            type=_new_sport,
             load_target=chosen.get("tss_geschat"),
         )
     except Exception as exc:
