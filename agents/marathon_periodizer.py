@@ -72,13 +72,33 @@ RUN_INTENSITEIT_GATING = {
 
 # ── BIKE-TOOLKIT CATALOGUS ─────────────────────────────────────────────────
 # Threshold = vast anker in ELKE week, ALLE fases. 2e/3e slot rouleert.
+# TSS-waarden gebumped na bike_coach high-Z2 fatmax + cadens-variatie long_slow.
 BIKE_TOOLKIT_TSS = {
-    "threshold":       85,
-    "fatmax_medium":   70,   # 75–90 min Z1/low Z2
-    "fatmax_lang":    110,   # 2:00–2:30 u Z1
-    "long_slow":      130,   # 2:30–3:00 u pure Z1
+    "threshold":       95,   # 75–90 min @ FTP (2×20 of 3×15)
+    "fatmax_medium":   75,   # 80 min high Z2 (70–78% FTP, IF 0.74)
+    "fatmax_lang":    115,   # 135 min high Z2 met blokken (IF 0.72)
+    "long_slow":      120,   # 165 min Z1-dominant met cadens-variatie (IF 0.66)
     "cp_intervals":    90,   # critical-power, start 5×3 @ 115% FTP
     "easy_spin":       55,   # 60–75 min Z1 herstel
+}
+
+# ── WEEKLY TSS PROGRESSIE TABEL (wk 1–12) ─────────────────────────────────
+# Onderhandelde tabel met Dylsky: TSS-doel per week, drijft load_manager.
+# Build-target: CTL +1–2/week zonder fatigue-spike. Reflecteert echte bike-volume
+# (~7:30u/wk in build) + run-progressie + 3:1 meso-ritme.
+WEEKLY_TSS_TABLE = {
+    1:  475,   # 21 km run + 7:30u bike toolkit
+    2:  510,   # 24 km + threshold + fatmax_medium + fatmax_lang
+    3:  660,   # 27 km + threshold + fatmax_lang + cp_intro + long_slow
+    4:  290,   # deload −40%
+    5:  680,   # 31 km + cp_intervals + fatmax_medium
+    6:  720,   # 36 km + fatmax_lang
+    7:  750,   # 41 km + cp_intervals (piek pre-deload)
+    8:  340,   # deload
+    9:  760,   # 47 km / 4 runs + cp_intervals
+    10: 800,
+    11: 810,
+    12: 530,   # deload
 }
 
 
