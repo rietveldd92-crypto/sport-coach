@@ -194,6 +194,7 @@ def _empty_figure(message: str = "Structure not available"):
 def render_workout_chart(
     workout: dict,
     actual_samples: list | None = None,
+    height: int = 200,
 ):
     """Genereer een Plotly-figuur voor de structuur van een workout.
 
@@ -277,7 +278,7 @@ def render_workout_chart(
         font=dict(color="#EFEFEF", family="Inter, sans-serif"),
         showlegend=False,
         margin=dict(l=10, r=10, t=10, b=30),
-        height=200,
+        height=height,
         xaxis=dict(
             gridcolor="#222",
             zerolinecolor="#222",
