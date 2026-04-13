@@ -864,6 +864,93 @@ def workout_intent_box(workout: dict | None) -> None:
     )
 
 
+def workout_action_row(event: dict, key_prefix: str) -> None:
+    """Render Swap / Shorten / Skip actie-rij met inline preview-expanders.
+
+    Gebruikt agents.workout_actions voor de impact-preview. Bij 'Apply'
+    wordt intervals_client aangeroepen en een st.rerun getriggerd.
+
+    Simpel opgezet: 3 knoppen → 3 expanders naast elkaar. Geen modals.
+    """
+    if not event or not event.get("id"):
+        return
+    try:
+        from agents import workout_actions as wa
+        from agents.workout_library import SWAP_CATEGORIES
+    except Exception:
+        return
+
+    event_id = str(event["id"])
+    cols = st.columns(3)
+    show_swap_key = f"{key_prefix}_act_swap"
+    show_short_key = f"{key_prefix}_act_short"
+    show_skip_key = f"{key_prefix}_act_skip"
+
+    if cols[0].button("Swap", key=f"{key_prefix}_btn_swap", use_container_width=True):
+        st.session_state[show_swap_key] = not st.session_state.get(show_swap_key, False)
+    if cols[1].button("Shorten", key=f"{key_prefix}_btn_short", use_container_width=True):
+        st.session_state[show_short_key] = not st.session_state.get(show_short_key, False)
+    if cols[2].button("Skip", key=f"{key_prefix}_btn_skip", use_container_width=True):
+        st.session_state[show_skip_key] = not st.session_state.get(show_skip_key, False)
+
+    # ── SWAP expander ──────────────────────────────────────────────────
+    if st.session_state.get(show_swap_key):
+        with st.expander("Swap naar", expanded=True):
+            cat_keys = list(SWAP_CATEGORIES.keys())
+            chosen = st.radio(
+                "Categorie",
+                options=cat_keys,
+                format_func=lambda k: SWAP_CATEGORIES[k]["label"],
+                key=f"{key_prefix}_swap_cat",
+                horizontal=True,
+            )
+            preview = wa.preview_swap(event, chosen)
+            st.caption(preview.narrative)
+            if st.button("Bevestig swap", key=f"{key_prefix}_swap_confirm"):
+                try:
+                    wa.apply_swap(event_id, chosen, event=event)
+                    st.success("Workout geswitcht.")
+                    st.session_state[show_swap_key] = False
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"Swap mislukt: {exc}")
+
+    # ── SHORTEN expander ───────────────────────────────────────────────
+    if st.session_state.get(show_short_key):
+        with st.expander("Inkorten", expanded=True):
+            factor_label = st.radio(
+                "Hoeveel korter?",
+                options=["80% (lichte crop)", "60% (flink korter)"],
+                key=f"{key_prefix}_short_factor",
+                horizontal=True,
+            )
+            factor = 0.8 if factor_label.startswith("80") else 0.6
+            preview = wa.preview_shorten(event, factor=factor)
+            st.caption(preview.narrative)
+            if st.button("Bevestig inkorten", key=f"{key_prefix}_short_confirm"):
+                try:
+                    wa.apply_shorten(event_id, factor, event=event)
+                    st.success("Workout ingekort.")
+                    st.session_state[show_short_key] = False
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"Inkorten mislukt: {exc}")
+
+    # ── SKIP expander ──────────────────────────────────────────────────
+    if st.session_state.get(show_skip_key):
+        with st.expander("Skip deze sessie", expanded=True):
+            preview = wa.preview_skip(event)
+            st.caption(preview.narrative)
+            if st.button("Bevestig skip", key=f"{key_prefix}_skip_confirm"):
+                try:
+                    wa.apply_skip(event_id)
+                    st.success("Workout geskipped.")
+                    st.session_state[show_skip_key] = False
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"Skip mislukt: {exc}")
+
+
 def workout_structure_chart(workout: dict | None, actual_samples: list | None = None) -> None:
     """Toon de workout-structuur als Plotly area chart (zone-gekleurd).
 
