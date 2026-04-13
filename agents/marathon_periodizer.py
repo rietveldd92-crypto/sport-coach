@@ -188,7 +188,7 @@ PHASES = [
         "long_run_km_increment": 1,
         "intensiteit_run": "tempoduur_strides",
         "intensiteit_fiets": "toolkit",
-        "bike_toolkit": ["threshold", "long_slow", "threshold", "fatmax_lang"],
+        "bike_toolkit": ["threshold", "cp_intervals", "threshold", "fatmax_lang"],
         "ctl_doel": (78, 88),
         "tss_doel": (600, 750),
         "meso_ritme": "3:1",
@@ -202,15 +202,17 @@ PHASES = [
         "beschrijving": (
             "Delahaije: 'Vanuit die algemene fitheid moet het mogelijk zijn "
             "om binnen 4-5 weken naar een piek toe te werken.' "
-            "8x1000m, 5x2000m, marathon-tempo blokken."
+            "Run-kwaliteit primair (drempel + MP). Bike-intensiteit blijft "
+            "behouden (threshold anker) als ondersteuning — geen pure herstel."
         ),
         "run_sessies_per_week": 5,
-        "fiets_sessies_per_week": 1,
+        "fiets_sessies_per_week": 2,
         "lange_duurloop": True,
         "long_run_km_start": 28,
         "long_run_km_increment": -2,
         "intensiteit_run": "marathon_tempo",
-        "intensiteit_fiets": "herstel",
+        "intensiteit_fiets": "toolkit",
+        "bike_toolkit": ["threshold", "cp_intervals", "threshold", "fatmax_medium"],
         "ctl_doel": (85, 92),
         "tss_doel": (550, 700),
         "meso_ritme": "3:1",
