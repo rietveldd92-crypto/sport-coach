@@ -31,6 +31,9 @@ load_dotenv()
 import intervals_client as api
 import shared
 from agents import feedback_engine
+from agents import adjustments_log
+from agents.deviation_classifier import detect_deviations
+from agents.adapt_week import adapt_week
 
 STATE_PATH = Path(__file__).parent / "state.json"
 FEEDBACK_LOG = Path(__file__).parent / "feedback_log.json"
@@ -199,11 +202,97 @@ def send_email(subject: str, body: str):
         print(f"  Email niet verstuurd: {e}")
 
 
+def run_adaptive_cycle(
+    week_events: list,
+    week_activities: list,
+    dry_run: bool = False,
+    detect_only: bool = False,
+) -> dict | None:
+    """Detecteer deviations en pas — indien toegestaan — de week aan.
+
+    Returns een dict met samenvatting of None als er niets te doen viel.
+    Alle intervals.icu writes + log writes gaan via deze functie.
+    """
+    from datetime import date as _date
+
+    deviations = detect_deviations(week_events, week_activities)
+    if not deviations:
+        print("  Geen deviations gedetecteerd.")
+        return None
+
+    print(f"  {len(deviations)} deviation(s) gedetecteerd:")
+    for d in deviations:
+        tag = " [SACRED]" if d.sacred else ""
+        print(f"    - {d.type}{tag} (TSS {d.tss_planned:.0f} → {d.tss_actual:.0f})")
+
+    state = _load_state()
+    result = adapt_week(week_events, deviations, state)
+
+    print(f"\n  Plan-impact: {len(result.modifications)} wijziging(en)")
+    print(f"  Narrative: {result.narrative}")
+    print(f"  Invariant: {result.invariant}\n")
+
+    if detect_only:
+        print("  [DETECT-ONLY] Geen wijzigingen doorgevoerd.")
+        return {"deviations": deviations, "result": result, "applied": False}
+
+    if dry_run:
+        print("  [DRY RUN] Geen wijzigingen doorgevoerd.")
+        return {"deviations": deviations, "result": result, "applied": False}
+
+    # Apply modifications naar intervals.icu — per-mod success tracking.
+    # Bij failure halverwege NIET de hele batch als applied=True markeren;
+    # revert moet exact weten welke mods écht live zijn.
+    all_ok = True
+    for mod in result.modifications:
+        try:
+            if mod.action == "modify":
+                api.update_event(mod.event_id, **{
+                    k: v for k, v in mod.after.items()
+                    if k in ("name", "description", "load_target", "duration")
+                })
+                mod.applied = True
+            elif mod.action == "create":
+                ev = mod.after
+                ev_date = _date.fromisoformat(ev["start_date_local"][:10])
+                resp = api.create_event(
+                    event_date=ev_date,
+                    name=ev.get("name", "Herpland"),
+                    description=ev.get("description", ""),
+                    category="WORKOUT",
+                )
+                # Persist het nieuwe event-id zodat revert het later kan deleten
+                if isinstance(resp, dict) and resp.get("id"):
+                    mod.created_event_id = str(resp["id"])
+                mod.applied = True
+            elif mod.action == "delete":
+                api.delete_event(mod.event_id)
+                mod.applied = True
+            print(f"    {mod.action} {mod.event_id} OK")
+        except Exception as exc:  # pragma: no cover — I/O failure
+            mod.applied = False
+            mod.error = str(exc)
+            all_ok = False
+            print(f"    {mod.action} {mod.event_id} FAILED: {exc}")
+
+    # Log entry — bevat per-mod applied status zodat revert alleen écht
+    # toegepaste mods terugdraait.
+    monday = _date.today() - timedelta(days=_date.today().weekday())
+    entry = adjustments_log.build_entry(monday, deviations, result, applied=all_ok)
+    adjustments_log.append(entry)
+    print(f"  Log entry geschreven: {entry['id']} (all_ok={all_ok})")
+    return {"deviations": deviations, "result": result, "applied": all_ok}
+
+
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="Auto-feedback op voltooide workouts")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--setup", action="store_true")
+    parser.add_argument("--no-adapt", action="store_true",
+                        help="Skip de adaptive cycle (alleen feedback, geen plan-wijzigingen)")
+    parser.add_argument("--detect-only", action="store_true",
+                        help="Detecteer deviations maar schrijf niets")
     args = parser.parse_args()
 
     if args.setup:
@@ -235,6 +324,19 @@ def main():
     new_workouts, week_events, week_activities = find_new_completed_workouts()
     if not new_workouts:
         print("  Geen nieuwe voltooide workouts.")
+        # Toch adaptive cycle draaien — ook zonder nieuwe feedback kunnen
+        # er sacred sessies gemist zijn die herplanning vereisen.
+        if not args.no_adapt:
+            print("\n  Adaptive cycle: deviations detecteren...")
+            try:
+                run_adaptive_cycle(
+                    week_events,
+                    week_activities,
+                    dry_run=args.dry_run,
+                    detect_only=args.detect_only,
+                )
+            except Exception as exc:
+                print(f"  Adaptive cycle failed: {exc}")
         return
 
     print(f"  {len(new_workouts)} nieuwe voltooide workout(s) gevonden.\n")
@@ -277,6 +379,19 @@ def main():
         send_email(subject, body)
 
     print(f"  Klaar. {len(new_workouts)} workout(s) verwerkt.")
+
+    # ── Adaptive cycle ───────────────────────────────────────────────────
+    if not args.no_adapt:
+        print("\n  Adaptive cycle: deviations detecteren...")
+        try:
+            run_adaptive_cycle(
+                week_events,
+                week_activities,
+                dry_run=args.dry_run,
+                detect_only=args.detect_only,
+            )
+        except Exception as exc:
+            print(f"  Adaptive cycle failed: {exc}")
 
 
 if __name__ == "__main__":

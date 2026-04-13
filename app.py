@@ -632,6 +632,13 @@ with st.sidebar:
 
 # ── MAIN ───────────────────────────────────────────────────────────────────
 
+# Adaptive adjustment banner (boven alles — laat zien wat auto-aangepast is)
+try:
+    ui.render_adjustment_banner()
+except Exception as _banner_exc:
+    # Breek de app niet als log corrupt is
+    st.caption(f"(banner skipped: {_banner_exc})")
+
 # Week navigatie — compact, bovenaan als fallback voor sidebar
 _nav_cols = st.columns([1, 4, 1])
 if _nav_cols[0].button("← vorige", key="nav_prev", use_container_width=True):
