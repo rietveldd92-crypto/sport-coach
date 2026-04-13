@@ -409,9 +409,15 @@ def analyze(activities: list = None, injury_guard_output: dict = None) -> dict:
         bd["is_deload_week"] = False
     state["build_deload"] = bd
 
-    # Progression: schuif stappen op na een build week (niet bij deload)
+    # Progression: schuif stappen op MAX 1× per week, niet per analyze()-call.
+    # Was bug: elke plan_week run incrementeerde — met dagelijkse cron schoot
+    # threshold_step van 4 naar 11 in een week. Nu: week-key guard.
     prog = state.get("progression", {})
-    if not is_deload_week:
+    monday_today = (date.today() - timedelta(days=date.today().weekday())).isoformat()
+    last_bump_week = prog.get("last_bump_week")
+    is_new_week = last_bump_week != monday_today
+
+    if not is_deload_week and is_new_week:
         prog["threshold_step"] = prog.get("threshold_step", 1) + 1
         prog["sweetspot_step"] = prog.get("sweetspot_step", 1) + 1
         prog["over_unders_step"] = prog.get("over_unders_step", 1) + 1
@@ -422,6 +428,7 @@ def analyze(activities: list = None, injury_guard_output: dict = None) -> dict:
         # Z2 run en long run variatie-index rotert
         prog["z2_run_variety_index"] = (prog.get("z2_run_variety_index", 0) + 1) % 4
         prog["long_run_variety_index"] = (prog.get("long_run_variety_index", 0) + 1) % 3
+        prog["last_bump_week"] = monday_today
     state["progression"] = prog
 
     # Sla bijgewerkte waarden op
