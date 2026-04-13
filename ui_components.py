@@ -822,6 +822,159 @@ def morning_checkin(
     return None
 
 
+def workout_intent_box(workout: dict | None) -> None:
+    """Render een donkere accent-box met de coach-intent boven de workout.
+
+    Intent is 1-3 zinnen directe cue, geen vervanging voor de beschrijving.
+    Stilhouden als workout None of geen type heeft — fallback zit in
+    get_intent zelf, maar we tonen dan bewust niks ipv een generiek
+    zinnetje dat niets toevoegt.
+    """
+    if not workout or not (workout.get("type") or workout.get("naam")):
+        return
+    try:
+        from agents.workout_intent import get_intent
+    except Exception:
+        return
+    msg = get_intent(workout)
+    if not msg:
+        return
+    # Toon niet als het puur de default-fallback is — geen meerwaarde.
+    if msg.startswith("Voer uit zoals beschreven"):
+        return
+    safe = (
+        msg.replace("&", "&amp;")
+           .replace("<", "&lt;")
+           .replace(">", "&gt;")
+    )
+    st.markdown(
+        f"""
+        <div style="background: #17181C; border-left: 3px solid var(--accent, #C4603C);
+                    border-radius: 8px; padding: 0.75rem 1rem; margin: 0.6rem 0;
+                    color: #E8E5DF; font-family: Georgia, 'Times New Roman', serif;
+                    font-style: italic; font-size: 0.95rem; line-height: 1.5;">
+            <span style="font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.14em;
+                         font-style: normal; font-family: Inter, sans-serif;
+                         color: var(--accent, #C4603C); font-weight: 600;
+                         display: block; margin-bottom: 0.35rem;">Coach-intent</span>
+            {safe}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def workout_action_row(event: dict, key_prefix: str) -> None:
+    """Render Swap / Shorten / Skip actie-rij met inline preview-expanders.
+
+    Gebruikt agents.workout_actions voor de impact-preview. Bij 'Apply'
+    wordt intervals_client aangeroepen en een st.rerun getriggerd.
+
+    Simpel opgezet: 3 knoppen → 3 expanders naast elkaar. Geen modals.
+    """
+    if not event or not event.get("id"):
+        return
+    try:
+        from agents import workout_actions as wa
+        from agents.workout_library import SWAP_CATEGORIES
+    except Exception:
+        return
+
+    event_id = str(event["id"])
+    cols = st.columns(3)
+    show_swap_key = f"{key_prefix}_act_swap"
+    show_short_key = f"{key_prefix}_act_short"
+    show_skip_key = f"{key_prefix}_act_skip"
+
+    if cols[0].button("Swap", key=f"{key_prefix}_btn_swap", use_container_width=True):
+        st.session_state[show_swap_key] = not st.session_state.get(show_swap_key, False)
+    if cols[1].button("Shorten", key=f"{key_prefix}_btn_short", use_container_width=True):
+        st.session_state[show_short_key] = not st.session_state.get(show_short_key, False)
+    if cols[2].button("Skip", key=f"{key_prefix}_btn_skip", use_container_width=True):
+        st.session_state[show_skip_key] = not st.session_state.get(show_skip_key, False)
+
+    # ── SWAP expander ──────────────────────────────────────────────────
+    if st.session_state.get(show_swap_key):
+        with st.expander("Swap naar", expanded=True):
+            cat_keys = list(SWAP_CATEGORIES.keys())
+            chosen = st.radio(
+                "Categorie",
+                options=cat_keys,
+                format_func=lambda k: SWAP_CATEGORIES[k]["label"],
+                key=f"{key_prefix}_swap_cat",
+                horizontal=True,
+            )
+            preview = wa.preview_swap(event, chosen)
+            st.caption(preview.narrative)
+            if st.button("Bevestig swap", key=f"{key_prefix}_swap_confirm"):
+                try:
+                    wa.apply_swap(event_id, chosen, event=event)
+                    st.success("Workout geswitcht.")
+                    st.session_state[show_swap_key] = False
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"Swap mislukt: {exc}")
+
+    # ── SHORTEN expander ───────────────────────────────────────────────
+    if st.session_state.get(show_short_key):
+        with st.expander("Inkorten", expanded=True):
+            factor_label = st.radio(
+                "Hoeveel korter?",
+                options=["80% (lichte crop)", "60% (flink korter)"],
+                key=f"{key_prefix}_short_factor",
+                horizontal=True,
+            )
+            factor = 0.8 if factor_label.startswith("80") else 0.6
+            preview = wa.preview_shorten(event, factor=factor)
+            st.caption(preview.narrative)
+            if st.button("Bevestig inkorten", key=f"{key_prefix}_short_confirm"):
+                try:
+                    wa.apply_shorten(event_id, factor, event=event)
+                    st.success("Workout ingekort.")
+                    st.session_state[show_short_key] = False
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"Inkorten mislukt: {exc}")
+
+    # ── SKIP expander ──────────────────────────────────────────────────
+    if st.session_state.get(show_skip_key):
+        with st.expander("Skip deze sessie", expanded=True):
+            preview = wa.preview_skip(event)
+            st.caption(preview.narrative)
+            if st.button("Bevestig skip", key=f"{key_prefix}_skip_confirm"):
+                try:
+                    wa.apply_skip(event_id)
+                    st.success("Workout geskipped.")
+                    st.session_state[show_skip_key] = False
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"Skip mislukt: {exc}")
+
+
+def workout_structure_chart(workout: dict | None, actual_samples: list | None = None) -> None:
+    """Toon de workout-structuur als Plotly area chart (zone-gekleurd).
+
+    Wordt boven de tekstuele beschrijving getoond. Als de parser niks kan
+    maken van de tekst, tonen we niks — de tekst-details staan er ook nog.
+    """
+    if not workout:
+        return
+    try:
+        from viz.workout_chart import render_workout_chart, parse_workout_structure
+    except Exception:
+        return
+    beschrijving = (workout.get("beschrijving") or workout.get("description") or "").strip()
+    if not beschrijving:
+        return
+    # Skip chart als parser niks vindt — vermijdt lege placeholder-figuur.
+    if not parse_workout_structure(beschrijving):
+        return
+    fig = render_workout_chart({"beschrijving": beschrijving}, actual_samples=actual_samples)
+    if fig is None:
+        return
+    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+
+
 def workout_details(description: str) -> None:
     """Render de workout structuur in een leesbare, getypeerde weergave.
 

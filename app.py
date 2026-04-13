@@ -788,7 +788,10 @@ if today_event:
                 st.session_state[show_details_key] = not st.session_state.get(show_details_key, False)
                 st.rerun()
         if st.session_state.get(show_details_key):
+            ui.workout_intent_box(event)
+            ui.workout_structure_chart({"beschrijving": description})
             ui.workout_details(description)
+            ui.workout_action_row(event, key_prefix="today")
 
     # Sync-knop + Wissel-knop — gebruik de gedeelde TP helper
     tp_enabled = config.get_bool("TP_SYNC_ENABLED", default=False)
@@ -965,7 +968,12 @@ for i, item in enumerate(matched):
 
     # Workout details expand (alleen als toggle aan)
     if st.session_state.get(f"show_det_{i}") and has_details:
+        ui.workout_intent_box(event)
+        ui.workout_structure_chart({"beschrijving": event.get("description") or ""})
         ui.workout_details(event.get("description") or "")
+        # Actie-rij: swap / shorten / skip met impact-preview
+        if not done:
+            ui.workout_action_row(event, key_prefix=f"row{i}")
 
     # Coach feedback — analytische bericht-stijl
     if st.session_state.get(f"show_fb_{i}"):

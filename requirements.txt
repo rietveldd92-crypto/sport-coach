@@ -4,3 +4,5 @@ google-genai>=1.0.0
 streamlit>=1.40.0
 pandas>=2.0.0
 altair>=5.0.0
+plotly>=5.20.0
+pydantic>=2.0.0
