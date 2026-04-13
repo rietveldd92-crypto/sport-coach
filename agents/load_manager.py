@@ -351,6 +351,20 @@ def analyze(activities: list = None, injury_guard_output: dict = None) -> dict:
     if is_deload_week:
         target_tss = round(target_tss * deload_mod)
 
+    # Periodizer's WEEKLY_TSS_TABLE is bron-van-waarheid voor afgesproken
+    # progressie. CTL-derived target wordt floor: max van CTL-rekening en tabel.
+    # Reden: CTL × 7 onderhoudt alleen huidige fitheid; om CTL te laten groeien
+    # moet TSS structureel hoger liggen dan onderhouds-niveau.
+    try:
+        from agents.marathon_periodizer import WEEKLY_TSS_TABLE, get_week_number
+        wk_num_progressie = get_week_number()
+        if wk_num_progressie in WEEKLY_TSS_TABLE:
+            tabel_target = WEEKLY_TSS_TABLE[wk_num_progressie]
+            if tabel_target > target_tss:
+                target_tss = tabel_target
+    except (ImportError, KeyError):
+        pass
+
     # Injury Guard modifier
     volume_modifier = 1.0
     if injury_guard_output:
