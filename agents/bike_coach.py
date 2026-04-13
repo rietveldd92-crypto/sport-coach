@@ -137,31 +137,70 @@ def _sweetspot_long(ftp: int = 250) -> dict:
 
 
 def _threshold(ftp: int = 250, threshold_count: int = 1) -> dict:
-    """Threshold opbouw: progressief meer tijd @ FTP.
-    3×8 → 3×10 → 3×12 → 2×15 → 2×20 → 3×15 → 2×25 → 3×20 → 2×30 → 1×40."""
+    """Threshold opbouw — gevarieerde split-structuren, GEEN monolitische blokken.
+
+    Filosofie: bij gelijk volume voelt 4×10 minder zwaar dan 2×20, en je kunt
+    elke rep op exacte intensiteit afwerken. Hogere steps zoeken VARIATIE
+    (pyramide, micro-bursts, over-unders) i.p.v. gewoon meer tijd in één blok.
+    Max enkel-blok = 20 min."""
     t_watts = round(ftp * 0.97)
+    over_watts = round(ftp * 1.03)
+    under_watts = round(ftp * 0.92)
 
     steps = [
-        ("3×8 min (intro)",  "3x\n- 8m 97% 85rpm\n- 3m 55% 95rpm",  45, 0.87,
+        # Step 1: intro
+        ("3×8 min (intro)",
+         "3x\n- 8m 97% 85rpm\n- 3m 55% 95rpm",
+         45, 0.87,
          "Eerste threshold sessie. Kort en gecontroleerd."),
-        ("3×10 min",         "3x\n- 10m 97% 85rpm\n- 3m 55% 95rpm", 52, 0.89,
-         "Drie blokken van 10 min. Gelijkmatig vermogen, niet te hard starten."),
-        ("3×12 min",         "3x\n- 12m 97% 85rpm\n- 3m 55% 95rpm", 60, 0.91,
+        # Step 2: meer reps
+        ("4×8 min",
+         "4x\n- 8m 97% 85rpm\n- 3m 55% 95rpm",
+         55, 0.89,
+         "Vier korte blokken — 32 min totaal. Laatste rep moet net haalbaar zijn."),
+        # Step 3: standaard
+        ("3×12 min",
+         "3x\n- 12m 97% 85rpm\n- 3m 55% 95rpm",
+         60, 0.91,
          "Blok 3 wordt zwaar — kadans omhoog als vermogen wegzakt."),
-        ("2×15 min",         "2x\n- 15m 97% 85rpm\n- 5m 55% 95rpm", 55, 0.91,
-         "Langere blokken. Focus op even doortrappen in het tweede blok."),
-        ("2×20 min",         "2x\n- 20m 97% 85rpm\n- 5m 55% 95rpm", 65, 0.93,
-         "Beide blokken gelijkmatig — niet te hard starten."),
-        ("3×15 min",         "3x\n- 15m 97% 85rpm\n- 5m 55% 95rpm", 75, 0.93,
-         "45 min totaal @ threshold. Mentale hardheid — derde blok is karakter."),
-        ("2×25 min",         "2x\n- 25m 97% 85rpm\n- 5m 55% 95rpm", 75, 0.94,
-         "50 min @ threshold. Splitst de inspanning in twee lange blokken."),
-        ("3×20 min",         "3x\n- 20m 97% 85rpm\n- 5m 55% 95rpm", 85, 0.94,
-         "60 min @ threshold. Dit is FTP-werk op race-niveau."),
-        ("2×30 min",         "2x\n- 30m 97% 85rpm\n- 5m 55% 95rpm", 85, 0.95,
-         "60 min @ threshold in twee blokken. Dit is serieus uithoudingsvermogen."),
-        ("1×40 min",         "- 40m 97% 85rpm",                      65, 0.95,
-         "Ononderbroken threshold. De ultieme test — als dit lukt, is je FTP bevestigd."),
+        # Step 4: split met fresh rest
+        ("4×10 min (fresh rest)",
+         "4x\n- 10m 97% 85rpm\n- 4m 55% 95rpm",
+         70, 0.91,
+         "40 min @ FTP in 4 schone blokken. Lange rust = elke rep op exacte watts."),
+        # Step 5: pyramide 8-12-15-12-8
+        ("Pyramide 8-12-15-12-8 min",
+         "- 8m 97% 85rpm\n- 3m 55%\n- 12m 97% 85rpm\n- 4m 55%\n- 15m 97% 85rpm"
+         "\n- 4m 55%\n- 12m 97% 85rpm\n- 3m 55%\n- 8m 97% 85rpm",
+         80, 0.92,
+         "55 min @ FTP, mentaal gevarieerd door piekblok in het midden. Niet monotoon."),
+        # Step 6: 5x10 met cadens-breaks
+        ("5×10 min met cadens-breaks",
+         "5x\n- 10m 97% 85rpm\n- 1m 55% spin-out 105rpm\n- 2m 55% 95rpm",
+         75, 0.93,
+         "50 min @ FTP, korte spin-outs houden benen los. Test je herhaalbaarheid."),
+        # Step 7: over-unders binnen threshold (NIET monolitisch)
+        ("Over-unders 4×(8m/4m)",
+         "4x\n- 8m 92% 85rpm (under)\n- 4m 103% 90rpm (over)\n- 3m 55% 95rpm",
+         75, 0.94,
+         f"Over = {over_watts}W (kort), under = {under_watts}W. Leert lactaat klaren "
+         f"binnen de inspanning. 48 min werk, mentaal gevarieerd."),
+        # Step 8: 6x10 met korte rust
+        ("6×10 min korte rust",
+         "6x\n- 10m 97% 85rpm\n- 2m 55% 95rpm",
+         80, 0.94,
+         "60 min @ FTP in 6 herhaalbare blokken. Korte rust dwingt herstel-onder-druk."),
+        # Step 9: gemengd 4x12 met 1 surge per rep
+        ("4×12 min met surges",
+         "4x\n- 12m 97% 85rpm + 30s 110% in laatste minuut\n- 4m 55% 95rpm",
+         75, 0.95,
+         f"48 min @ FTP, surge naar {round(ftp*1.10)}W in elke laatste minuut. "
+         "Critical-power prikkel op vermoeide benen."),
+        # Step 10: 4x15 (max)
+        ("4×15 min (max volume)",
+         "4x\n- 15m 97% 85rpm\n- 5m 55% 95rpm",
+         95, 0.95,
+         "60 min @ FTP — race-niveau uithouding. Vier blokken nooit harder dan 100% IF."),
     ]
     idx = min(threshold_count - 1, len(steps) - 1)
     naam_suffix, main, duur, if_val, note = steps[idx]

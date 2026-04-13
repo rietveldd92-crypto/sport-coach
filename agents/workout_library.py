@@ -80,14 +80,17 @@ def threshold(ftp: int, step: int) -> dict:
          "45 min totaal. Mentale hardheid — derde blok is karakter.", "volume"),
         ("2x15 min @ 100%", "2x\n- 15m 100% 85rpm\n- 5m 55% 95rpm", 55, 0.93,
          "Langere blokken op exact FTP. Duurvermogen.", "intensiteit"),
-        ("2x20 min @ 97%",  "2x\n- 20m 97% 85rpm\n- 5m 55% 95rpm",  65, 0.93,
-         "Gelijkmatig — niet te hard starten.", "volume"),
-        ("2x10 min @ 105%", "2x\n- 10m 105% 85rpm\n- 5m 55% 95rpm", 50, 0.94,
-         "Boven FTP. Kort maar maximaal. FTP-test in vermomming.", "piek"),
-        ("3x20 min @ 97%",  "3x\n- 20m 97% 85rpm\n- 5m 55% 95rpm",  85, 0.94,
-         "60 min werk. Dit is race-niveau.", "volume"),
-        ("1x40 min @ 97%",  "- 40m 97% 85rpm",                       65, 0.95,
-         "Ononderbroken threshold. Ultieme duurtest.", "volume"),
+        ("4x10 min @ 97% fresh rest", "4x\n- 10m 97% 85rpm\n- 4m 55% 95rpm", 70, 0.91,
+         "40 min @ FTP, lange rust = elke rep op exacte watts.", "volume"),
+        ("Pyramide 8-12-15-12-8", "- 8m 97% 85rpm\n- 3m 55%\n- 12m 97% 85rpm\n- 4m 55%"
+         "\n- 15m 97% 85rpm\n- 4m 55%\n- 12m 97% 85rpm\n- 3m 55%\n- 8m 97% 85rpm",
+         80, 0.92,
+         "55 min @ FTP, mentaal gevarieerd door piekblok in midden.", "volume"),
+        ("Over-unders 4x(8m/4m)", "4x\n- 8m 92% 85rpm\n- 4m 103% 90rpm\n- 3m 55% 95rpm",
+         75, 0.94,
+         "Lactaat klaren binnen inspanning. 48 min werk, mentaal gevarieerd.", "intensiteit"),
+        ("6x10 min @ 97%", "6x\n- 10m 97% 85rpm\n- 2m 55% 95rpm", 80, 0.94,
+         "60 min @ FTP in 6 herhaalbare blokken. Korte rust.", "volume"),
     ]
     idx = min(max(step - 1, 0), len(steps) - 1)
     naam, main, duur, if_val, note, _dim = steps[idx]
