@@ -86,8 +86,9 @@ def run(week_start: date, dry_run: bool = True, skip_run_days: list = None):
     6. Laat Week Planner het schema bouwen en (optioneel) schrijven
     """
     # Beschikbaarheid: dagen met 0 min ingesteld = rustdagen.
-    # Expliciete skip_run_days in de call hebben voorrang.
-    if skip_run_days is None:
+    # Expliciete skip_run_days in de call hebben voorrang; lege lijst/None
+    # betekent "laat availability beslissen".
+    if not skip_run_days:
         try:
             from agents import availability as _av
             _rest = _av.get_rest_day_names(week_start)
