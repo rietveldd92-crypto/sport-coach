@@ -240,8 +240,10 @@ def run_adaptive_cycle(
         print("  [DRY RUN] Geen wijzigingen doorgevoerd.")
         return {"deviations": deviations, "result": result, "applied": False}
 
-    # Apply modifications naar intervals.icu
-    applied_ok = True
+    # Apply modifications naar intervals.icu — per-mod success tracking.
+    # Bij failure halverwege NIET de hele batch als applied=True markeren;
+    # revert moet exact weten welke mods écht live zijn.
+    all_ok = True
     for mod in result.modifications:
         try:
             if mod.action == "modify":
@@ -249,28 +251,37 @@ def run_adaptive_cycle(
                     k: v for k, v in mod.after.items()
                     if k in ("name", "description", "load_target", "duration")
                 })
+                mod.applied = True
             elif mod.action == "create":
                 ev = mod.after
                 ev_date = _date.fromisoformat(ev["start_date_local"][:10])
-                api.create_event(
+                resp = api.create_event(
                     event_date=ev_date,
                     name=ev.get("name", "Herpland"),
                     description=ev.get("description", ""),
                     category="WORKOUT",
                 )
+                # Persist het nieuwe event-id zodat revert het later kan deleten
+                if isinstance(resp, dict) and resp.get("id"):
+                    mod.created_event_id = str(resp["id"])
+                mod.applied = True
             elif mod.action == "delete":
                 api.delete_event(mod.event_id)
+                mod.applied = True
             print(f"    {mod.action} {mod.event_id} OK")
         except Exception as exc:  # pragma: no cover — I/O failure
+            mod.applied = False
+            mod.error = str(exc)
+            all_ok = False
             print(f"    {mod.action} {mod.event_id} FAILED: {exc}")
-            applied_ok = False
 
-    # Log entry
+    # Log entry — bevat per-mod applied status zodat revert alleen écht
+    # toegepaste mods terugdraait.
     monday = _date.today() - timedelta(days=_date.today().weekday())
-    entry = adjustments_log.build_entry(monday, deviations, result, applied=applied_ok)
+    entry = adjustments_log.build_entry(monday, deviations, result, applied=all_ok)
     adjustments_log.append(entry)
-    print(f"  Log entry geschreven: {entry['id']}")
-    return {"deviations": deviations, "result": result, "applied": applied_ok}
+    print(f"  Log entry geschreven: {entry['id']} (all_ok={all_ok})")
+    return {"deviations": deviations, "result": result, "applied": all_ok}
 
 
 def main():

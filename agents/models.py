@@ -47,6 +47,14 @@ class Modification(BaseModel):
     after: dict[str, Any] = Field(default_factory=dict)
     tss_delta: int = 0
     reason: Optional[str] = None
+    # Per-mod apply tracking — wordt door auto_feedback gezet na intervals.icu write.
+    # applied=True alleen als de write succesvol was; revert kan dan zinvol terugdraaien.
+    applied: bool = False
+    # Voor 'create'-mods: id van het ZOJUIST aangemaakte event (response van API).
+    # Nodig om revert te kunnen doen — event_id is voor 'create' het PLANNED-id (oud), niet het nieuwe.
+    created_event_id: Optional[str] = None
+    # Foutmelding bij failed apply, voor debug en transparantie in log.
+    error: Optional[str] = None
 
 
 class AdaptResult(BaseModel):

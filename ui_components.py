@@ -969,6 +969,10 @@ def revert_adjustment(entry_id: str) -> None:
         return
 
     for mod in entry.get("modifications", []) or []:
+        # Skip mods die nooit succesvol zijn toegepast — anders proberen we
+        # iets terug te draaien dat nooit live ging (silent fail of crash).
+        if not mod.get("applied", False):
+            continue
         action = mod.get("action")
         event_id = mod.get("event_id", "")
         before = mod.get("before") or {}
@@ -980,11 +984,18 @@ def revert_adjustment(entry_id: str) -> None:
                     if k in ("name", "description", "load_target", "duration")
                 })
             elif action == "create":
-                # 'after' is het aangemaakte event; find & delete via intervals matchup
-                # is niet feilloos zonder id — skip als we geen id hebben
-                created_id = after.get("id") or event_id
-                if created_id and not str(created_id).startswith("unplanned_"):
+                # Bij 'create' is created_event_id het ID dat intervals.icu
+                # teruggaf bij de POST. Dat is het enige waarmee we kunnen deleten.
+                created_id = mod.get("created_event_id")
+                if created_id:
                     api.delete_event(str(created_id))
+                else:
+                    # Best-effort: oude code-pad dat niet kon resolven —
+                    # niet stilzwijgend negeren maar duidelijk melden.
+                    raise ValueError(
+                        "Kan create-mod niet reverten: geen created_event_id "
+                        "(mod aangemaakt vóór per-mod tracking-fix)."
+                    )
             elif action == "delete" and before:
                 dt_raw = before.get("start_date_local", "")[:10]
                 if dt_raw:
