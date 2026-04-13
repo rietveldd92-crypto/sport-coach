@@ -1,184 +1,95 @@
 {
-  "last_updated": "2026-03-31",
-  "athlete_id": "i85836",
-  "race_date": "2026-10-18",
-  "race_goal": "Amsterdam Marathon sub 3:45",
-  "race_name": "Amsterdam Marathon",
-  "current_phase": "accumulatie_I",
-  "week_number": 1,
-  "plan_start": "2026-04-06",
-  "injury": {
-    "active_signals": [],
-    "last_signal_date": "2026-03-08",
-    "days_symptom_free": 29,
-    "run_intensity_unlocked": true,
-    "strides_unlocked": true,
-    "tempo_unlocked": true,
-    "fysio_constraint": "3x/week, start 6km, +1km/week.",
-    "history": [
-      {
-        "date": "2026-03-08",
-        "signals": [
-          "knie_twinge"
+    "last_updated": "2026-03-31",
+    "athlete_id": "i85836",
+    "race_date": "2026-10-18",
+    "race_goal": "Amsterdam Marathon sub 3:45",
+    "race_name": "Amsterdam Marathon",
+    "current_phase": "accumulatie_I",
+    "week_number": 1,
+    "plan_start": "2026-04-06",
+    "injury": {
+        "active_signals": [],
+        "last_signal_date": "2026-03-08",
+        "days_symptom_free": 29,
+        "run_intensity_unlocked": true,
+        "strides_unlocked": true,
+        "tempo_unlocked": true,
+        "history": [
+            {
+                "date": "2026-03-08",
+                "signals": [
+                    "knie_twinge"
+                ]
+            }
         ]
-      }
-    ]
-  },
-  "signal_buffer": {},
-  "load": {
-    "ctl_estimate": 48.9,
-    "atl_estimate": 63.5,
-    "tsb_estimate": -14.6,
-    "last_calculated": "2026-04-11",
-    "weekly_tss_target": 323
-  },
-  "build_deload": {
-    "consecutive_build_weeks": 3,
-    "target_build_weeks": 3,
-    "last_deload_week": "2026-04-06",
-    "is_deload_week": false,
-    "deload_modifier": 0.7
-  },
-  "progression": {
-    "threshold_step": 4,
-    "sweetspot_step": 4,
-    "over_unders_step": 4,
-    "endurance_spin_min": 110,
-    "long_ride_min": 140,
-    "z2_run_variety_index": 0,
-    "long_run_variety_index": 1
-  },
-  "weekly_log": [
-    {
-      "week_start": "2026-04-06",
-      "fase": "herstel_opbouw_I",
-      "planned_tss": 377,
-      "geschat_tss": 0,
-      "actual_tss": null,
-      "injury_status": "groen",
-      "notes": "GROEN: 23 symptoomvrije dag(en). Strides mogen. Tempolopen mogen."
     },
-    {
-      "week_start": "2026-04-13",
-      "fase": "herstel_opbouw_I",
-      "planned_tss": 377,
-      "geschat_tss": 0,
-      "actual_tss": null,
-      "injury_status": "groen",
-      "notes": "GROEN: 23 symptoomvrije dag(en). Strides mogen. Tempolopen mogen."
+    "signal_buffer": {},
+    "load": {
+        "ctl_estimate": 48.9,
+        "atl_estimate": 63.5,
+        "tsb_estimate": -14.6,
+        "last_calculated": "2026-04-11",
+        "weekly_tss_target": 475
     },
-    {
-      "week_start": "2026-04-20",
-      "fase": "herstel_opbouw_I",
-      "planned_tss": 377,
-      "geschat_tss": 0,
-      "actual_tss": null,
-      "injury_status": "groen",
-      "notes": "GROEN: 23 symptoomvrije dag(en). Strides mogen. Tempolopen mogen."
+    "build_deload": {
+        "consecutive_build_weeks": 3,
+        "target_build_weeks": 3,
+        "last_deload_week": "2026-04-06",
+        "is_deload_week": false,
+        "deload_modifier": 0.7
     },
-    {
-      "week_start": "2026-04-27",
-      "fase": "herstel_opbouw_I",
-      "planned_tss": 264,
-      "geschat_tss": 0,
-      "actual_tss": null,
-      "injury_status": "groen",
-      "notes": "GROEN: 23 symptoomvrije dag(en). Strides mogen. Tempolopen mogen."
+    "progression": {
+        "threshold_step": 4,
+        "sweetspot_step": 4,
+        "over_unders_step": 4,
+        "endurance_spin_min": 110,
+        "long_ride_min": 140,
+        "z2_run_variety_index": 0,
+        "long_run_variety_index": 1,
+        "cp_step": 0,
+        "bike_u_baseline_min": 450
     },
-    {
-      "week_start": "2026-05-04",
-      "fase": "herstel_opbouw_I",
-      "planned_tss": 377,
-      "geschat_tss": 0,
-      "actual_tss": null,
-      "injury_status": "groen",
-      "notes": "GROEN: 23 symptoomvrije dag(en). Strides mogen. Tempolopen mogen."
-    },
-    {
-      "week_start": "2026-05-11",
-      "fase": "herstel_opbouw_I",
-      "planned_tss": 377,
-      "geschat_tss": 0,
-      "actual_tss": null,
-      "injury_status": "groen",
-      "notes": "GROEN: 23 symptoomvrije dag(en). Strides mogen. Tempolopen mogen."
-    },
-    {
-      "week_start": "2026-05-18",
-      "fase": "herstel_opbouw_I",
-      "planned_tss": 377,
-      "geschat_tss": 0,
-      "actual_tss": null,
-      "injury_status": "groen",
-      "notes": "GROEN: 23 symptoomvrije dag(en). Strides mogen. Tempolopen mogen."
-    },
-    {
-      "week_start": "2026-05-25",
-      "fase": "herstel_opbouw_I",
-      "planned_tss": 264,
-      "geschat_tss": 0,
-      "actual_tss": null,
-      "injury_status": "groen",
-      "notes": "GROEN: 23 symptoomvrije dag(en). Strides mogen. Tempolopen mogen."
-    },
-    {
-      "week_start": "2026-06-01",
-      "fase": "herstel_opbouw_I",
-      "planned_tss": 377,
-      "geschat_tss": 0,
-      "actual_tss": null,
-      "injury_status": "groen",
-      "notes": "GROEN: 23 symptoomvrije dag(en). Strides mogen. Tempolopen mogen."
-    },
-    {
-      "week_start": "2026-06-08",
-      "fase": "herstel_opbouw_I",
-      "planned_tss": 377,
-      "geschat_tss": 0,
-      "actual_tss": null,
-      "injury_status": "groen",
-      "notes": "GROEN: 23 symptoomvrije dag(en). Strides mogen. Tempolopen mogen."
-    },
-    {
-      "week_start": "2026-04-06",
-      "fase": "herstel_opbouw_I",
-      "planned_tss": 354,
-      "geschat_tss": 473,
-      "actual_tss": null,
-      "injury_status": "groen",
-      "notes": "GROEN: 29 symptoomvrije dag(en). Strides mogen. Tempolopen mogen."
-    },
-    {
-      "week_start": "2026-04-06",
-      "fase": "herstel_opbouw_I",
-      "planned_tss": 241,
-      "geschat_tss": 373,
-      "actual_tss": null,
-      "injury_status": "groen",
-      "notes": "GROEN: 29 symptoomvrije dag(en). Strides mogen. Tempolopen mogen."
-    },
-    {
-      "week_start": "2026-04-06",
-      "fase": "herstel_opbouw_I",
-      "planned_tss": 342,
-      "geschat_tss": 0,
-      "actual_tss": null,
-      "injury_status": "groen",
-      "notes": "GROEN: 29 symptoomvrije dag(en). Strides mogen. Tempolopen mogen. | Feedback: Bedankt voor de feedback. Sessie gemist � dit meenemen in de komende planning."
+    "weekly_log": [
+        {
+            "week_start": "2026-06-01",
+            "fase": "herstel_opbouw_I",
+            "planned_tss": 377,
+            "geschat_tss": 0,
+            "actual_tss": null,
+            "injury_status": "groen",
+            "notes": "GROEN: 23 symptoomvrije dag(en). Strides mogen. Tempolopen mogen."
+        },
+        {
+            "week_start": "2026-06-08",
+            "fase": "herstel_opbouw_I",
+            "planned_tss": 377,
+            "geschat_tss": 0,
+            "actual_tss": null,
+            "injury_status": "groen",
+            "notes": "GROEN: 23 symptoomvrije dag(en). Strides mogen. Tempolopen mogen."
+        },
+        {
+            "week_start": "2026-04-06",
+            "fase": "herstel_opbouw_I",
+            "planned_tss": 342,
+            "geschat_tss": 0,
+            "actual_tss": null,
+            "injury_status": "groen",
+            "notes": "GROEN: 29 symptoomvrije dag(en). Strides mogen. Tempolopen mogen. | Feedback: Bedankt voor de feedback. Sessie gemist � dit meenemen in de komende planning."
+        }
+    ],
+    "tp_sync_log": {
+        "102842985": {
+            "tp_workout_id": 3672397106,
+            "synced_at": "2026-04-08T22:35:09",
+            "title": "Threshold – 3x8 min @ 95%",
+            "workout_day": "2026-04-08"
+        },
+        "102842986": {
+            "tp_workout_id": 3672391939,
+            "synced_at": "2026-04-08T22:35:09",
+            "title": "Bosrun – 35 min",
+            "workout_day": "2026-04-09"
+        }
     }
-  ],
-  "tp_sync_log": {
-    "102842985": {
-      "tp_workout_id": 3672397106,
-      "synced_at": "2026-04-08T22:35:09",
-      "title": "Threshold – 3x8 min @ 95%",
-      "workout_day": "2026-04-08"
-    },
-    "102842986": {
-      "tp_workout_id": 3672391939,
-      "synced_at": "2026-04-08T22:35:09",
-      "title": "Bosrun – 35 min",
-      "workout_day": "2026-04-09"
-    }
-  }
 }
