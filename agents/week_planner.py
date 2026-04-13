@@ -303,13 +303,18 @@ def build_week(
     except Exception as e:
         print(f"  Waarschuwing: kan bestaande events niet ophalen: {e}")
 
-    # Onze eigen events: WORKOUT + NOTE events aangemaakt door dit systeem
-    OUR_NOTE_NAMES = {"Dagelijkse rehab", "Krachttraining"}
+    # Onze eigen events: WORKOUT + NOTE events aangemaakt door dit systeem.
+    # Match op prefix zodat varianten als "Krachttraining benen" ook geraakt
+    # worden — eerder match-op-exact miste die en liet ze dubbel staan.
+    OUR_NOTE_PREFIXES = ("Dagelijkse rehab", "Krachttraining")
     events_to_delete = [
         e for e in existing_events
         if e.get("category") == "WORKOUT"
-        or (e.get("category") == "NOTE" and e.get("name") in OUR_NOTE_NAMES)
+        or (e.get("category") == "NOTE"
+            and any((e.get("name") or "").startswith(p) for p in OUR_NOTE_PREFIXES))
     ]
+    print(f"  Bestaande events deze week: {len(existing_events)} totaal, "
+          f"{len(events_to_delete)} te verwijderen.")
 
     all_sessions = run_sessions + bike_sessions
     all_sessions = _validate_no_back_to_back_hard(all_sessions)

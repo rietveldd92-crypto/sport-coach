@@ -881,6 +881,39 @@ if week_offset >= 0:
                 st.error(f"Opslaan gelukt, maar replan faalde: {_exc}")
             st.rerun()
 
+        # Noodknop voor als er dubbelingen of oude gunk staan van vorige replans.
+        # Wist ALLE WORKOUT + onze NOTE events in deze week, draait dan opnieuw.
+        st.caption("Dubbelingen? Gebruik de knop hieronder om de week hard opnieuw te plannen.")
+        if st.button("⚠️  Hard herplannen (wis eerst alle workouts)",
+                     key=f"hard_replan_w{week_offset}",
+                     use_container_width=True):
+            try:
+                from datetime import timedelta as _td
+                import intervals_client as _api
+                _wk_end = selected_monday + _td(days=6)
+                _existing = _api.get_events(selected_monday, _wk_end)
+                _deleted = 0
+                _our_prefixes = ("Dagelijkse rehab", "Krachttraining")
+                for _e in _existing:
+                    _cat = _e.get("category")
+                    _nm = _e.get("name") or ""
+                    if _cat == "WORKOUT" or (
+                        _cat == "NOTE" and any(_nm.startswith(p) for p in _our_prefixes)
+                    ):
+                        try:
+                            _api.delete_event(_e["id"])
+                            _deleted += 1
+                        except Exception as _del_exc:
+                            st.warning(f"Kon {_nm} niet verwijderen: {_del_exc}")
+                st.info(f"{_deleted} event(s) verwijderd. Nu opnieuw plannen…")
+                import plan_week as _pw
+                _pw.run(selected_monday, dry_run=False)
+                st.cache_data.clear()
+                st.success(f"Hard replan klaar — {_deleted} oude events weg.")
+            except Exception as _exc:
+                st.error(f"Hard replan faalde: {_exc}")
+            st.rerun()
+
 # ── WORKOUT LIST ───────────────────────────────────────────────────────────
 
 _current_day = None
