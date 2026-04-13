@@ -864,6 +864,30 @@ def workout_intent_box(workout: dict | None) -> None:
     )
 
 
+def workout_structure_chart(workout: dict | None, actual_samples: list | None = None) -> None:
+    """Toon de workout-structuur als Plotly area chart (zone-gekleurd).
+
+    Wordt boven de tekstuele beschrijving getoond. Als de parser niks kan
+    maken van de tekst, tonen we niks — de tekst-details staan er ook nog.
+    """
+    if not workout:
+        return
+    try:
+        from viz.workout_chart import render_workout_chart, parse_workout_structure
+    except Exception:
+        return
+    beschrijving = (workout.get("beschrijving") or workout.get("description") or "").strip()
+    if not beschrijving:
+        return
+    # Skip chart als parser niks vindt — vermijdt lege placeholder-figuur.
+    if not parse_workout_structure(beschrijving):
+        return
+    fig = render_workout_chart({"beschrijving": beschrijving}, actual_samples=actual_samples)
+    if fig is None:
+        return
+    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+
+
 def workout_details(description: str) -> None:
     """Render de workout structuur in een leesbare, getypeerde weergave.
 
