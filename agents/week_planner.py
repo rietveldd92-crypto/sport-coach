@@ -114,8 +114,12 @@ def _select_strength_days(all_sessions: list, long_run_dag: str) -> list[str]:
     if long_run_dag:
         forbidden.add(long_run_dag)
     for i, dag in enumerate(DAYS_NL):
-        if _day_is_hard(dag) and i > 0:
-            forbidden.add(DAYS_NL[i - 1])  # dag VOOR een zware sessie
+        if _day_is_hard(dag):
+            # Hard day zelf: ambigu of kracht voor of na de sessie zit.
+            # Conservatief: blokker de dag zelf óók.
+            forbidden.add(dag)
+            if i > 0:
+                forbidden.add(DAYS_NL[i - 1])  # dag VOOR een zware sessie
 
     # Kandidaten: dagen die niet forbidden zijn, met spreiding ≥ 2 dagen
     candidates: list[str] = []
