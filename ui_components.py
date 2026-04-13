@@ -873,3 +873,130 @@ def workout_details(description: str) -> None:
 
     parts.append("</div>")
     st.markdown("".join(parts), unsafe_allow_html=True)
+
+
+# ── ADAPTIVE ADJUSTMENT BANNER ────────────────────────────────────────────
+
+def render_adjustment_banner() -> None:
+    """Toon bovenaan de pagina wat het adaptive systeem heeft aangepast.
+
+    Leest laatste actieve entry uit agents.adjustments_log. Als er geen is,
+    toont niks. Twee acties: "Ziet er goed uit" (dismiss) en "Draai terug"
+    (revert + reverseert wijzigingen in intervals.icu).
+    """
+    # Lokale imports — banner is optioneel, breek de app niet als iets mist
+    try:
+        from agents import adjustments_log
+    except Exception:
+        return
+
+    entry = adjustments_log.get_active()
+    if not entry:
+        return
+
+    narrative = entry.get("narrative", "")
+    invariant = entry.get("invariant", "")
+    modifications = entry.get("modifications", []) or []
+    entry_id = entry.get("id", "")
+
+    # Card styling — dark surface, witte headline, muted body
+    st.markdown(
+        f"""
+        <div style="background: #1F1F1F; border: 1px solid #2E2E2E;
+                    border-radius: 14px; padding: 1rem 1.1rem;
+                    margin: 0 0 1rem 0; color: #F0F0F0;">
+            <div style="font-size: 0.68rem; text-transform: uppercase;
+                        letter-spacing: 0.12em; color: #9CC2FF; font-weight: 600;
+                        margin-bottom: 0.35rem;">Plan bijgewerkt</div>
+            <div style="font-size: 0.95rem; color: #F0F0F0; margin-bottom: 0.55rem;">
+                {narrative or 'Week aangepast op basis van je laatste sessies.'}
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # Wijzigingen-lijst
+    if modifications:
+        with st.expander(f"Wijzigingen ({len(modifications)})", expanded=False):
+            for mod in modifications:
+                action = mod.get("action", "?")
+                reason = mod.get("reason", "")
+                before_name = (mod.get("before") or {}).get("name", "")
+                after_name = (mod.get("after") or {}).get("name", "")
+                tss_delta = mod.get("tss_delta", 0)
+                if action == "create":
+                    line = f"+ Nieuw: **{after_name}** ({tss_delta:+d} TSS)"
+                elif action == "delete":
+                    line = f"− Verwijderd: **{before_name}**"
+                else:
+                    line = f"~ **{before_name}** → **{after_name}** ({tss_delta:+d} TSS)"
+                st.markdown(f"- {line}")
+                if reason:
+                    st.caption(f"  {reason}")
+
+    if invariant:
+        st.caption(invariant)
+
+    # Actieknoppen
+    col1, col2, _ = st.columns([1, 1, 2])
+    if col1.button("Ziet er goed uit", key=f"banner_ok_{entry_id}"):
+        adjustments_log.mark_dismissed(entry_id)
+        st.rerun()
+    if col2.button("Draai terug", key=f"banner_revert_{entry_id}"):
+        try:
+            revert_adjustment(entry_id)
+            st.success("Wijzigingen teruggedraaid.")
+        except Exception as exc:
+            st.error(f"Revert mislukt: {exc}")
+        adjustments_log.mark_reverted(entry_id)
+        st.rerun()
+
+
+def revert_adjustment(entry_id: str) -> None:
+    """Draai alle modifications van entry_id terug in intervals.icu.
+
+    - modify → herstel originele velden (name, description, load_target, duration)
+    - create → verwijder het aangemaakte event
+    - delete → maak opnieuw aan vanuit before
+    """
+    from datetime import date as _date
+    from agents import adjustments_log
+    import intervals_client as api
+
+    entry = adjustments_log.get_by_id(entry_id)
+    if not entry:
+        return
+
+    for mod in entry.get("modifications", []) or []:
+        action = mod.get("action")
+        event_id = mod.get("event_id", "")
+        before = mod.get("before") or {}
+        after = mod.get("after") or {}
+        try:
+            if action == "modify" and event_id:
+                api.update_event(event_id, **{
+                    k: v for k, v in before.items()
+                    if k in ("name", "description", "load_target", "duration")
+                })
+            elif action == "create":
+                # 'after' is het aangemaakte event; find & delete via intervals matchup
+                # is niet feilloos zonder id — skip als we geen id hebben
+                created_id = after.get("id") or event_id
+                if created_id and not str(created_id).startswith("unplanned_"):
+                    api.delete_event(str(created_id))
+            elif action == "delete" and before:
+                dt_raw = before.get("start_date_local", "")[:10]
+                if dt_raw:
+                    api.create_event(
+                        event_date=_date.fromisoformat(dt_raw),
+                        name=before.get("name", "Hersteld"),
+                        description=before.get("description", ""),
+                        category="WORKOUT",
+                    )
+        except Exception as exc:  # pragma: no cover
+            # Log naar Streamlit maar ga door — best-effort revert
+            try:
+                st.warning(f"Revert step failed ({action} {event_id}): {exc}")
+            except Exception:
+                pass
