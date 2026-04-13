@@ -221,6 +221,181 @@ def _over_unders(ftp: int = 250) -> dict:
     }
 
 
+# ── NIEUWE TOOLKIT SESSIES (Delahaije bike-toolkit) ─────────────────────────
+
+def fatmax_medium_session(ftp: int = 250) -> dict:
+    """Fatmax medium — 75-90 min Z1/low Z2 (60-72% FTP). Vetverbranding."""
+    watts_low = round(ftp * 0.60)
+    watts_high = round(ftp * 0.72)
+    return {
+        "type": "fatmax_medium",
+        "naam": "Fatmax – 80 min Z1/low Z2",
+        "beschrijving": (
+            f"Warmup\n- 8m ramp 45-60% 90rpm\n\n"
+            f"Main Set\n- 65m 66% 88rpm\n\n"
+            f"Cooldown\n- 7m ramp 60-45%\n\n"
+            f"Fatmax = 60-72% FTP ({watts_low}-{watts_high}W). Pure vetverbrandings-zone.\n"
+            f"Voel rustig, kunnen praten in hele zinnen. Mitochondriele dichtheid."
+        ),
+        "duur_min": 80,
+        "tss_geschat": _tss_bike(80, 0.68),
+        "sport": "VirtualRide",
+        "zone": "Z1/Z2",
+        "intensiteit_factor": 0.68,
+    }
+
+
+def fatmax_lang_session(ftp: int = 250) -> dict:
+    """Fatmax lang — 2:00-2:30 u pure Z1 (58-68% FTP)."""
+    watts_low = round(ftp * 0.58)
+    watts_high = round(ftp * 0.68)
+    return {
+        "type": "fatmax_lang",
+        "naam": "Fatmax lang – 135 min Z1",
+        "beschrijving": (
+            f"Warmup\n- 10m ramp 45-60% 90rpm\n\n"
+            f"Main Set\n- 115m 63% 88rpm\n\n"
+            f"Cooldown\n- 10m ramp 55-45%\n\n"
+            f"Fatmax = 58-68% FTP ({watts_low}-{watts_high}W). Lange duurrit.\n"
+            f"Delahaije: 'Volume triumphs quality.' Uren in het zadel tellen."
+        ),
+        "duur_min": 135,
+        "tss_geschat": _tss_bike(135, 0.65),
+        "sport": "VirtualRide",
+        "zone": "Z1",
+        "intensiteit_factor": 0.65,
+    }
+
+
+def long_slow_session(ftp: int = 250) -> dict:
+    """Long slow ride — 2:30-3:00 u pure Z1 (55-65% FTP). Aerobe fundament."""
+    watts_low = round(ftp * 0.55)
+    watts_high = round(ftp * 0.65)
+    return {
+        "type": "long_slow",
+        "naam": "Long slow – 165 min puur Z1",
+        "beschrijving": (
+            f"Warmup\n- 10m ramp 45-55% 90rpm\n\n"
+            f"Main Set\n- 145m 60% 88rpm\n\n"
+            f"Cooldown\n- 10m ramp 55-45%\n\n"
+            f"Puur Z1 = 55-65% FTP ({watts_low}-{watts_high}W). Aparte sessie van fatmax.\n"
+            f"Onder de aerobe drempel blijven. 'If it feels easy, you're doing it right.'"
+        ),
+        "duur_min": 165,
+        "tss_geschat": _tss_bike(165, 0.62),
+        "sport": "VirtualRide",
+        "zone": "Z1",
+        "intensiteit_factor": 0.62,
+    }
+
+
+def cp_intervals_session(ftp: int = 250, step: int = 0) -> dict:
+    """
+    Critical-Power intervallen. Progressie per cp_step:
+      step 0 (wk 3):  5×3 min @ 115% FTP
+      step 1 (wk 6):  6×3 min @ 115% FTP
+      step 2 (wk 9):  6×3 min @ 118% FTP
+      step 3 (wk 11): 8×3 min @ 115% FTP
+      step 4 (wk 14+): 6×4 min @ 115% FTP
+    """
+    steps = [
+        (5, 3, 1.15, "5×3 min @ 115% FTP"),
+        (6, 3, 1.15, "6×3 min @ 115% FTP"),
+        (6, 3, 1.18, "6×3 min @ 118% FTP"),
+        (8, 3, 1.15, "8×3 min @ 115% FTP"),
+        (6, 4, 1.15, "6×4 min @ 115% FTP"),
+    ]
+    idx = max(0, min(step, len(steps) - 1))
+    reps, dur_min, intens, naam_suffix = steps[idx]
+    cp_watts = round(ftp * intens)
+    work = reps * dur_min
+    recov = reps * 3
+    total = 10 + work + recov + 8
+    if_val = 0.92
+
+    return {
+        "type": "cp_intervals",
+        "naam": f"Critical Power – {naam_suffix}",
+        "beschrijving": (
+            f"Warmup\n- 10m ramp 50-80% 90rpm\n"
+            f"3x\n- 30s 110%\n- 1m 55%\n\n"
+            f"Main Set\n{reps}x\n- {dur_min}m {int(intens*100)}% 90rpm\n- 3m 55% 95rpm\n\n"
+            f"Cooldown\n- 8m ramp 70-50%\n\n"
+            f"CP = {int(intens*100)}% FTP ({cp_watts}W). Korte harde blokken, volledig herstel.\n"
+            f"Doel: mitochondriele kracht. Laatste rep moet haalbaar zijn."
+        ),
+        "duur_min": total,
+        "tss_geschat": _tss_bike(total, if_val),
+        "sport": "VirtualRide",
+        "zone": "Z5 CP",
+        "intensiteit_factor": if_val,
+    }
+
+
+def easy_spin_session(duration_min: int = 65) -> dict:
+    """Easy spin — 60-75 min Z1 herstel."""
+    return {
+        "type": "easy_spin",
+        "naam": f"Easy spin – {duration_min} min herstel",
+        "beschrijving": (
+            f"Warmup\n- 5m 50% 90rpm\n\n"
+            f"Main Set\n- {duration_min - 10}m 58% 90rpm\n\n"
+            f"Cooldown\n- 5m 50%\n\n"
+            f"Pure herstel, geen stimulus. Benen rond draaien, ademhaling rustig."
+        ),
+        "duur_min": duration_min,
+        "tss_geschat": _tss_bike(duration_min, 0.58),
+        "sport": "VirtualRide",
+        "zone": "Z1 herstel",
+        "intensiteit_factor": 0.58,
+    }
+
+
+def select_bike_sessions_for_week(week_number: int, phase_naam: str, state: dict) -> list[dict]:
+    """
+    Selecteer bike-sessies volgens de Delahaije toolkit:
+      - Threshold is vast anker in ELKE week, ALLE fases.
+      - 2e/3e slot rouleert op week_number % 4:
+          1 -> fatmax_medium
+          2 -> fatmax_lang
+          3 -> cp_intervals (als cp_step toelaat, vanaf wk 3)
+          0 -> long_slow
+      - Deload → threshold_light + easy_spin.
+      - CP-step uit state['progression']['cp_step'].
+    """
+    prog = state.get("progression", {})
+    cp_step = prog.get("cp_step", 0)
+    t_step = prog.get("threshold_step", 1)
+    ftp = state.get("ftp", 250)
+    is_deload = state.get("build_deload", {}).get("is_deload_week", False)
+
+    if is_deload:
+        # Light threshold + easy spin bij deload
+        light_thr = _threshold(ftp, max(1, t_step - 2))
+        light_thr["naam"] = "Threshold light – " + light_thr["naam"].split("– ")[-1]
+        return [light_thr, easy_spin_session(60)]
+
+    # Threshold-anker altijd
+    sessies = [_threshold(ftp, t_step)]
+
+    # Rouleer 2e slot
+    mod = week_number % 4
+    if mod == 1:
+        sessies.append(fatmax_medium_session(ftp))
+    elif mod == 2:
+        sessies.append(fatmax_lang_session(ftp))
+    elif mod == 3:
+        # CP pas vanaf wk 3 (cp_step 0 = eerste CP sessie)
+        if week_number >= 3:
+            sessies.append(cp_intervals_session(ftp, cp_step))
+        else:
+            sessies.append(fatmax_medium_session(ftp))
+    else:  # mod == 0
+        sessies.append(long_slow_session(ftp))
+
+    return sessies
+
+
 def _vo2max_short(ftp: int = 250) -> dict:
     """5× 4 min VO2max intervals — opbouwfase."""
     v_low = round(ftp * 1.08)
