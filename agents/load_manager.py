@@ -306,9 +306,16 @@ def analyze(activities: list = None, injury_guard_output: dict = None) -> dict:
     target_build = bd.get("target_build_weeks", 3)
     deload_mod = bd.get("deload_modifier", 0.70)
 
-    # Bepaal of dit een deload week is
-    is_deload_week = consecutive_build >= target_build
-    # Of als TSB te negatief is → geforceerde deload
+    # Periodizer's RUN_PROGRESSION_TABLE is authoritative voor is_recovery (wk 1-12).
+    # Fallback: build_deload counter voor latere weken of als tabel ontbreekt.
+    try:
+        from agents.marathon_periodizer import WEEKLY_PLAN, get_week_number
+        wk_num_periodizer = get_week_number()
+        is_deload_week = bool(WEEKLY_PLAN[wk_num_periodizer - 1].get("is_recovery", False))
+    except (ImportError, IndexError, KeyError):
+        is_deload_week = consecutive_build >= target_build
+
+    # TSB te negatief → geforceerde deload (overruled alleen richting MEER deload)
     if tsb < -25:
         is_deload_week = True
 
