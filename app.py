@@ -789,7 +789,7 @@ if today_event:
                 st.rerun()
         if st.session_state.get(show_details_key):
             ui.workout_intent_box(event)
-            ui.workout_structure_chart({"beschrijving": description}, key="chart_today_detail")
+            ui.workout_structure_chart({"beschrijving": description, "sport": event.get("type")}, key="chart_today_detail")
             ui.workout_details(description)
             ui.workout_action_row(event, key_prefix="today")
 
@@ -961,7 +961,7 @@ for i, item in enumerate(matched):
     # de description leeg is of niet in intervals geparsed kan worden.
     _desc = (event.get("description") or "").strip()
     if _desc:
-        ui.workout_structure_chart({"beschrijving": _desc}, height=110, key=f"chart_inline_{i}_{event.get('id', e_date)}")
+        ui.workout_structure_chart({"beschrijving": _desc, "sport": event.get("type")}, height=110, key=f"chart_inline_{i}_{event.get('id', e_date)}")
 
     # Action buttons — compact, inline
     # TP-sync knop verschijnt alleen op workouts van morgen. Vandaag staat
@@ -1022,7 +1022,7 @@ for i, item in enumerate(matched):
     # Workout details expand (alleen als toggle aan)
     if st.session_state.get(f"show_det_{i}") and has_details:
         ui.workout_intent_box(event)
-        ui.workout_structure_chart({"beschrijving": event.get("description") or ""}, key=f"chart_detail_{i}_{event.get('id', e_date)}")
+        ui.workout_structure_chart({"beschrijving": event.get("description") or "", "sport": event.get("type")}, key=f"chart_detail_{i}_{event.get('id', e_date)}")
         ui.workout_details(event.get("description") or "")
         # Actie-rij: swap / shorten / skip met impact-preview
         if not done:

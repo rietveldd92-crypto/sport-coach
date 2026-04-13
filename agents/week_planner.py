@@ -420,7 +420,8 @@ def build_week(
                 "tss": None,
             })
 
-    # 3. Workoutsessies (run + fiets)
+    # 3. Workoutsessies (run + fiets) — beschrijving verrijkt met pace/watts
+    from agents.workout_annotations import annotate_description
     for dag_naam in DAYS_NL:
         if dag_naam in sessions_by_day:
             for sessie in sessions_by_day[dag_naam]:
@@ -428,7 +429,9 @@ def build_week(
                 events_to_create.append({
                     "datum": dag_date,
                     "naam": sessie["naam"],
-                    "beschrijving": sessie["beschrijving"],
+                    "beschrijving": annotate_description(
+                        sessie["beschrijving"], sessie["sport"]
+                    ),
                     "categorie": "WORKOUT",
                     "sport": sessie["sport"],
                     "tss": sessie.get("tss_geschat"),

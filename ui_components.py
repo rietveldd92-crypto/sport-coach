@@ -1113,7 +1113,12 @@ def workout_structure_chart(workout: dict | None, actual_samples: list | None = 
     # Skip chart als parser niks vindt — vermijdt lege placeholder-figuur.
     if not parse_workout_structure(beschrijving):
         return
-    fig = render_workout_chart({"beschrijving": beschrijving}, actual_samples=actual_samples, height=height)
+    sport = workout.get("sport") or workout.get("type") or ""
+    fig = render_workout_chart(
+        {"beschrijving": beschrijving, "sport": sport},
+        actual_samples=actual_samples,
+        height=height,
+    )
     if fig is None:
         return
     st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False}, key=key)
