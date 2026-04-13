@@ -855,13 +855,21 @@ if week_offset >= 0:
     from agents import availability as _av
 
     _weekly_target = state.get("load", {}).get("weekly_tss_target", 400)
-    _avail_default_open = (week_offset >= 1 and not _av.is_week_set(selected_monday))
+    try:
+        _avail_default_open = (week_offset >= 1 and not _av.is_week_set(selected_monday))
+    except Exception:
+        _avail_default_open = False
     with st.expander("Beschikbaarheid", expanded=_avail_default_open):
-        _new_avail = ui.availability_editor(
-            selected_monday,
-            weekly_tss_target=_weekly_target,
-            key_prefix=f"avail_w{week_offset}",
-        )
+        try:
+            _new_avail = ui.availability_editor(
+                selected_monday,
+                weekly_tss_target=int(_weekly_target or 400),
+                key_prefix=f"avail_w{week_offset}",
+            )
+        except Exception as _editor_exc:
+            st.error(f"Editor faalde: {type(_editor_exc).__name__}: {_editor_exc}")
+            st.exception(_editor_exc)
+            _new_avail = None
         if _new_avail is not None:
             _av.set_week(selected_monday, _new_avail)
             st.cache_data.clear()
