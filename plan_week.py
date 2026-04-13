@@ -85,6 +85,18 @@ def run(week_start: date, dry_run: bool = True, skip_run_days: list = None):
     5. Genereer bike-sessies (Bike Coach)
     6. Laat Week Planner het schema bouwen en (optioneel) schrijven
     """
+    # Beschikbaarheid: dagen met 0 min ingesteld = rustdagen.
+    # Expliciete skip_run_days in de call hebben voorrang.
+    if skip_run_days is None:
+        try:
+            from agents import availability as _av
+            _rest = _av.get_rest_day_names(week_start)
+            if _rest:
+                skip_run_days = _rest
+                print(f"  Beschikbaarheid: {len(_rest)} rustdag(en) — {', '.join(_rest)}")
+        except Exception as _e:
+            print(f"  Beschikbaarheid niet geladen: {_e}")
+
     print(f"\n  Starttdatum week: {week_start} (maandag)")
     print("  Data ophalen uit intervals.icu...")
 
