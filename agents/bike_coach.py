@@ -535,10 +535,22 @@ def plan_sessions(
             # Plan op dagen: threshold=woensdag, 2e slot=vrijdag, 3e slot=zaterdag
             dagen = ["woensdag", "vrijdag", "zaterdag"]
             # Als de selector minder sessies teruggeeft dan het fase-doel, vul aan
-            # met easy_spin / fatmax_medium zodat het aantal fiets_sessies klopt.
+            # met een AFWIJKEND sessie-type t.o.v. slot-2 zodat we geen duplicate
+            # krijgen (bijv. fatmax_medium op vr én za).
+            existing_types = {s.get("type") for s in toolkit_sessions}
             extras_needed = max(0, fiets_sessies - len(toolkit_sessions))
-            for i in range(extras_needed):
-                toolkit_sessions.append(fatmax_medium_session(ftp))
+            fillers = [long_slow_session, fatmax_lang_session, easy_spin_session,
+                       fatmax_medium_session]
+            for _ in range(extras_needed):
+                for f in fillers:
+                    sessie = f(ftp) if f is not easy_spin_session else f()
+                    if sessie["type"] not in existing_types:
+                        toolkit_sessions.append(sessie)
+                        existing_types.add(sessie["type"])
+                        break
+                else:
+                    # Alle filler-types al gebruikt — val terug op easy_spin
+                    toolkit_sessions.append(easy_spin_session())
 
             picked = toolkit_sessions[:fiets_sessies]
             result = []

@@ -492,8 +492,14 @@ def _plan_marathon_sessions(
         elif intensiteit == "lichte_strides" and strides_ok and i == 0:
             sessie = lib.strides(duration, count=6)
         else:
-            # Roteer Z2 varianten: elke dag een ander type uit de library
-            sessie = lib.pick_z2_run(max(30, duration), _z2_idx + i)
+            # Gating="geen" (wk 1-4): pure Z1 duurloop zonder fartlek/pickups.
+            # Delahaije accumulatie = 100% Zone 1, stabiel tempo.
+            if intensiteit == "geen":
+                # Force z2_standard (index 0) — geen variatie met fartlek/progressie
+                sessie = lib.Z2_RUN_VARIANTS[0](max(30, duration))
+            else:
+                # Andere fases: roteer Z2 varianten voor afwisseling
+                sessie = lib.pick_z2_run(max(30, duration), _z2_idx + i)
 
         sessions.append({"dag": dag, "sessie": sessie})
 
@@ -502,8 +508,11 @@ def _plan_marathon_sessions(
         medium_dag = "vrijdag"
         if medium_dag not in skip_run_days:
             duration = _km_to_minutes(km_per_medium)
-            # Medium sessie is ook een Z2 variant, verschoven index voor afwisseling
-            sessie = lib.pick_z2_run(max(40, duration), _z2_idx + korte_sessies)
+            if intensiteit == "geen":
+                # Pure Z1 ook voor medium sessie in accumulatie wk 1-4
+                sessie = lib.Z2_RUN_VARIANTS[0](max(40, duration))
+            else:
+                sessie = lib.pick_z2_run(max(40, duration), _z2_idx + korte_sessies)
             sessions.append({"dag": medium_dag, "sessie": sessie})
 
     # ── LANGE DUURLOOP (zondag) ──
