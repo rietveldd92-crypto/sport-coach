@@ -224,68 +224,76 @@ def _over_unders(ftp: int = 250) -> dict:
 # ── NIEUWE TOOLKIT SESSIES (Delahaije bike-toolkit) ─────────────────────────
 
 def fatmax_medium_session(ftp: int = 250) -> dict:
-    """Fatmax medium — 75-90 min Z1/low Z2 (60-72% FTP). Vetverbranding."""
-    watts_low = round(ftp * 0.60)
-    watts_high = round(ftp * 0.72)
+    """Fatmax medium — 80 min high Z2 (70-78% FTP). Echte fatmax-zone voor getrainde atleet."""
+    watts_low = round(ftp * 0.70)
+    watts_high = round(ftp * 0.78)
     return {
         "type": "fatmax_medium",
-        "naam": "Fatmax – 80 min Z1/low Z2",
+        "naam": "Fatmax – 80 min high Z2",
         "beschrijving": (
-            f"Warmup\n- 8m ramp 45-60% 90rpm\n\n"
-            f"Main Set\n- 65m 66% 88rpm\n\n"
-            f"Cooldown\n- 7m ramp 60-45%\n\n"
-            f"Fatmax = 60-72% FTP ({watts_low}-{watts_high}W). Pure vetverbrandings-zone.\n"
-            f"Voel rustig, kunnen praten in hele zinnen. Mitochondriele dichtheid."
+            f"Warmup\n- 10m ramp 50-65% 90rpm\n\n"
+            f"Main Set\n- 60m 74% 88rpm (steady, high Z2)\n\n"
+            f"Cooldown\n- 10m ramp 65-50%\n\n"
+            f"Fatmax = 70-78% FTP ({watts_low}-{watts_high}W). High Z2 — net onder "
+            f"sweetspot. Praten in korte zinnen mogelijk maar je voelt het.\n"
+            f"Doel: mitochondriele dichtheid + vetstofwisseling op intensiteit."
         ),
         "duur_min": 80,
-        "tss_geschat": _tss_bike(80, 0.68),
+        "tss_geschat": _tss_bike(80, 0.74),
         "sport": "VirtualRide",
-        "zone": "Z1/Z2",
-        "intensiteit_factor": 0.68,
+        "zone": "Z2",
+        "intensiteit_factor": 0.74,
     }
 
 
 def fatmax_lang_session(ftp: int = 250) -> dict:
-    """Fatmax lang — 2:00-2:30 u pure Z1 (58-68% FTP)."""
-    watts_low = round(ftp * 0.58)
-    watts_high = round(ftp * 0.68)
+    """Fatmax lang — 135 min high Z2 (68-76% FTP). Lange echte fatmax-rit, niet Z1."""
+    watts_low = round(ftp * 0.68)
+    watts_high = round(ftp * 0.76)
     return {
         "type": "fatmax_lang",
-        "naam": "Fatmax lang – 135 min Z1",
+        "naam": "Fatmax lang – 135 min high Z2",
         "beschrijving": (
-            f"Warmup\n- 10m ramp 45-60% 90rpm\n\n"
-            f"Main Set\n- 115m 63% 88rpm\n\n"
-            f"Cooldown\n- 10m ramp 55-45%\n\n"
-            f"Fatmax = 58-68% FTP ({watts_low}-{watts_high}W). Lange duurrit.\n"
-            f"Delahaije: 'Volume triumphs quality.' Uren in het zadel tellen."
+            f"Warmup\n- 10m ramp 50-65% 90rpm\n\n"
+            f"Main Set\n3x\n- 35m 72% 88rpm (high Z2)\n- 5m 60% spin out 95rpm\n\n"
+            f"Cooldown\n- 10m ramp 60-50%\n\n"
+            f"Fatmax = 68-76% FTP ({watts_low}-{watts_high}W). Lange high-Z2 rit met "
+            f"3 blokken + korte spin-outs voor variatie en cadansprikkel.\n"
+            f"Delahaije: volume telt, maar prikkel net onder drempel houdt mitochondrien actief."
         ),
         "duur_min": 135,
-        "tss_geschat": _tss_bike(135, 0.65),
+        "tss_geschat": _tss_bike(135, 0.72),
         "sport": "VirtualRide",
-        "zone": "Z1",
-        "intensiteit_factor": 0.65,
+        "zone": "Z2",
+        "intensiteit_factor": 0.72,
     }
 
 
 def long_slow_session(ftp: int = 250) -> dict:
-    """Long slow ride — 2:30-3:00 u pure Z1 (55-65% FTP). Aerobe fundament."""
+    """Long endurance — 165 min Z1-dominant met cadans/variatie zodat het niet monotoon is."""
     watts_low = round(ftp * 0.55)
-    watts_high = round(ftp * 0.65)
+    watts_high = round(ftp * 0.70)
     return {
         "type": "long_slow",
-        "naam": "Long slow – 165 min puur Z1",
+        "naam": "Long endurance – 165 min Z1 met variatie",
         "beschrijving": (
-            f"Warmup\n- 10m ramp 45-55% 90rpm\n\n"
-            f"Main Set\n- 145m 60% 88rpm\n\n"
-            f"Cooldown\n- 10m ramp 55-45%\n\n"
-            f"Puur Z1 = 55-65% FTP ({watts_low}-{watts_high}W). Aparte sessie van fatmax.\n"
-            f"Onder de aerobe drempel blijven. 'If it feels easy, you're doing it right.'"
+            f"Warmup\n- 10m ramp 50-60% 90rpm\n\n"
+            f"Main Set\n3x\n"
+            f"- 30m 62% 88rpm (steady Z1)\n"
+            f"- 8m 68% high-cadans 100rpm\n"
+            f"- 5m 65% low-cadans 70rpm sterkte-uithouding\n"
+            f"- 2m 55% spin-out\n\n"
+            f"Cooldown\n- 10m ramp 60-50%\n\n"
+            f"Z1-dominant ({watts_low}-{watts_high}W) maar mét cadansvariatie en "
+            f"sterkte-uithoudingsblokken. Niet monotoon — benen leren ook neuro-musculair "
+            f"varieren binnen aerobe zone.\n"
+            f"Hartslag blijft onder aerobe drempel. Doel: lange duur zonder dat je hoofd ontspoort."
         ),
         "duur_min": 165,
-        "tss_geschat": _tss_bike(165, 0.62),
+        "tss_geschat": _tss_bike(165, 0.66),
         "sport": "VirtualRide",
         "zone": "Z1",
-        "intensiteit_factor": 0.62,
+        "intensiteit_factor": 0.66,
     }
 
 
