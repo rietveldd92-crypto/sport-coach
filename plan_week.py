@@ -230,8 +230,8 @@ def _week_has_workouts(week_start: date) -> bool:
         events = api.get_events(start=week_start, end=week_start + timedelta(days=6))
         return any(e.get("category") == "WORKOUT" for e in events)
     except Exception as e:
-        print(f"  ⚠️  Kon events niet ophalen voor {week_start}: {e}")
-        return False  # bij twijfel: plannen (liever dubbel dan niks)
+        print(f"  ⚠️  Kon events niet ophalen voor {week_start}: {e} — skip (safe default)")
+        return True  # bij twijfel skippen, overschrijf nooit bestaand plan
 
 
 def run_horizon(horizon: int, write: bool, skip_run_days: list = None):
