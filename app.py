@@ -851,10 +851,24 @@ show_swap_flash()
 
 # ── WORKOUT LIST ───────────────────────────────────────────────────────────
 
+_current_day = None
 for i, item in enumerate(matched):
     event = item["event"]
     activity = item["activity"]
     done = item["done"]
+
+    _raw_date = event.get("start_date_local", "")[:10]
+    _this_day = date.fromisoformat(_raw_date) if _raw_date else None
+
+    # Dag-header tonen zodra de datum wisselt — ook boven NOTE-events
+    if _this_day and _this_day != _current_day:
+        _is_today = (_this_day.isoformat() == today_str)
+        _tag = "Rust" if _is_today and not any(
+            (it["event"].get("start_date_local", "")[:10] == today_str and not it.get("is_note"))
+            for it in matched
+        ) else None
+        ui.day_header(_this_day, is_today=_is_today)
+        _current_day = _this_day
 
     # NOTE events: compact inline, geen actieknoppen
     if item.get("is_note"):
@@ -868,7 +882,7 @@ for i, item in enumerate(matched):
         )
         continue
 
-    e_date = event.get("start_date_local", "")[:10]
+    e_date = _raw_date
     weekday_full = DAYS_FULL.get(date.fromisoformat(e_date).weekday(), "?") if e_date else "?"
     e_name = event.get("name", "?")
     e_type = event.get("type", "?")
@@ -909,6 +923,13 @@ for i, item in enumerate(matched):
         status=card_status,
         stats_parts=stats_parts if stats_parts else None,
     )
+
+    # Inline mini-chart: elk workout-item krijgt een grafiekje van de
+    # geplande structuur (indien parseerbaar). Chart verschijnt niet als
+    # de description leeg is of niet in intervals geparsed kan worden.
+    _desc = (event.get("description") or "").strip()
+    if _desc:
+        ui.workout_structure_chart({"beschrijving": _desc}, height=110)
 
     # Action buttons — compact, inline
     # TP-sync knop verschijnt alleen op workouts van morgen. Vandaag staat

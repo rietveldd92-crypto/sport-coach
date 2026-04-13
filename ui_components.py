@@ -212,6 +212,43 @@ _GLOBAL_CSS = """
         font-style: italic;
     }
 
+    /* ── Day header — groot datum-label boven dag-blok ────────── */
+    .ui-day-header {
+        display: flex;
+        align-items: baseline;
+        gap: 0.55rem;
+        margin: 1.4rem 0 0.4rem 0;
+        padding-bottom: 0.35rem;
+        border-bottom: 1px solid var(--border);
+    }
+    .ui-day-header.is-today {
+        border-bottom-color: var(--accent-border);
+    }
+    .ui-day-header .dh-weekday {
+        font-family: var(--font-display);
+        font-size: 1.3rem;
+        font-weight: 600;
+        color: var(--text);
+        letter-spacing: -0.01em;
+    }
+    .ui-day-header.is-today .dh-weekday {
+        color: var(--accent);
+    }
+    .ui-day-header .dh-date {
+        font-family: var(--font-mono);
+        font-size: 0.78rem;
+        color: var(--text-muted);
+        font-variant-numeric: tabular-nums;
+    }
+    .ui-day-header .dh-tag {
+        margin-left: auto;
+        font-size: 0.62rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.14em;
+        color: var(--accent);
+    }
+
     /* ── Day card — één dag in weekview ──────────────────────── */
     .ui-day-card {
         padding: 1rem 1.2rem 1rem 1.4rem;
@@ -568,14 +605,14 @@ _GLOBAL_CSS = """
 
 
 def inject_global_css() -> None:
-    """Inject de globale CSS één keer per Streamlit-sessie.
+    """Inject de globale CSS bij elke Streamlit run.
 
-    Gebruikt session_state om dubbele injectie te voorkomen bij reruns.
+    Streamlit wist de DOM bij iedere rerun — een session_state guard zou
+    ervoor zorgen dat CSS alleen de eerste run wordt geladen, waarna
+    dark mode verdwijnt zodra de gebruiker interacteert. Daarom
+    unconditioneel injecteren.
     """
-    if st.session_state.get(_GLOBAL_CSS_INJECTED_KEY):
-        return
     st.markdown(_GLOBAL_CSS, unsafe_allow_html=True)
-    st.session_state[_GLOBAL_CSS_INJECTED_KEY] = True
 
 
 # ── COMPONENTS ─────────────────────────────────────────────────────────────
@@ -629,6 +666,32 @@ def today_hero(
         f'<div class="title">{title}</div>'
         f'<div class="stats">{stats_line}</div>'
         f'{note_html}'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+
+_MONTHS_NL = {
+    1: "jan", 2: "feb", 3: "mrt", 4: "apr", 5: "mei", 6: "jun",
+    7: "jul", 8: "aug", 9: "sep", 10: "okt", 11: "nov", 12: "dec",
+}
+
+
+def day_header(day_date: date, is_today: bool = False, tag: Optional[str] = None) -> None:
+    """Groot datum-label als sectie-scheider boven alle events van een dag.
+
+    Zorgt dat je in de weekview direct ziet 'dit is Dinsdag', ook als de
+    dag meerdere sessies heeft.
+    """
+    weekday = ["Maandag", "Dinsdag", "Woensdag", "Donderdag", "Vrijdag", "Zaterdag", "Zondag"][day_date.weekday()]
+    date_label = f"{day_date.day} {_MONTHS_NL[day_date.month]}"
+    today_class = " is-today" if is_today else ""
+    tag_html = f'<span class="dh-tag">{tag}</span>' if tag else ""
+    st.markdown(
+        f'<div class="ui-day-header{today_class}">'
+        f'<span class="dh-weekday">{weekday}</span>'
+        f'<span class="dh-date">{date_label}</span>'
+        f'{tag_html}'
         f'</div>',
         unsafe_allow_html=True,
     )
@@ -951,7 +1014,7 @@ def workout_action_row(event: dict, key_prefix: str) -> None:
                     st.error(f"Skip mislukt: {exc}")
 
 
-def workout_structure_chart(workout: dict | None, actual_samples: list | None = None) -> None:
+def workout_structure_chart(workout: dict | None, actual_samples: list | None = None, height: int = 200) -> None:
     """Toon de workout-structuur als Plotly area chart (zone-gekleurd).
 
     Wordt boven de tekstuele beschrijving getoond. Als de parser niks kan
@@ -969,7 +1032,7 @@ def workout_structure_chart(workout: dict | None, actual_samples: list | None = 
     # Skip chart als parser niks vindt — vermijdt lege placeholder-figuur.
     if not parse_workout_structure(beschrijving):
         return
-    fig = render_workout_chart({"beschrijving": beschrijving}, actual_samples=actual_samples)
+    fig = render_workout_chart({"beschrijving": beschrijving}, actual_samples=actual_samples, height=height)
     if fig is None:
         return
     st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
