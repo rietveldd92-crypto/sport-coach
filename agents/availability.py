@@ -117,6 +117,41 @@ def get_rest_day_names(week_start: date) -> list[str]:
     return out
 
 
+def cap_sessions_for_day(sessions: list[dict], available_min: int) -> list[dict]:
+    """Cap geplande sessies voor één dag naar de beschikbare tijd.
+
+    Als de som van duur_min > available_min, schalen we elke sessie
+    proportioneel terug en herberekenen we TSS via dezelfde ratio.
+    Prepends een NOTE aan de beschrijving zodat de atleet weet dat er
+    ingekort is. Laat de workout-naam intact.
+
+    Geen ondergrens per sessie — bij extreme caps kan dit triviaal kort
+    worden. Dat is een signaal naar de gebruiker dat de opgegeven tijd
+    te krap is voor wat de periodizer vraagt.
+    """
+    if available_min <= 0 or not sessions:
+        return sessions
+    total = sum(s.get("duur_min") or 0 for s in sessions)
+    if total <= available_min:
+        return sessions
+    ratio = available_min / total
+    capped: list[dict] = []
+    for s in sessions:
+        new_dur = int(round((s.get("duur_min") or 0) * ratio / 5) * 5)  # 5-min stappen
+        new_tss = (s.get("tss_geschat") or 0) * ratio
+        note = (
+            f"[Ingekort naar {new_dur} min i.v.m. beschikbaarheid "
+            f"{available_min} min totaal deze dag]\n\n"
+        )
+        capped.append({
+            **s,
+            "duur_min": new_dur,
+            "tss_geschat": round(new_tss, 1),
+            "beschrijving": note + (s.get("beschrijving") or ""),
+        })
+    return capped
+
+
 def check_budget(week_start: date, weekly_tss_target: int) -> dict:
     """Check of beschikbare tijd het weekdoel kan dragen.
 
