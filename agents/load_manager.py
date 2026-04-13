@@ -5,10 +5,9 @@ CTL (Chronic Training Load) = fitheid (42-daags gemiddelde van dagelijkse TSS)
 ATL (Acute Training Load) = vermoeidheid (7-daags gemiddelde)
 TSB (Training Stress Balance) = vorm = CTL - ATL
 
-Gebaseerd op de principes van Coggan/Allen en toegepast in de stijl van
-Guido Hartensveld en Michael Butter: opbouwen met hoofd, TSB piekt op racedag.
-
-Race: sub 40 min 10km Leiden 16 juni 2026
+Race: Amsterdam Marathon 18 oktober 2026 (sub 3:45). 28-weken Delahaije
+blokperiodisering — week-number en fase komen uit marathon_periodizer als
+single source of truth.
 """
 
 import json
@@ -272,9 +271,16 @@ def analyze(activities: list = None, injury_guard_output: dict = None) -> dict:
     weeks_to_race = _weeks_to_race()
     phase = _determine_phase(weeks_to_race)
 
-    # Update phase in state
+    # Update phase in state — week_number uit marathon_periodizer (28-weken plan,
+    # PLAN_START 2026-04-06). Was hardcoded op 13-weeks 10km logica, dat klopt
+    # niet meer voor het Amsterdam Marathon plan.
     state["current_phase"] = phase
-    state["week_number"] = max(1, 13 - weeks_to_race + 1)
+    try:
+        from agents.marathon_periodizer import get_week_number as _get_wk
+        state["week_number"] = _get_wk()
+    except (ImportError, Exception):
+        # Fallback voor het 13-weeks 10km plan (legacy)
+        state["week_number"] = max(1, 13 - weeks_to_race + 1)
 
     # Bepaal wekelijkse TSS target — gebaseerd op CTL, niet op statische fase-ranges.
     # CTL * 7 = TSS nodig om huidige fitheid te BEHOUDEN.

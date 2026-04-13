@@ -644,7 +644,12 @@ def plan_sessions(
     run_intensity_ok = injury_guard.get("run_intensity_allowed", False)
     volume_mod = injury_guard.get("volume_modifier", 1.0)
     weekly_tss = load_manager.get("recommended_weekly_tss", 380)
-    week_number = load_manager.get("week_number", 1)
+    # week_number op basis van WEEK_START (de week die we plannen), niet today.
+    try:
+        from agents.marathon_periodizer import get_week_number as _get_wk
+        week_number = _get_wk(week_start)
+    except (ImportError, Exception):
+        week_number = load_manager.get("week_number", 1)
 
     sessions = []
     skip_run_days = skip_run_days or []
