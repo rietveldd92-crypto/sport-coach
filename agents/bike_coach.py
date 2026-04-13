@@ -528,6 +528,28 @@ def plan_sessions(
                 result.append(sessie)
             return result
 
+        # ── TOOLKIT-FASES (Delahaije: threshold-anker + fatmax/CP/long_slow) ──
+        # Alle accumulatie- en transformatie-fases gebruiken de toolkit-selector.
+        if fiets_intensiteit == "toolkit":
+            toolkit_sessions = select_bike_sessions_for_week(week_number, phase, state)
+            # Plan op dagen: threshold=woensdag, 2e slot=vrijdag, 3e slot=zaterdag
+            dagen = ["woensdag", "vrijdag", "zaterdag"]
+            # Als de selector minder sessies teruggeeft dan het fase-doel, vul aan
+            # met easy_spin / fatmax_medium zodat het aantal fiets_sessies klopt.
+            extras_needed = max(0, fiets_sessies - len(toolkit_sessions))
+            for i in range(extras_needed):
+                toolkit_sessions.append(fatmax_medium_session(ftp))
+
+            picked = toolkit_sessions[:fiets_sessies]
+            result = []
+            for i, sessie in enumerate(picked):
+                dag = dagen[min(i, len(dagen) - 1)]
+                sessie = sessie.copy()
+                sessie["dag"] = dag
+                sessie["datum"] = (week_start + timedelta(days=dag_offset[dag])).isoformat()
+                result.append(sessie)
+            return result
+
         cycle = (week_number - 1) % 3
 
         # Delahaije: accumulatiefases = 100% Zone 1, ook op de fiets.
