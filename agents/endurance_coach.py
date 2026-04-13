@@ -297,6 +297,99 @@ def _z2_trail(duration_min: int = 60) -> dict:
 Z2_VARIANTS = [_aerobic_z2, _z2_progression_run, _z2_fartlek, _z2_trail]
 
 
+# ── GATING HELPERS (marathon_periodizer.RUN_INTENSITEIT_GATING) ──────────────
+
+def _tempoduur_progressief(week_number: int) -> dict:
+    """Tempoduur-sleutelsessie met conservatieve weekprogressie.
+
+    Plan:
+      wk 7       → 8 min @ 83% HRmax (kennismaking)
+      wk 9-11    → 15 min @ 85% HRmax (opbouw)
+      wk 12+/def → 12 min @ 84% HRmax (terugval/default)
+    Tempoduur valt onder Z1 (~85% HRmax, net onder aerobe drempel).
+    """
+    if week_number == 7:
+        tempo_min, pct, label = 8, 83, "kennismaking"
+    elif 9 <= week_number <= 11:
+        tempo_min, pct, label = 15, 85, "opbouw"
+    else:
+        tempo_min, pct, label = 12, 84, "consolidatie"
+    total_min = tempo_min + 25  # WU 15 + CD 10
+    if_score = pct / 100 * 0.95
+    return {
+        "type": "tempoduur",
+        "naam": f"Tempoduur – {tempo_min} min @ {pct}% HRmax ({label})",
+        "beschrijving": (
+            f"Warmup\n"
+            f"- 15m ramp 55-78% Pace\n\n"
+            f"Main Set\n"
+            f"- {tempo_min}m {pct}% HRmax (net onder aerobe drempel)\n\n"
+            f"Cooldown\n"
+            f"- 10m ramp 75-58% Pace\n\n"
+            f"Delahaije: tempoduur @ {pct}% HRmax valt NOG onder Zone 1 "
+            f"(onder de aerobe drempel). Comfortabel hard — praten in korte "
+            f"zinnen. Niet harder starten dan je kunt volhouden.\n"
+            f"Stop direct bij knie/heup klachten."
+            f"{DELAHAIJE_COACHING}"
+        ),
+        "duur_min": total_min,
+        "tss_geschat": _tss_estimate(total_min, if_score),
+        "sport": "Run",
+        "zone": "Z1-hoog",
+        "intensiteit_factor": if_score,
+    }
+
+
+def _drempel_run(week_number: int) -> dict:
+    """Drempelinterval @ 4:20/km startpace — vanaf wk 13+.
+
+    Plan (conservatief, start hard):
+      wk 13      → 4×1 km @ 4:20/km, 2 min herstel
+      wk 14-15   → 5×1 km @ 4:20/km, 2 min herstel
+      wk 16-18   → 4×1.5 km @ 4:20/km, 2:30 herstel
+      default    → 4×1 km @ 4:20/km
+    """
+    pace_sec_per_km = 4 * 60 + 20  # 4:20/km = 260 sec
+    if week_number == 13:
+        reps, rep_km, rest_min = 4, 1.0, 2
+    elif week_number in (14, 15):
+        reps, rep_km, rest_min = 5, 1.0, 2
+    elif 16 <= week_number <= 18:
+        reps, rep_km, rest_min = 4, 1.5, 2.5
+    else:
+        reps, rep_km, rest_min = 4, 1.0, 2
+
+    work_min = round(reps * rep_km * pace_sec_per_km / 60)
+    rest_total = round(reps * rest_min)
+    total_min = 15 + work_min + rest_total + 15  # WU + work + rest + CD
+    rep_label = f"{int(rep_km * 1000)}m" if rep_km < 1 or rep_km == 1.0 else f"{rep_km:g}km"
+    return {
+        "type": "drempel",
+        "naam": f"Drempel – {reps}×{rep_label} @ 4:20/km",
+        "beschrijving": (
+            f"Warmup\n"
+            f"- 15m ramp 55-78% Pace\n\n"
+            f"Main Set\n"
+            f"{reps}x\n"
+            f"- {rep_km:g}km @ 4:20/km (drempelpace — HARD, niet marathonpace)\n"
+            f"- {rest_min}m rustig 60% Pace\n\n"
+            f"Cooldown\n"
+            f"- 15m ramp 70-55% Pace\n\n"
+            f"Drempelwerk vanaf wk 13+. Startpace is 4:20/km — dit is hard.\n"
+            f"Je kunt nog net praten maar je wilt het niet. Stabiel tempo per rep.\n"
+            f"Laatste rep haalbaar? Volgende week zelfde of progressie. Niet? Stap terug.\n"
+            f"Pas DIRECT aan bij knie-/heupongemak — veiligheid boven kwaliteit."
+            f"{REHAB_REMINDER_SHORT}"
+            f"{DELAHAIJE_COACHING}"
+        ),
+        "duur_min": total_min,
+        "tss_geschat": _tss_estimate(total_min, 0.90),
+        "sport": "Run",
+        "zone": "Z4",
+        "intensiteit_factor": 0.90,
+    }
+
+
 # ── WEEK PLAN ────────────────────────────────────────────────────────────────
 
 def _plan_marathon_sessions(
@@ -319,6 +412,12 @@ def _plan_marathon_sessions(
     korte_sessies = vol.get("korte_sessies", 3)
     medium_sessies = vol.get("medium_sessies", 0)
     intensiteit = vol.get("run_intensiteit", "geen")
+    week_number = vol.get("week", 1)
+
+    # Backstop: als periodizer om welke reden dan ook geen gating heeft ingevuld
+    # voor wk>=13, pas 'drempel' toe (matcht RUN_INTENSITEIT_GATING default).
+    if week_number >= 13 and intensiteit in ("geen", "tempoduur_strides"):
+        intensiteit = "drempel"
 
     # Deload: in vroege fases (fysio-opbouw) raakt deload vooral de fiets.
     # Pas in latere fases reduceer je ook het loopvolume.
@@ -368,14 +467,24 @@ def _plan_marathon_sessions(
 
         # Eerste sessie: intensiteit als toegestaan
         # Delahaije: tempoduur = Z1 (net onder aerobe drempel, 85% HRmax)
-        if intensiteit == "tempoduur" and i == 0:
-            sessie = lib.tempo_duurloop(reps=4, rep_min=8)
+        # Drempel = vanaf wk 13+, @ 4:20/km startpace (echt hard).
+        if intensiteit == "drempel" and tempo_ok and run_intensity_ok and i == 0:
+            sessie = _drempel_run(week_number)
+        elif intensiteit == "tempoduur" and i == 0:
+            sessie = _tempoduur_progressief(week_number)
         elif intensiteit == "tempoduur_strides" and strides_ok and i == 0:
-            sessie = lib.tempo_duurloop(reps=4, rep_min=8)
+            sessie = _tempoduur_progressief(week_number)
         elif intensiteit == "tempoduur_strides" and strides_ok and i == 1:
             sessie = lib.strides(duration, count=6)
         elif intensiteit == "strides" and strides_ok and i == 0:
-            sessie = lib.strides(duration, count=8)
+            # 4-6× 80m strides aan het eind van de Z1-sleutelsessie (neuromusculair)
+            sessie = lib.strides(duration, count=5)
+            # Pas beschrijving aan — benadruk dat dit neuromusculair is i.p.v. tempo
+            if isinstance(sessie.get("beschrijving"), str):
+                sessie["beschrijving"] = (
+                    "Z1-sleutelsessie met 4-6× 80m strides aan het eind "
+                    "(neuromusculair, geen tempoprikkel).\n\n" + sessie["beschrijving"]
+                )
         elif intensiteit == "marathon_tempo" and tempo_ok and i == 0:
             sessie = lib.marathon_tempo(tempo_min=25)
         elif intensiteit == "lichte_tempo" and tempo_ok and i == 0:

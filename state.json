@@ -14,7 +14,6 @@
     "run_intensity_unlocked": true,
     "strides_unlocked": true,
     "tempo_unlocked": true,
-    "fysio_constraint": "3x/week, start 6km, +1km/week.",
     "history": [
       {
         "date": "2026-03-08",
@@ -30,7 +29,7 @@
     "atl_estimate": 63.5,
     "tsb_estimate": -14.6,
     "last_calculated": "2026-04-11",
-    "weekly_tss_target": 323
+    "weekly_tss_target": 475
   },
   "build_deload": {
     "consecutive_build_weeks": 3,
@@ -46,81 +45,11 @@
     "endurance_spin_min": 110,
     "long_ride_min": 140,
     "z2_run_variety_index": 0,
-    "long_run_variety_index": 1
+    "long_run_variety_index": 1,
+    "cp_step": 0,
+    "bike_u_baseline_min": 450
   },
   "weekly_log": [
-    {
-      "week_start": "2026-04-06",
-      "fase": "herstel_opbouw_I",
-      "planned_tss": 377,
-      "geschat_tss": 0,
-      "actual_tss": null,
-      "injury_status": "groen",
-      "notes": "GROEN: 23 symptoomvrije dag(en). Strides mogen. Tempolopen mogen."
-    },
-    {
-      "week_start": "2026-04-13",
-      "fase": "herstel_opbouw_I",
-      "planned_tss": 377,
-      "geschat_tss": 0,
-      "actual_tss": null,
-      "injury_status": "groen",
-      "notes": "GROEN: 23 symptoomvrije dag(en). Strides mogen. Tempolopen mogen."
-    },
-    {
-      "week_start": "2026-04-20",
-      "fase": "herstel_opbouw_I",
-      "planned_tss": 377,
-      "geschat_tss": 0,
-      "actual_tss": null,
-      "injury_status": "groen",
-      "notes": "GROEN: 23 symptoomvrije dag(en). Strides mogen. Tempolopen mogen."
-    },
-    {
-      "week_start": "2026-04-27",
-      "fase": "herstel_opbouw_I",
-      "planned_tss": 264,
-      "geschat_tss": 0,
-      "actual_tss": null,
-      "injury_status": "groen",
-      "notes": "GROEN: 23 symptoomvrije dag(en). Strides mogen. Tempolopen mogen."
-    },
-    {
-      "week_start": "2026-05-04",
-      "fase": "herstel_opbouw_I",
-      "planned_tss": 377,
-      "geschat_tss": 0,
-      "actual_tss": null,
-      "injury_status": "groen",
-      "notes": "GROEN: 23 symptoomvrije dag(en). Strides mogen. Tempolopen mogen."
-    },
-    {
-      "week_start": "2026-05-11",
-      "fase": "herstel_opbouw_I",
-      "planned_tss": 377,
-      "geschat_tss": 0,
-      "actual_tss": null,
-      "injury_status": "groen",
-      "notes": "GROEN: 23 symptoomvrije dag(en). Strides mogen. Tempolopen mogen."
-    },
-    {
-      "week_start": "2026-05-18",
-      "fase": "herstel_opbouw_I",
-      "planned_tss": 377,
-      "geschat_tss": 0,
-      "actual_tss": null,
-      "injury_status": "groen",
-      "notes": "GROEN: 23 symptoomvrije dag(en). Strides mogen. Tempolopen mogen."
-    },
-    {
-      "week_start": "2026-05-25",
-      "fase": "herstel_opbouw_I",
-      "planned_tss": 264,
-      "geschat_tss": 0,
-      "actual_tss": null,
-      "injury_status": "groen",
-      "notes": "GROEN: 23 symptoomvrije dag(en). Strides mogen. Tempolopen mogen."
-    },
     {
       "week_start": "2026-06-01",
       "fase": "herstel_opbouw_I",
@@ -142,42 +71,24 @@
     {
       "week_start": "2026-04-06",
       "fase": "herstel_opbouw_I",
-      "planned_tss": 354,
-      "geschat_tss": 473,
-      "actual_tss": null,
-      "injury_status": "groen",
-      "notes": "GROEN: 29 symptoomvrije dag(en). Strides mogen. Tempolopen mogen."
-    },
-    {
-      "week_start": "2026-04-06",
-      "fase": "herstel_opbouw_I",
-      "planned_tss": 241,
-      "geschat_tss": 373,
-      "actual_tss": null,
-      "injury_status": "groen",
-      "notes": "GROEN: 29 symptoomvrije dag(en). Strides mogen. Tempolopen mogen."
-    },
-    {
-      "week_start": "2026-04-06",
-      "fase": "herstel_opbouw_I",
       "planned_tss": 342,
       "geschat_tss": 0,
       "actual_tss": null,
       "injury_status": "groen",
-      "notes": "GROEN: 29 symptoomvrije dag(en). Strides mogen. Tempolopen mogen. | Feedback: Bedankt voor de feedback. Sessie gemist � dit meenemen in de komende planning."
+      "notes": "GROEN: 29 symptoomvrije dag(en). Strides mogen. Tempolopen mogen. | Feedback: Bedankt voor de feedback. Sessie gemist ï¿½ dit meenemen in de komende planning."
     }
   ],
   "tp_sync_log": {
     "102842985": {
       "tp_workout_id": 3672397106,
       "synced_at": "2026-04-08T22:35:09",
-      "title": "Threshold – 3x8 min @ 95%",
+      "title": "Threshold â€“ 3x8 min @ 95%",
       "workout_day": "2026-04-08"
     },
     "102842986": {
       "tp_workout_id": 3672391939,
       "synced_at": "2026-04-08T22:35:09",
-      "title": "Bosrun – 35 min",
+      "title": "Bosrun â€“ 35 min",
       "workout_day": "2026-04-09"
     }
   }

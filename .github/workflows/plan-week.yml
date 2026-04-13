@@ -2,8 +2,8 @@ name: Plan Week
 
 on:
   schedule:
-    # Elke zondag 19:00 UTC (= 21:00 CET / 20:00 CEST)
-    - cron: '0 19 * * 0'
+    # Dagelijks 05:00 UTC = 07:00 CEST — rolling horizon planning
+    - cron: '0 5 * * *'
   workflow_dispatch: # Handmatig triggeren
 
 jobs:
@@ -19,16 +19,20 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Plan volgende week
+      - name: Plan komende 2 weken (rolling horizon)
         env:
           INTERVALS_ATHLETE_ID: ${{ secrets.INTERVALS_ATHLETE_ID }}
           INTERVALS_API_KEY: ${{ secrets.INTERVALS_API_KEY }}
-        run: python plan_week.py --schrijf
+        run: python plan_week.py --horizon 2 --schrijf
 
       - name: Commit state changes
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin ${GITHUB_REF_NAME} || {
+            echo "::warning::Rebase failed — skipping commit to prevent conflict loop"
+            exit 0
+          }
           git add state.json
           git diff --staged --quiet || git commit -m "chore: update state.json after weekly plan"
           git push

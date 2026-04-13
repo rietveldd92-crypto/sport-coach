@@ -212,9 +212,55 @@ def run(week_start: date, dry_run: bool = True, skip_run_days: list = None):
         "notes": ig_result["message"],
     })
     with open(STATE_PATH, "w") as f:
-        json.dump(state, f, indent=4, ensure_ascii=False)
+        json.dump(state, f, indent=2, ensure_ascii=False)
 
     return events
+
+
+def _this_monday(from_date: date = None) -> date:
+    """Maandag van de huidige kalenderweek."""
+    if from_date is None:
+        from_date = date.today()
+    return from_date - timedelta(days=from_date.weekday())
+
+
+def _week_has_workouts(week_start: date) -> bool:
+    """Check via intervals.icu of een week al workout-events heeft."""
+    try:
+        events = api.get_events(start=week_start, end=week_start + timedelta(days=6))
+        return any(e.get("category") == "WORKOUT" for e in events)
+    except Exception as e:
+        print(f"  ⚠️  Kon events niet ophalen voor {week_start}: {e} — skip (safe default)")
+        return True  # bij twijfel skippen, overschrijf nooit bestaand plan
+
+
+def run_horizon(horizon: int, write: bool, skip_run_days: list = None):
+    """
+    Rolling horizon: plan N weken vooruit (vanaf de huidige maandag).
+    Skip weken die al workouts hebben.
+    Active week krijgt --schrijf alleen als >=48u tot maandag.
+    """
+    today_monday = _this_monday()
+    for i in range(horizon):
+        wk = today_monday + timedelta(weeks=i)
+
+        if _week_has_workouts(wk):
+            print(f"\n  [horizon] Week {wk} heeft al workouts in intervals.icu — skip.")
+            continue
+
+        # Active week: als we nu IN die week zitten (i==0)
+        is_active_week = (i == 0)
+        effective_write = write
+        if is_active_week:
+            hours_to_next_monday = ((wk + timedelta(days=7)) - date.today()).days * 24
+            if hours_to_next_monday < 48:
+                if write:
+                    print(f"\n  [horizon] Active week {wk}: <48u tot volgende maandag — "
+                          f"dry-run forceren (warn).")
+                effective_write = False
+
+        print(f"\n  [horizon] Plannen week {wk} (schrijf={effective_write})")
+        run(wk, dry_run=not effective_write, skip_run_days=skip_run_days or [])
 
 
 def main():
@@ -225,12 +271,21 @@ def main():
                         help="Toon huidige status en stop")
     parser.add_argument("--week", type=str, default=None,
                         help="Maandag van de te plannen week (YYYY-MM-DD). Standaard: komende maandag.")
+    parser.add_argument("--horizon", type=int, default=None,
+                        help="Rolling horizon: plan N weken vooruit vanaf deze maandag. "
+                             "Skipt weken die al workouts hebben.")
     parser.add_argument("--geen-run-maandag", action="store_true",
                         help="Sla de maandag-run over (verplaatst naar woensdag)")
     args = parser.parse_args()
 
     if args.status:
         print_status()
+        return
+
+    skip_run_days = ["maandag"] if args.geen_run_maandag else []
+
+    if args.horizon is not None and args.horizon > 0:
+        run_horizon(args.horizon, write=args.schrijf, skip_run_days=skip_run_days)
         return
 
     if args.week:
@@ -246,7 +301,6 @@ def main():
         week_start = _next_monday()
 
     dry_run = not args.schrijf
-    skip_run_days = ["maandag"] if args.geen_run_maandag else []
 
     run(week_start, dry_run=dry_run, skip_run_days=skip_run_days)
 
