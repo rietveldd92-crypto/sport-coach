@@ -117,6 +117,56 @@ def get_rest_day_names(week_start: date) -> list[str]:
     return out
 
 
+def _is_easy_bike_session(session: dict) -> bool:
+    """True als we deze sessie mogen rebuilden via library.endurance_ride.
+
+    Werkt voor bike-endurance/Z1/easy/spin — intervalsessies mogen we
+    niet zomaar herschalen omdat de interval-structuur dan niet klopt.
+    """
+    naam = (session.get("naam") or "").lower()
+    sport = session.get("sport") or ""
+    if sport not in ("VirtualRide", "Ride"):
+        return False
+    easy_keywords = ["endurance", "easy", "z1", "z2", "recovery",
+                     "duurrit", "long slow", "fatmax", "spin", "herstel"]
+    return any(k in naam for k in easy_keywords)
+
+
+def rebuild_or_cap(session: dict, target_min: int) -> dict:
+    """Probeer een sessie te herbouwen op een kortere duur.
+
+    Voor easy bike-sessies: regen via workout_library.endurance_ride zodat
+    de structuur klopt bij de nieuwe duur.
+    Voor alle andere types: proportionele cap met [Ingekort] note.
+    """
+    current_dur = session.get("duur_min") or 0
+    if current_dur <= target_min:
+        return session
+    if _is_easy_bike_session(session):
+        try:
+            from agents import workout_library as lib
+            rebuilt = lib.endurance_ride(max(30, target_min))
+            rebuilt["dag"] = session.get("dag")
+            rebuilt["datum"] = session.get("datum")
+            return rebuilt
+        except Exception:
+            pass  # Fall through naar proportionele cap
+    # Fallback: proportionele cap
+    ratio = target_min / current_dur
+    new_dur = int(round(target_min / 5) * 5)
+    new_tss = (session.get("tss_geschat") or 0) * ratio
+    note = (
+        f"[Ingekort naar {new_dur} min i.v.m. beschikbaarheid "
+        f"{target_min} min]\n\n"
+    )
+    return {
+        **session,
+        "duur_min": new_dur,
+        "tss_geschat": round(new_tss, 1),
+        "beschrijving": note + (session.get("beschrijving") or ""),
+    }
+
+
 def cap_sessions_for_day(sessions: list[dict], available_min: int) -> list[dict]:
     """Cap geplande sessies voor één dag naar de beschikbare tijd.
 
@@ -137,18 +187,8 @@ def cap_sessions_for_day(sessions: list[dict], available_min: int) -> list[dict]
     ratio = available_min / total
     capped: list[dict] = []
     for s in sessions:
-        new_dur = int(round((s.get("duur_min") or 0) * ratio / 5) * 5)  # 5-min stappen
-        new_tss = (s.get("tss_geschat") or 0) * ratio
-        note = (
-            f"[Ingekort naar {new_dur} min i.v.m. beschikbaarheid "
-            f"{available_min} min totaal deze dag]\n\n"
-        )
-        capped.append({
-            **s,
-            "duur_min": new_dur,
-            "tss_geschat": round(new_tss, 1),
-            "beschrijving": note + (s.get("beschrijving") or ""),
-        })
+        target = int(round((s.get("duur_min") or 0) * ratio / 5) * 5)  # 5-min stappen
+        capped.append(rebuild_or_cap(s, max(30, target)))
     return capped
 
 
