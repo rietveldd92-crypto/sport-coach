@@ -334,18 +334,47 @@ def build_week(
         _week_avail = _av.get_week(week_start)
         _day_to_date = {dag: _day_label(week_start, dag) for dag in DAYS_NL}
 
-        # Stap 1: op rustdagen (0 min) bike-sessies remappen naar vrije dag,
-        # run-sessies droppen (endurance_coach had die al moeten skippen — als
-        # er toch één op een rustdag staat is dat een bug, niet iets om te
-        # verplaatsen). bike_coach respecteert skip_run_days niet; dit is de
-        # plek waar we dat opvangen.
         def _day_space(dag_naam: str) -> int:
+            """Resterende vrije minuten op een dag (0 als rustdag/onbekend)."""
             avail = _week_avail.get(_day_to_date[dag_naam].isoformat())
             if avail is None or avail == 0:
                 return 0
             used = sum((s.get("duur_min") or 0) for s in sessions_by_day.get(dag_naam, []))
             return max(0, avail - used)
 
+        def _day_has_hard(dag_naam: str) -> bool:
+            return any(_is_hard_session(s) for s in sessions_by_day.get(dag_naam, []))
+
+        def _placement_safe(sessie: dict, to_dag: str) -> bool:
+            """Zou plaatsen van `sessie` op `to_dag` back-to-back-hard creëren?
+
+            Runs worden sowieso niet door de availability-remap verplaatst,
+            maar we willen ook niet dat een hard bike landt naast een hard
+            run/bike — blessurerisico + insufficient herstel.
+            """
+            if not _is_hard_session(sessie):
+                # Zachte sessie: alleen checken of de zelfde dag al zwaar + hard hier = conflict.
+                return True
+            idx = DAYS_NL.index(to_dag)
+            neighbors = []
+            if idx > 0:
+                neighbors.append(DAYS_NL[idx - 1])
+            if idx < len(DAYS_NL) - 1:
+                neighbors.append(DAYS_NL[idx + 1])
+            for n in neighbors:
+                if _day_has_hard(n):
+                    return False
+            # En zelfde dag mag niet al hard zijn
+            if _day_has_hard(to_dag):
+                return False
+            return True
+
+        def _move(s: dict, from_dag: str, to_dag: str) -> None:
+            s["dag"] = to_dag
+            s["datum"] = _day_label(week_start, to_dag).isoformat()
+            sessions_by_day.setdefault(to_dag, []).append(s)
+
+        # Stap 1: rustdagen (0 min) — bike-sessies remappen, rest droppen.
         for dag in list(sessions_by_day.keys()):
             avail = _week_avail.get(_day_to_date[dag].isoformat())
             if avail != 0:
@@ -356,13 +385,11 @@ def build_week(
                     dur = s.get("duur_min") or 0
                     target = next(
                         (d for d in DAYS_NL
-                         if d != dag and _day_space(d) >= dur),
+                         if d != dag and _day_space(d) >= dur and _placement_safe(s, d)),
                         None,
                     )
                     if target:
-                        s["dag"] = target
-                        s["datum"] = _day_label(week_start, target).isoformat()
-                        sessions_by_day.setdefault(target, []).append(s)
+                        _move(s, dag, target)
                         print(f"  Fiets '{s.get('naam')}' verplaatst van {dag} → {target}")
                     else:
                         print(f"  Fiets '{s.get('naam')}' geskipt ({dag} rustdag, geen ruimte elders)")
@@ -370,15 +397,73 @@ def build_week(
                     print(f"  Sessie '{s.get('naam')}' geskipt ({dag} rustdag)")
             sessions_by_day[dag] = keep
 
-        # Stap 2: per dag cappen naar beschikbare tijd (na remap).
-        for dag, sess_list in list(sessions_by_day.items()):
-            _avail_min = _week_avail.get(_day_to_date[dag].isoformat())
-            if _avail_min is None or _avail_min <= 0:
+        # Stap 2: krappe dagen — als totale sessie-duur > beschikbaarheid,
+        # probeer eerst grootste bike-sessie te verplaatsen naar een dag met
+        # ruimte (eventueel met swap als doeldag óók krap is maar kortere
+        # sessie heeft). Pas daarna proportionele cap als laatste redmiddel.
+        for dag in list(sessions_by_day.keys()):
+            avail = _week_avail.get(_day_to_date[dag].isoformat())
+            if avail is None or avail <= 0:
                 continue
+            sess_list = sessions_by_day.get(dag, [])
             total_min = sum(s.get("duur_min") or 0 for s in sess_list)
-            if total_min > _avail_min:
-                sessions_by_day[dag] = _av.cap_sessions_for_day(sess_list, _avail_min)
-                print(f"  Dag {dag}: ingekort van {total_min} → {_avail_min} min")
+            if total_min <= avail:
+                continue
+
+            # Probeer bike-sessies (van groot naar klein) te verplaatsen/swappen.
+            bike_sessions = sorted(
+                [s for s in sess_list if (s.get("sport") or "") in ("Ride", "VirtualRide")],
+                key=lambda s: -(s.get("duur_min") or 0),
+            )
+            for s in bike_sessions:
+                dur = s.get("duur_min") or 0
+                if sum(x.get("duur_min") or 0 for x in sessions_by_day.get(dag, [])) <= avail:
+                    break  # dag past nu
+                # 2a: directe verhuizing naar dag met genoeg vrije ruimte
+                target = next(
+                    (d for d in DAYS_NL
+                     if d != dag and _day_space(d) >= dur and _placement_safe(s, d)),
+                    None,
+                )
+                if target:
+                    sessions_by_day[dag].remove(s)
+                    _move(s, dag, target)
+                    print(f"  Fiets '{s.get('naam')}' van krappe dag {dag} → {target}")
+                    continue
+                # 2b: swap met kortere sessie op een dag waar die swap past
+                for d in DAYS_NL:
+                    if d == dag:
+                        continue
+                    d_avail = _week_avail.get(_day_to_date[d].isoformat())
+                    if d_avail is None or d_avail == 0:
+                        continue
+                    d_sessions = sessions_by_day.get(d, [])
+                    for other in list(d_sessions):
+                        other_dur = other.get("duur_min") or 0
+                        if other_dur >= dur:
+                            continue
+                        # Past onze sessie op dag d na swap?
+                        d_after = d_avail - sum(x.get("duur_min") or 0 for x in d_sessions) + other_dur
+                        # Past hun sessie op dag dag na swap?
+                        dag_after = avail - sum(x.get("duur_min") or 0 for x in sessions_by_day[dag]) + dur - other_dur
+                        if (d_after >= dur and dag_after >= other_dur
+                                and _placement_safe(s, d) and _placement_safe(other, dag)):
+                            sessions_by_day[dag].remove(s)
+                            d_sessions.remove(other)
+                            _move(s, dag, d)
+                            _move(other, d, dag)
+                            print(f"  Swap: '{s.get('naam')}' {dag}→{d}, '{other.get('naam')}' {d}→{dag}")
+                            break
+                    else:
+                        continue
+                    break
+
+            # Stap 3: alsnog cap als er niks passender te verhuizen was.
+            final_sess = sessions_by_day.get(dag, [])
+            final_total = sum(s.get("duur_min") or 0 for s in final_sess)
+            if final_total > avail:
+                sessions_by_day[dag] = _av.cap_sessions_for_day(final_sess, avail)
+                print(f"  Dag {dag}: ingekort van {final_total} → {avail} min (geen swap mogelijk)")
     except Exception as _e:
         print(f"  Beschikbaarheid-cap overgeslagen: {_e}")
 
