@@ -507,6 +507,62 @@ def show_swap_flash():
 
 # ── FEEDBACK GENERATION ────────────────────────────────────────────────────
 
+ATHLETE_FTP = 290
+ATHLETE_HRMAX = 190
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def _fetch_actual_samples(activity_id: str, sport: str) -> list[tuple[float, float]]:
+    """Haal second-by-second streams op en converteer naar (time_min, intensity_pct)
+    passend op de planned-chart as (0-120% van threshold).
+
+    Bikes: watts stream → % FTP.
+    Runs: heartrate stream → % HRmax.
+
+    Cache TTL 24u — activities zijn immutable na import.
+    Returnt [] als er geen bruikbare stream is (handmatige entry, GPS-only).
+    """
+    if not activity_id:
+        return []
+    try:
+        streams = api.get_activity_streams(str(activity_id))
+    except Exception:
+        return []
+
+    # Streams kunnen dict-per-type zijn, of list van {type, data}.
+    def _pick(name: str) -> list:
+        if isinstance(streams, dict):
+            s = streams.get(name)
+            if isinstance(s, dict):
+                return s.get("data") or []
+            if isinstance(s, list):
+                return s
+        if isinstance(streams, list):
+            for item in streams:
+                if isinstance(item, dict) and item.get("type") == name:
+                    return item.get("data") or []
+        return []
+
+    is_bike = sport in ("Ride", "VirtualRide")
+    metric = _pick("watts") if is_bike else _pick("heartrate")
+    if not metric:
+        return []
+    time_s = _pick("time") or list(range(len(metric)))
+
+    divisor = ATHLETE_FTP if is_bike else ATHLETE_HRMAX
+    # Downsample naar ~120 punten zodat 6 charts in een week niet traag laden.
+    n = len(metric)
+    step = max(1, n // 120)
+    samples: list[tuple[float, float]] = []
+    for i in range(0, n, step):
+        v = metric[i]
+        t = time_s[i] if i < len(time_s) else i
+        if v is None or v <= 0:
+            continue
+        samples.append((t / 60.0, (v / divisor) * 100.0))
+    return samples
+
+
 @st.cache_data(ttl=600, show_spinner=False)
 def _cached_gemini_call(activity_id, event_id, model_name: str, _prompt: str) -> str:
     """Streamlit-cached wrapper rond feedback_engine.gemini_call.
@@ -1007,12 +1063,20 @@ for i, item in enumerate(matched):
         delta_parts=_delta_parts or None,
     )
 
-    # Inline mini-chart: alleen voor nog-niet-voltooide workouts. Bij done
-    # is de geplande structuur niet meer relevant (en vaak afwijkend van
-    # wat er werkelijk gebeurde).
+    # Inline mini-chart: gekleurde zones = geplande structuur, lichte lijn =
+    # werkelijk gereden HR/watts (bij done workouts). Beantwoordt in één blik
+    # "heb ik gedaan wat de bedoeling was?".
     _desc = (event.get("description") or "").strip()
-    if _desc and not done:
-        ui.workout_structure_chart({"beschrijving": _desc, "sport": event.get("type")}, height=110, key=f"chart_inline_{i}_{event.get('id', e_date)}")
+    if _desc:
+        _samples = None
+        if done and activity and activity.get("id"):
+            _samples = _fetch_actual_samples(str(activity["id"]), e_type)
+        ui.workout_structure_chart(
+            {"beschrijving": _desc, "sport": event.get("type")},
+            actual_samples=_samples,
+            height=110,
+            key=f"chart_inline_{i}_{event.get('id', e_date)}",
+        )
 
     # Action buttons — compact, inline
     # TP-sync knop verschijnt alleen op workouts van morgen. Vandaag staat
