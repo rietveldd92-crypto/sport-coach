@@ -530,6 +530,9 @@ _GLOBAL_CSS = """
         padding: 1.2rem 1.4rem;
         margin: 0.8rem 0 1.2rem 0;
     }
+    @media (max-width: 640px) {
+        .ui-checkin { padding: 1rem 1rem; }
+    }
     .ui-checkin .ci-title {
         font-family: var(--font-display);
         font-size: 1.05rem;
@@ -539,18 +542,27 @@ _GLOBAL_CSS = """
         letter-spacing: -0.01em;
     }
     .ui-checkin .ci-subtitle {
-        font-size: 0.78rem;
+        font-size: 0.82rem;
         color: var(--text-muted);
         margin-bottom: 1rem;
     }
 
-    /* Slider label styling override voor de check-in */
-    .ui-checkin + div [data-testid="stSlider"] label {
+    /* Segmented-control label styling (pill-based check-in) */
+    .ui-checkin ~ div [data-testid="stSegmentedControl"] label,
+    .ui-checkin ~ div label[data-testid="stWidgetLabel"] {
         font-family: var(--font-body);
         font-size: 0.78rem !important;
         color: var(--text-muted) !important;
         text-transform: uppercase;
         letter-spacing: 0.08em;
+    }
+    /* Pills stretchen over volle breedte zodat tap-targets op mobiel groot zijn */
+    .ui-checkin ~ div [data-testid="stSegmentedControl"] > div {
+        width: 100%;
+    }
+    .ui-checkin ~ div [data-testid="stSegmentedControl"] button {
+        flex: 1 1 0 !important;
+        min-height: 44px;
     }
 
     /* ── Data-to-human snippet ───────────────────────────── */
@@ -921,40 +933,38 @@ def morning_checkin(
     )
 
     defaults = existing or {}
-    sleep = st.slider(
-        "Slaap",
-        min_value=1, max_value=5,
-        value=int(defaults.get("sleep_score") or 3),
-        key=f"{key_prefix}_sleep",
-        help="1 = slecht geslapen, 5 = diep en lang",
+    opts = [1, 2, 3, 4, 5]
+
+    def _pick(label: str, default: int, field_key: str, help_text: str) -> int:
+        val = st.segmented_control(
+            label,
+            options=opts,
+            default=default,
+            key=f"{key_prefix}_{field_key}",
+            help=help_text,
+        )
+        return int(val) if val is not None else default
+
+    sleep = _pick(
+        "Slaap", int(defaults.get("sleep_score") or 3), "sleep",
+        "1 = slecht geslapen, 5 = diep en lang",
     )
-    energy = st.slider(
-        "Energie",
-        min_value=1, max_value=5,
-        value=int(defaults.get("energy") or 3),
-        key=f"{key_prefix}_energy",
-        help="1 = leeg, 5 = bruisend",
+    energy = _pick(
+        "Energie", int(defaults.get("energy") or 3), "energy",
+        "1 = leeg, 5 = bruisend",
     )
-    soreness = st.slider(
-        "Spierpijn (omgekeerd: 5 = geen pijn)",
-        min_value=1, max_value=5,
-        value=int(defaults.get("soreness") or 3),
-        key=f"{key_prefix}_soreness",
-        help="1 = overal pijn, 5 = fris en ontspannen",
+    soreness = _pick(
+        "Frisheid (5 = geen pijn)", int(defaults.get("soreness") or 3), "soreness",
+        "1 = overal pijn, 5 = fris en ontspannen",
     )
-    motivation = st.slider(
-        "Motivatie",
-        min_value=1, max_value=5,
-        value=int(defaults.get("motivation") or 3),
-        key=f"{key_prefix}_motivation",
-        help="1 = geen zin, 5 = ik wil NU trainen",
+    motivation = _pick(
+        "Motivatie", int(defaults.get("motivation") or 3), "motivation",
+        "1 = geen zin, 5 = ik wil NU trainen",
     )
 
-    col_save, col_skip = st.columns([2, 1])
-    submitted = col_save.button(
-        "Opslaan", key=f"{key_prefix}_save", use_container_width=True
+    submitted = st.button(
+        "Opslaan", key=f"{key_prefix}_save", use_container_width=True,
     )
-    col_skip.button("Later", key=f"{key_prefix}_skip")
 
     if submitted:
         return {

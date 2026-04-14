@@ -1025,7 +1025,6 @@ for i, item in enumerate(matched):
     # Workout details expand (alleen als toggle aan)
     if st.session_state.get(f"show_det_{i}") and has_details:
         ui.workout_intent_box(event)
-        ui.workout_structure_chart({"beschrijving": event.get("description") or "", "sport": event.get("type")}, key=f"chart_detail_{i}_{event.get('id', e_date)}")
         ui.workout_details(event.get("description") or "")
         # Actie-rij: swap / shorten / skip met impact-preview
         if not done:
