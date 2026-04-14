@@ -215,6 +215,30 @@ def run_adaptive_cycle(
     """
     from datetime import date as _date
 
+    # Volume-compensatie voor runs: bij overshoot van vandaag resterende
+    # runs deze week inkorten. Draait altijd (niet alleen bij deviations).
+    try:
+        from agents import volume_compensation as _vc
+        monday = _date.today() - timedelta(days=_date.today().weekday())
+        vc_updates = _vc.apply_to_events(
+            events=week_events,
+            activities=week_activities,
+            week_start=monday,
+        )
+        if vc_updates and not (dry_run or detect_only):
+            print(f"  Volume-compensatie: {len(vc_updates)} run(s) ingekort")
+            for u in vc_updates:
+                try:
+                    api.update_event(u["event_id"], **u["update"])
+                    print(f"    {u['event_id']}: {u['van_km']}km → {u['naar_km']}km ({u['reden']})")
+                except Exception as _exc:
+                    print(f"    {u['event_id']} FAILED: {_exc}")
+        elif vc_updates:
+            for u in vc_updates:
+                print(f"  [DRY] {u['event_id']}: {u['van_km']}km → {u['naar_km']}km")
+    except Exception as _vc_exc:
+        print(f"  Volume-compensatie skip: {_vc_exc}")
+
     deviations = detect_deviations(week_events, week_activities)
     if not deviations:
         print("  Geen deviations gedetecteerd.")

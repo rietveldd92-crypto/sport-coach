@@ -11,6 +11,7 @@
     "active_signals": [],
     "last_signal_date": "2026-03-08",
     "days_symptom_free": 36,
+    "return_from_injury": true,
     "run_intensity_unlocked": true,
     "strides_unlocked": true,
     "tempo_unlocked": true,
