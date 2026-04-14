@@ -430,7 +430,19 @@ def build_week(
                     _move(s, dag, target)
                     print(f"  Fiets '{s.get('naam')}' van krappe dag {dag} → {target}")
                     continue
-                # 2b: swap met kortere sessie op een dag waar die swap past
+                # 2b: swap met kortere sessie op een dag met MEER ruimte.
+                # Conditie: sessie s krijgt na swap strikt meer minuten op de
+                # doeldag dan nu op de krappe dag, en de kortere sessie past
+                # na swap op de krappe dag. Beide plaatsingen moeten aan de
+                # back-to-back-hard regel voldoen.
+                s_space_on_dag = (
+                    avail
+                    - sum(x.get("duur_min") or 0 for x in sessions_by_day[dag])
+                    + dur
+                )
+                best_d = None
+                best_other = None
+                best_gain = 0
                 for d in DAYS_NL:
                     if d == dag:
                         continue
@@ -438,25 +450,37 @@ def build_week(
                     if d_avail is None or d_avail == 0:
                         continue
                     d_sessions = sessions_by_day.get(d, [])
-                    for other in list(d_sessions):
+                    for other in d_sessions:
                         other_dur = other.get("duur_min") or 0
                         if other_dur >= dur:
                             continue
-                        # Past onze sessie op dag d na swap?
-                        d_after = d_avail - sum(x.get("duur_min") or 0 for x in d_sessions) + other_dur
-                        # Past hun sessie op dag dag na swap?
-                        dag_after = avail - sum(x.get("duur_min") or 0 for x in sessions_by_day[dag]) + dur - other_dur
-                        if (d_after >= dur and dag_after >= other_dur
-                                and _placement_safe(s, d) and _placement_safe(other, dag)):
-                            sessions_by_day[dag].remove(s)
-                            d_sessions.remove(other)
-                            _move(s, dag, d)
-                            _move(other, d, dag)
-                            print(f"  Swap: '{s.get('naam')}' {dag}→{d}, '{other.get('naam')}' {d}→{dag}")
-                            break
-                    else:
-                        continue
-                    break
+                        # Space s zou krijgen op d na wegwerken van other
+                        s_space_on_d = min(
+                            dur,
+                            d_avail
+                            - sum(x.get("duur_min") or 0 for x in d_sessions)
+                            + other_dur,
+                        )
+                        # Space s heeft nu (capped) op krappe dag
+                        current_space = min(dur, s_space_on_dag)
+                        gain = s_space_on_d - current_space
+                        if gain <= 0:
+                            continue
+                        if s_space_on_dag < other_dur:
+                            continue  # other past niet op krappe dag na swap
+                        if not (_placement_safe(s, d) and _placement_safe(other, dag)):
+                            continue
+                        if gain > best_gain:
+                            best_gain = gain
+                            best_d = d
+                            best_other = other
+                if best_d is not None:
+                    sessions_by_day[dag].remove(s)
+                    sessions_by_day[best_d].remove(best_other)
+                    _move(s, dag, best_d)
+                    _move(best_other, best_d, dag)
+                    print(f"  Swap: '{s.get('naam')}' {dag}→{best_d}, "
+                          f"'{best_other.get('naam')}' {best_d}→{dag}")
 
             # Stap 3: alsnog cap als er niks passender te verhuizen was.
             final_sess = sessions_by_day.get(dag, [])
