@@ -186,6 +186,28 @@ def run(week_start: date, dry_run: bool = True, skip_run_days: list = None):
     actual_run_tss = sum(s.get("tss_geschat", 0) for s in run_sessions)
     run_tss_lost = max(0, full_run_tss - actual_run_tss)
 
+    # ── 4b. VOLUME-COMPENSATIE ───────────────────────────────────────────────
+    # Als je vandaag meer hebt gelopen dan gepland, cap resterende runs deze
+    # week zodat je niet in het totaal-volume overshoot. Bij injury return
+    # ook hard cap op max_completed_km_this_week.
+    try:
+        from agents import volume_compensation as _vc
+        _activities_wk = api.get_activities(
+            start=week_start, end=week_start + timedelta(days=6),
+        )
+        run_sessions, _vc_info = _vc.apply(
+            week_start=week_start,
+            sessions=run_sessions,
+            activities=_activities_wk,
+        )
+        if _vc_info.get("capped"):
+            print(f"  Volume-compensatie: overshoot {_vc_info['overshoot_km']}km → "
+                  f"{len(_vc_info['capped'])} run(s) ingekort")
+            for c in _vc_info["capped"]:
+                print(f"    {c['datum']} '{c['naam']}': {c['van_km']}km → {c['naar_km']}km")
+    except Exception as _vc_exc:
+        print(f"  Volume-compensatie overgeslagen: {_vc_exc}")
+
     # ── 5. BIKE COACH ────────────────────────────────────────────────────────
     bike_sessions = bike_coach.plan_sessions(
         phase=phase,
