@@ -757,20 +757,27 @@ if today_event:
     e_type = event.get("type", "")
     sport = "Hardlopen" if e_type == "Run" else "Fietsen"
 
-    # Stats line voor de today hero: duur + TSS target uit het event
+    # Stats line voor de today hero: duur + (km voor runs) + TSS target uit het event
     hero_stats = []
     target_tss = event.get("load_target")
-    if target_tss:
-        hero_stats.append(f"TSS ~{target_tss:.0f}")
-    # Duur proberen te detecteren uit de naam (bijv. "— 45 min")
+    hero_dur_min = None
     for part in (e_name or "").lower().replace("min", " ").split():
         try:
-            dur_min = int(part)
-            if 10 <= dur_min <= 300:
-                hero_stats.insert(0, f"{dur_min} min")
+            d = int(part)
+            if 10 <= d <= 300:
+                hero_dur_min = d
                 break
         except ValueError:
             pass
+    if hero_dur_min:
+        hero_stats.append(f"{hero_dur_min} min")
+    if e_type == "Run" and hero_dur_min:
+        from agents.workout_annotations import estimate_run_km
+        _km = estimate_run_km(event.get("description") or "", hero_dur_min)
+        if _km > 0:
+            hero_stats.append(f"~{_km:.1f} km")
+    if target_tss:
+        hero_stats.append(f"TSS ~{target_tss:.0f}")
 
     ui.today_hero(
         title=e_name,
@@ -874,14 +881,15 @@ if week_offset >= 0:
             st.exception(_editor_exc)
             _new_avail = None
         if _new_avail is not None:
+            # Editor heeft al auto-opgeslagen; deze call is een no-op safeguard.
             _av.set_week(selected_monday, _new_avail)
             st.cache_data.clear()
             try:
                 import plan_week as _pw
                 _pw.run(selected_monday, dry_run=False)
-                st.success("Beschikbaarheid opgeslagen en week opnieuw gepland.")
+                st.success("Week opnieuw gepland.")
             except Exception as _exc:
-                st.error(f"Opslaan gelukt, maar replan faalde: {_exc}")
+                st.error(f"Replan faalde: {_exc}")
             st.rerun()
 
 # ── WORKOUT LIST ───────────────────────────────────────────────────────────
@@ -942,6 +950,11 @@ for i, item in enumerate(matched):
                 pass
         if target_dur:
             stats_parts.append(f"{target_dur} min")
+        if e_type == "Run" and target_dur:
+            from agents.workout_annotations import estimate_run_km
+            _km = estimate_run_km(event.get("description") or "", target_dur)
+            if _km > 0:
+                stats_parts.append(f"~{_km:.1f} km")
         stats_parts.append(f"TSS ~{event['load_target']:.0f}")
 
     # Status bepalen voor day_card styling

@@ -115,3 +115,56 @@ def m_start(match: re.Match) -> float:
     if m:
         return float(m.group(1))
     return 0.0
+
+
+# Fallback gemiddelde easy-run pace als de description geen parseable steps
+# heeft (bv. losse tekst zoals "Easy run 45 min"). 5:30/km is realistisch
+# voor Dennis' Z2-range bij 290W/4:20 drempel.
+_FALLBACK_PACE_SEC_PER_KM = 330
+
+
+def estimate_run_km(
+    desc: str,
+    total_min: int,
+    threshold_pace_sec: int = THRESHOLD_PACE_SEC_PER_KM,
+) -> float:
+    """Schat totale km voor een hardloopworkout.
+
+    Pareert elke step (`- 20m 75% Pace`) en sommeert `duur * pace(pct)`.
+    Voor regels zonder pct (warm-up zonder target, strides, etc.) of als er
+    geen steps zijn, valt terug op `_FALLBACK_PACE_SEC_PER_KM` voor de
+    overgebleven tijd.
+
+    Returnt km als float, afgerond op 1 decimaal (caller rondt vaak verder).
+    """
+    if total_min <= 0:
+        return 0.0
+
+    step_min = 0.0
+    step_km = 0.0
+
+    for line in (desc or "").splitlines():
+        m = _STEP_RE.match(line)
+        if not m:
+            continue
+        # Step duration: eerste getal in de prefix, bv "- 20m"
+        dur_match = re.search(r"(\d+)", m.group("prefix"))
+        if not dur_match:
+            continue
+        dur = float(dur_match.group(1))
+        avg, end = _target_values(m.group("target"))
+        # Ramp: midpoint van start en end als gemiddelde pct
+        if end is not None:
+            avg = (avg + end) / 2.0
+        if avg <= 0:
+            # Pct ontbreekt → gebruik fallback pace voor deze step
+            sec_per_km = _FALLBACK_PACE_SEC_PER_KM
+        else:
+            sec_per_km = threshold_pace_sec * 100.0 / avg
+        step_min += dur
+        # km = duration (sec) / pace (sec/km)
+        step_km += (dur * 60.0) / sec_per_km
+
+    remaining_min = max(0.0, total_min - step_min)
+    remaining_km = (remaining_min * 60.0) / _FALLBACK_PACE_SEC_PER_KM
+    return round(step_km + remaining_km, 1)

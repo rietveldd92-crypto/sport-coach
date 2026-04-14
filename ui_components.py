@@ -757,6 +757,18 @@ def _avail_fmt(m: int) -> str:
     return f"{m // 60}u{m % 60:02d}"
 
 
+def _minutes_fmt(m: int) -> str:
+    """Format minuten als '1u 40m' / '45m' / '2u'. Voor budget-meldingen."""
+    if m <= 0:
+        return "0m"
+    h, mm = divmod(int(m), 60)
+    if h and mm:
+        return f"{h}u {mm}m"
+    if h:
+        return f"{h}u"
+    return f"{mm}m"
+
+
 def availability_editor(
     week_start: date,
     weekly_tss_target: int,
@@ -786,11 +798,22 @@ def availability_editor(
     )
 
     new_values: dict[str, int] = {}
+    dirty = False
     for i, day_name in enumerate(["Ma", "Di", "Wo", "Do", "Vr", "Za", "Zo"]):
         d = week_start + timedelta(days=i)
         key_iso = d.isoformat()
         default = current.get(key_iso) or 0
-        cols = st.columns([1, 4])
+        state_key = f"{key_prefix}_val_{key_iso}"
+        if state_key not in st.session_state:
+            st.session_state[state_key] = default if default in _AVAIL_OPTIONS else 0
+        cur = st.session_state[state_key]
+
+        def _step(delta: int, k: str = state_key) -> None:
+            idx = _AVAIL_OPTIONS.index(st.session_state[k])
+            new_idx = max(0, min(len(_AVAIL_OPTIONS) - 1, idx + delta))
+            st.session_state[k] = _AVAIL_OPTIONS[new_idx]
+
+        cols = st.columns([1.2, 0.8, 1.4, 0.8])
         cols[0].markdown(
             f'<div style="padding-top: 0.45rem; font-weight: 600; '
             f'color: var(--text); font-size: 0.9rem;">'
@@ -798,30 +821,44 @@ def availability_editor(
             f'font-size: 0.78rem;">{d.day}/{d.month}</span></div>',
             unsafe_allow_html=True,
         )
-        with cols[1]:
-            val = st.select_slider(
-                label=key_iso,
-                options=_AVAIL_OPTIONS,
-                value=default if default in _AVAIL_OPTIONS else 0,
-                format_func=_avail_fmt,
-                key=f"{key_prefix}_{key_iso}",
-                label_visibility="collapsed",
-            )
-        new_values[key_iso] = int(val)
+        cols[1].button(
+            "−", key=f"{key_prefix}_dec_{key_iso}",
+            on_click=_step, args=(-1,),
+            disabled=(cur == 0), use_container_width=True,
+        )
+        cols[2].markdown(
+            f'<div style="padding-top: 0.45rem; text-align: center; '
+            f'font-weight: 600; color: var(--text); font-size: 0.95rem; '
+            f'font-variant-numeric: tabular-nums;">{_avail_fmt(cur)}</div>',
+            unsafe_allow_html=True,
+        )
+        cols[3].button(
+            "+", key=f"{key_prefix}_inc_{key_iso}",
+            on_click=_step, args=(1,),
+            disabled=(cur == _AVAIL_OPTIONS[-1]), use_container_width=True,
+        )
+
+        new_values[key_iso] = int(cur)
+        if (current.get(key_iso) or 0) != cur:
+            dirty = True
+
+    # Auto-save: elke step-klik triggert rerun, hier persistereren we
+    # direct zodat waardes niet verloren gaan als gebruiker wegnavigeert.
+    if dirty:
+        av.set_week(week_start, new_values)
 
     # Totaal + budget-check
     total_min = sum(new_values.values())
-    total_hr = total_min / 60
     needed = int(round((weekly_tss_target / av.TSS_PER_HOUR) * 60))
     shortfall = max(0, needed - total_min)
 
     status_color = "var(--positive)" if shortfall == 0 else "var(--warning)"
     status_msg = (
-        f"Budget: {total_hr:.1f}u beschikbaar / ~{needed/60:.1f}u nodig voor "
-        f"{weekly_tss_target} TSS"
+        f"Budget: {_minutes_fmt(total_min)} beschikbaar / ~{_minutes_fmt(needed)} "
+        f"nodig voor {weekly_tss_target} TSS"
     )
     if shortfall > 0:
-        status_msg += f" — <b>tekort {shortfall} min</b>"
+        status_msg += f" — <b>tekort {_minutes_fmt(shortfall)}</b>"
 
     st.markdown(
         f'<div style="margin-top: 0.8rem; padding: 0.7rem 1rem; '
@@ -831,8 +868,8 @@ def availability_editor(
         unsafe_allow_html=True,
     )
 
-    # Alleen een expliciete save triggert return → replan
-    if st.button("Opslaan & herplannen", key=f"{key_prefix}_save",
+    # Replan-knop: waardes zijn al opgeslagen, deze triggert puur een herplan.
+    if st.button("Week opnieuw plannen", key=f"{key_prefix}_save",
                  use_container_width=True):
         return new_values
     return None
