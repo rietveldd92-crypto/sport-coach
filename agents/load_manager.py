@@ -415,18 +415,18 @@ def analyze(activities: list = None, injury_guard_output: dict = None) -> dict:
         bd["is_deload_week"] = False
     state["build_deload"] = bd
 
-    # Progression: schuif stappen op MAX 1× per week, niet per analyze()-call.
-    # Was bug: elke plan_week run incrementeerde — met dagelijkse cron schoot
-    # threshold_step van 4 naar 11 in een week. Nu: week-key guard.
+    # Progression: alleen volume/variety wordt hier gebumpt. Step-progression
+    # voor threshold/sweetspot/over_unders hoort NIET bij analyze(), want die
+    # wordt bij elke replan aangeroepen — inclusief wanneer de atleet alleen
+    # zijn beschikbaarheid wijzigt. Step-bumps horen bij voltooiing van een
+    # sessie van dat type (toekomstige completion-hook). Tot die hook er is:
+    # step_progression handmatig aanpassen via UI / state.
     prog = state.get("progression", {})
     monday_today = (date.today() - timedelta(days=date.today().weekday())).isoformat()
     last_bump_week = prog.get("last_bump_week")
     is_new_week = last_bump_week != monday_today
 
     if not is_deload_week and is_new_week:
-        prog["threshold_step"] = prog.get("threshold_step", 1) + 1
-        prog["sweetspot_step"] = prog.get("sweetspot_step", 1) + 1
-        prog["over_unders_step"] = prog.get("over_unders_step", 1) + 1
         # Duurrit en easy spin worden elke 2 weken 5 min langer
         if (consecutive_build + 1) % 2 == 0:
             prog["endurance_spin_min"] = min(120, prog.get("endurance_spin_min", 60) + 5)
