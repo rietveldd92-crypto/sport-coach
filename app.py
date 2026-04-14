@@ -965,18 +965,53 @@ for i, item in enumerate(matched):
     else:
         card_status = "planned"
 
+    # Actual naam + delta bij done workouts — toont wat je écht deed tov plan
+    _actual_name = None
+    _delta_parts: list[tuple[str, str]] = []
+    if done and activity:
+        _actual_name = activity.get("name") or e_name
+        _planned_dur = None
+        for part in (e_name or "").lower().replace("min", " ").split():
+            try:
+                d = int(part)
+                if 10 <= d <= 300:
+                    _planned_dur = d
+                    break
+            except ValueError:
+                pass
+        _actual_dur = round((activity.get("moving_time") or 0) / 60)
+        if _planned_dur and abs(_actual_dur - _planned_dur) >= max(5, _planned_dur * 0.15):
+            _diff = _actual_dur - _planned_dur
+            _delta_parts.append((
+                f"{_diff:+d}min",
+                "warn" if _diff > 0 else "pos",
+            ))
+        _actual_km = round((activity.get("distance") or 0) / 1000, 1)
+        _planned_km = None
+        if e_type == "Run":
+            from agents.workout_annotations import estimate_run_km
+            _planned_km = estimate_run_km(event.get("description") or "", _planned_dur or _actual_dur)
+            if _planned_km and abs(_actual_km - _planned_km) >= 1.0:
+                _km_diff = _actual_km - _planned_km
+                _delta_parts.append((
+                    f"{_km_diff:+.1f}km",
+                    "warn" if _km_diff > 0 else "pos",
+                ))
+
     ui.day_card(
         day_label=weekday_full,
         name=e_name,
         status=card_status,
         stats_parts=stats_parts if stats_parts else None,
+        actual_name=_actual_name,
+        delta_parts=_delta_parts or None,
     )
 
-    # Inline mini-chart: elk workout-item krijgt een grafiekje van de
-    # geplande structuur (indien parseerbaar). Chart verschijnt niet als
-    # de description leeg is of niet in intervals geparsed kan worden.
+    # Inline mini-chart: alleen voor nog-niet-voltooide workouts. Bij done
+    # is de geplande structuur niet meer relevant (en vaak afwijkend van
+    # wat er werkelijk gebeurde).
     _desc = (event.get("description") or "").strip()
-    if _desc:
+    if _desc and not done:
         ui.workout_structure_chart({"beschrijving": _desc, "sport": event.get("type")}, height=110, key=f"chart_inline_{i}_{event.get('id', e_date)}")
 
     # Action buttons — compact, inline
