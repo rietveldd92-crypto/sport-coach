@@ -275,16 +275,45 @@ _GLOBAL_CSS = """
         background: var(--accent);
         border-radius: 0 3px 3px 0;
     }
-    /* Done: subtiele ✓ linksonder, minder vrolijk dan een groene badge */
+    /* Done: rustig aanwezig met duidelijke badge, niet alleen een vinkje */
     .ui-day-card.status-done {
-        opacity: 0.55;
+        opacity: 0.85;
         background: transparent;
     }
-    .ui-day-card.status-done .day::after {
-        content: " ✓";
-        color: var(--positive);
-        font-weight: 600;
+    .ui-day-card.status-done .name {
+        color: var(--text-muted);
+        text-decoration: line-through;
+        text-decoration-color: rgba(255,255,255,0.15);
     }
+    .ui-day-card .done-badge {
+        display: inline-block;
+        font-size: 0.62rem;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        color: var(--positive);
+        background: rgba(76, 175, 80, 0.12);
+        padding: 0.15rem 0.45rem;
+        border-radius: 3px;
+        margin-left: 0.5rem;
+        vertical-align: 0.12rem;
+    }
+    .ui-day-card .actual-name {
+        font-family: var(--font-display);
+        font-size: 1.05rem;
+        font-weight: 600;
+        color: var(--text);
+        margin-top: 0.2rem;
+        letter-spacing: -0.01em;
+        line-height: 1.3;
+    }
+    .ui-day-card .planned-sub {
+        font-size: 0.72rem;
+        color: var(--text-dim);
+        margin-top: 0.1rem;
+        font-style: italic;
+    }
+    .ui-day-card .delta-pos { color: var(--positive); font-weight: 600; }
+    .ui-day-card .delta-warn { color: var(--warning); font-weight: 600; }
     .ui-day-card.status-missed {
         border-color: rgba(184, 70, 70, 0.3);
     }
@@ -715,19 +744,46 @@ def day_card(
     status: Literal["planned", "done", "missed", "today"] = "planned",
     reason: Optional[str] = None,
     stats_parts: Optional[list[str]] = None,
+    actual_name: Optional[str] = None,
+    delta_parts: Optional[list[tuple[str, str]]] = None,
 ) -> None:
-    """Een dag-kaart in de weekview. Rust, ruimte, status-dot ipv badge.
+    """Een dag-kaart in de weekview.
 
-    Fase 0: minimal render. Fase 4 voegt swap-interactie toe.
+    Bij status="done":
+    - `name` = geplande naam (wordt secundair, doorgestreept)
+    - `actual_name` = wat je werkelijk deed (primair)
+    - `delta_parts` = [(label, tone)] waar tone in {"pos","warn","neutral"}
+      voor +km/-min annotaties naast de naam.
     """
     stats_html = ""
     if stats_parts:
         stats_html = '<div class="reason">' + " &middot; ".join(stats_parts) + '</div>'
     reason_html = f'<div class="reason">{reason}</div>' if reason else ""
+
+    delta_html = ""
+    if delta_parts:
+        parts = []
+        for label, tone in delta_parts:
+            cls = {"pos": "delta-pos", "warn": "delta-warn"}.get(tone, "")
+            parts.append(f'<span class="{cls}">{label}</span>')
+        delta_html = " " + " ".join(parts)
+
+    if status == "done":
+        # Actual wordt primair; planned gaat als subtitel eronder.
+        primary = actual_name or name
+        name_block = (
+            f'<div class="actual-name">{primary}{delta_html}'
+            f'<span class="done-badge">VOLTOOID</span></div>'
+        )
+        if actual_name and actual_name != name:
+            name_block += f'<div class="planned-sub">Gepland: {name}</div>'
+    else:
+        name_block = f'<div class="name">{name}</div>'
+
     st.markdown(
         f'<div class="ui-day-card status-{status}">'
         f'<div class="day">{day_label}</div>'
-        f'<div class="name">{name}</div>'
+        f'{name_block}'
         f'{stats_html}'
         f'{reason_html}'
         f'</div>',
