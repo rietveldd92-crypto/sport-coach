@@ -171,6 +171,44 @@ def get_alternatives(event, category: str = "vergelijkbaar"):
     return lib.get_swap_options(event, category, ftp=290)
 
 
+def _resolve_phase_tss_range() -> tuple[float, float] | None:
+    """Haal de TSS-band van de huidige phase op uit marathon_periodizer.
+
+    Returnt (min, max) of None als de periodizer faalt. Wordt gebruikt
+    als post-swap sanity check: als de week na swap buiten deze band
+    valt, toont de UI een waarschuwing.
+    """
+    try:
+        from agents.marathon_periodizer import get_current_phase
+        phase = get_current_phase()
+        band = phase.get("tss_doel")
+        if band and isinstance(band, (tuple, list)) and len(band) == 2:
+            return (float(band[0]), float(band[1]))
+    except Exception:
+        pass
+    return None
+
+
+def predict_week_tss(matched: list, current_event_id, new_tss: float) -> float:
+    """Voorspel het week-TSS-totaal na deze swap.
+
+    = done TSS (voltooide activities) + overige planned TSS + nieuwe TSS.
+    Gebruikt voor post-swap check tegen de phase-range zodat we kunnen
+    waarschuwen als de week onder/boven de fase-band komt.
+    """
+    done_tss = 0.0
+    other_planned_tss = 0.0
+    cur_id = str(current_event_id)
+    for item in matched:
+        event = item.get("event", {})
+        eid = str(event.get("id", ""))
+        if item.get("done") and item.get("activity"):
+            done_tss += item["activity"].get("icu_training_load") or 0
+        elif eid != cur_id:
+            other_planned_tss += event.get("load_target") or 0
+    return done_tss + other_planned_tss + (new_tss or 0)
+
+
 def compute_ideal_tss(matched: list, current_event_id, weekly_target: float) -> float:
     """Bereken hoeveel TSS deze ene workout 'idealiter' zou leveren.
 
@@ -201,7 +239,9 @@ def compute_ideal_tss(matched: list, current_event_id, weekly_target: float) -> 
 
 
 def perform_instant_swap(event: dict, category: str, ftp: int = 290,
-                          ideal_tss: float | None = None) -> dict | None:
+                          ideal_tss: float | None = None,
+                          matched: list | None = None,
+                          phase_tss_range: tuple[float, float] | None = None) -> dict | None:
     """Pak de best-passende (op TSS) keuze uit de top opties en schrijf meteen.
 
     Als `ideal_tss` is meegegeven: library sorteert op TSS-afstand en we
@@ -209,6 +249,10 @@ def perform_instant_swap(event: dict, category: str, ftp: int = 290,
 
     Als `ideal_tss` is None: library doet random shuffle en we pakken random
     uit top-3 (legacy gedrag).
+
+    Als `matched` + `phase_tss_range` meegegeven: na swap checken we het
+    nieuwe week-TSS-totaal tegen de phase-band en hangen een waarschuwing
+    aan de flash message als we onder/boven vallen.
 
     Zet een success flash + undo payload in session_state voor show_swap_flash().
     """
@@ -292,9 +336,29 @@ def perform_instant_swap(event: dict, category: str, ftp: int = 290,
         tss_info += f", week-target {ideal_tss:.0f}"
     tss_info += ")"
 
+    # Post-swap week-check tegen phase-band. Waarschuwing als de swap
+    # de week onder/boven de periodizer-range drukt — dan moet Dennis
+    # ergens anders compenseren (langer Z2, extra easy, of accepteren).
+    phase_warning = ""
+    if matched is not None and phase_tss_range:
+        week_total = predict_week_tss(matched, event.get("id"), new_tss)
+        lo, hi = phase_tss_range
+        if week_total < lo:
+            tekort = lo - week_total
+            phase_warning = (
+                f" · ⚠ week {week_total:.0f} TSS < fase-min {lo:.0f} "
+                f"(−{tekort:.0f}); overweeg elders bij te plussen"
+            )
+        elif week_total > hi:
+            surplus = week_total - hi
+            phase_warning = (
+                f" · ⚠ week {week_total:.0f} TSS > fase-max {hi:.0f} "
+                f"(+{surplus:.0f}); overweeg elders te minderen"
+            )
+
     st.session_state["swap_flash"] = {
         "ok": True,
-        "msg": f"→ Gewisseld naar '{chosen['naam']}'{tss_info}{tp_propagation_msg}",
+        "msg": f"→ Gewisseld naar '{chosen['naam']}'{tss_info}{tp_propagation_msg}{phase_warning}",
         "undo": {
             "event_id": event["id"],
             "orig_name": event.get("name", ""),
@@ -885,10 +949,12 @@ if today_event:
         # afstand tot dat target.
         weekly_target = state.get("load", {}).get("weekly_tss_target", 400)
         ideal_tss = compute_ideal_tss(matched, event.get("id"), weekly_target)
+        _phase_range = _resolve_phase_tss_range()
 
         for ci, (cat_id, cat_info) in enumerate(lib.SWAP_CATEGORIES.items()):
             if cat_cols[ci].button(cat_info["label"], key=f"cat_today_{cat_id}", use_container_width=True):
-                perform_instant_swap(event, cat_id, ideal_tss=ideal_tss)
+                perform_instant_swap(event, cat_id, ideal_tss=ideal_tss,
+                                     matched=matched, phase_tss_range=_phase_range)
                 st.cache_data.clear()
                 st.session_state["show_swap_today"] = False
                 st.rerun()
@@ -1170,10 +1236,12 @@ for i, item in enumerate(matched):
         # Week-TSS-budget voor deze swap (zie Today card voor uitleg)
         weekly_target = state.get("load", {}).get("weekly_tss_target", 400)
         ideal_tss = compute_ideal_tss(matched, event.get("id"), weekly_target)
+        _phase_range_row = _resolve_phase_tss_range()
 
         for ci, (cat_id, cat_info) in enumerate(lib.SWAP_CATEGORIES.items()):
             if cat_cols[ci].button(cat_info["label"], key=f"cat_{i}_{cat_id}", use_container_width=True):
-                perform_instant_swap(event, cat_id, ideal_tss=ideal_tss)
+                perform_instant_swap(event, cat_id, ideal_tss=ideal_tss,
+                                     matched=matched, phase_tss_range=_phase_range_row)
                 st.cache_data.clear()
                 st.session_state[f"show_swap_{i}"] = False
                 st.rerun()
