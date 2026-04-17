@@ -1447,6 +1447,64 @@ SWAP_CATEGORIES = {
 }
 
 
+# TSS-window per swap-categorie. Voorkomt dat een 2,5u long run (150 TSS)
+# vervangen wordt door een 45-min recovery (30 TSS). Categorie bepaalt in
+# welke richting afwijking is toegestaan.
+SWAP_TSS_WINDOW = {
+    "makkelijker":  (0.50, 1.00),   # ≤ origineel, min 50%
+    "vergelijkbaar": (0.75, 1.25),  # ±25%
+    "anders":        (0.70, 1.30),  # ±30% (ruimte voor ander type)
+    "harder":        (1.00, 1.40),  # ≥ origineel, max +40%
+}
+
+
+def _event_duration_min(event: dict) -> int | None:
+    """Haal duur in minuten uit een event. Returnt None als onbekend.
+
+    Probeert moving_time → workout_doc.duration → parsing uit naam.
+    Sanity window 20-300 min op name-parse, anders onbetrouwbaar
+    ("Lange duurloop 22 km" zou dur=22 opleveren).
+    """
+    mt = event.get("moving_time")
+    if mt:
+        return round(mt / 60)
+    wd = event.get("workout_doc") or {}
+    dur_s = wd.get("duration")
+    if dur_s:
+        return round(dur_s / 60)
+    name = (event.get("name") or "").lower()
+    if "min" in name:
+        for p in name.replace("min", " ").split():
+            try:
+                v = int(p)
+                if 20 <= v <= 300:
+                    return v
+            except ValueError:
+                pass
+    return None
+
+
+def _apply_tss_window(options: list[dict], category: str,
+                       orig_tss: float) -> tuple[list[dict], float]:
+    """Filter opties binnen TSS-window; widen als te weinig overblijven.
+
+    Returnt (gefilterde lijst, toegepaste widening-factor 0..0.6).
+    Minimum 3 opties; als zelfs bij +60% widening er <3 zijn, retourneert
+    wat er is (desnoods leeg) en laat de caller fallback-gedrag bepalen.
+    """
+    if orig_tss <= 0 or category not in SWAP_TSS_WINDOW:
+        return options, 0.0
+    lo_mult, hi_mult = SWAP_TSS_WINDOW[category]
+    for widen in (0.0, 0.10, 0.20, 0.35, 0.60):
+        lo = orig_tss * lo_mult * (1 - widen)
+        hi = orig_tss * hi_mult * (1 + widen)
+        in_window = [o for o in options
+                     if lo <= (o.get("tss_geschat") or 0) <= hi]
+        if len(in_window) >= 3:
+            return in_window, widen
+    return in_window, 0.60
+
+
 def get_swap_options(event: dict, category: str, ftp: int = 290,
                       target_tss: float | None = None) -> list[dict]:
     """Geef swap-opties voor een event in een bepaalde categorie.
@@ -1461,21 +1519,19 @@ def get_swap_options(event: dict, category: str, ftp: int = 290,
             None: random volgorde (oude gedrag).
 
     Returns:
-        Lijst van workout dicts. Top items passen het beste bij target_tss.
+        Lijst van workout dicts. Hard filter houdt TSS binnen window van
+        origineel (per categorie), daarna sort op week-budget + duur.
     """
     e_type = event.get("type", "")
     e_name = (event.get("name") or "").lower()
     is_bike = e_type in ("Ride", "VirtualRide")
     is_run = e_type == "Run"
 
+    orig_tss = event.get("load_target") or 0
+    orig_dur = _event_duration_min(event)
+
     # Detecteer duur (voor pools die duur-dependent zijn)
-    dur = 45
-    for p in e_name.replace("min", " ").split():
-        try:
-            dur = int(p)
-            break
-        except ValueError:
-            pass
+    dur = orig_dur or 45
 
     options = []
 
@@ -1556,13 +1612,25 @@ def get_swap_options(event: dict, category: str, ftp: int = 290,
     # Filter: niet dezelfde als huidige workout
     filtered = [o for o in options if o["naam"].lower() != e_name]
 
+    # Hard filter op TSS-window rond origineel. Voorkomt dat een 2,5u
+    # workout vervangen wordt door een 45-min recovery.
+    filtered, _ = _apply_tss_window(filtered, category, orig_tss)
+
+    # Sortering: primair dichtstbij target_tss (week-budget) als meegegeven,
+    # anders dichtstbij origineel. Secundair duur-afstand van origineel,
+    # zodat bij gelijke TSS de qua duur vergelijkbare optie bovenaan staat.
+    dur_ref = orig_dur or 0
+
+    def _sort_key(o: dict, tss_anchor: float) -> tuple[float, float]:
+        tss_dist = abs((o.get("tss_geschat") or 0) - tss_anchor)
+        dur_dist = abs((o.get("duur_min") or 0) - dur_ref) if dur_ref else 0
+        return (tss_dist, dur_dist)
+
     if target_tss is not None:
-        # Sorteer op TSS-afstand — opties die het beste in het week-budget
-        # passen komen bovenaan. Het systeem mag langer/korter gaan als
-        # dat helpt om het weekelijkse TSS-target te halen.
-        filtered.sort(key=lambda o: abs((o.get("tss_geschat") or 0) - target_tss))
+        filtered.sort(key=lambda o: _sort_key(o, target_tss))
+    elif orig_tss > 0:
+        filtered.sort(key=lambda o: _sort_key(o, orig_tss))
     else:
-        # Geen TSS-context: random volgorde (legacy gedrag)
         import random as _rnd
         _rnd.shuffle(filtered)
 
