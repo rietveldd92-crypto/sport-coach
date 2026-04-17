@@ -171,6 +171,79 @@ def get_alternatives(event, category: str = "vergelijkbaar"):
     return lib.get_swap_options(event, category, ftp=290)
 
 
+def _try_shift_before_replan(week_start, new_avail: dict, state: dict) -> dict:
+    """Probeer shift_day voor dagen met overflow voordat we full replan doen.
+
+    Per overflow-dag: roep plan_redistribution aan. Alleen als ALLE overflows
+    netjes fitten via shifts, passen we de moves toe en slaan de full replan
+    over. Bij ook maar één overflow-dag zonder complete fit → needs_replan.
+
+    Returnt {"applied": int, "errors": [str], "needs_replan": bool}.
+    """
+    from datetime import date as _date, timedelta as _td
+    from agents import shift_day as _sd
+    import intervals_client as _api
+
+    week_end = week_start + _td(days=6)
+    try:
+        events = _api.get_events(week_start, week_end)
+    except Exception:
+        # Geen events kunnen ophalen → fallback op full replan
+        return {"applied": 0, "errors": [], "needs_replan": True}
+
+    # Houd alleen WORKOUT events; NOTES tellen niet mee voor tijdsbudget.
+    events = [e for e in events
+              if e.get("category") == "WORKOUT" and not e.get("is_note")]
+
+    injury_return = bool(
+        (state.get("injury") or {}).get("return_from_injury", False)
+    )
+    today = _date.today()
+
+    # Identificeer overflow-dagen
+    overflow_dates: list[str] = []
+    for d_iso, avail_val in new_avail.items():
+        day_events = [e for e in events
+                      if (e.get("start_date_local") or "")[:10] == d_iso]
+        used = sum(_sd.event_duration_min(e) for e in day_events)
+        if used > (avail_val or 0):
+            overflow_dates.append(d_iso)
+
+    if not overflow_dates:
+        return {"applied": 0, "errors": [], "needs_replan": False}
+
+    # Per overflow-dag een plan genereren, incrementeel events-lijst
+    # bijwerken zodat volgende plan de vorige shifts al ziet.
+    all_moves: list[dict] = []
+    for d_iso in overflow_dates:
+        plan = _sd.plan_redistribution(
+            events, new_avail, d_iso, new_avail.get(d_iso) or 0,
+            week_start=week_start, today=today,
+            injury_return=injury_return,
+        )
+        if not plan["fits"] or plan.get("overflow"):
+            # Kan niet geheel oplossen → val terug op full replan
+            return {"applied": 0, "errors": [], "needs_replan": True}
+        # Werk events-lijst bij voor de volgende iteratie
+        by_id = {str(e.get("id")): e for e in events}
+        for mv in plan["moves"]:
+            ev = by_id.get(str(mv["event_id"]))
+            if ev:
+                ev["start_date_local"] = f"{mv['to']}T00:00:00"
+        all_moves.extend(plan["moves"])
+
+    if not all_moves:
+        return {"applied": 0, "errors": [], "needs_replan": False}
+
+    # Alle shifts fitten — apply tegen de API
+    apply_res = _sd.apply_redistribution({"moves": all_moves})
+    return {
+        "applied": apply_res["applied"],
+        "errors": apply_res["errors"],
+        "needs_replan": False,
+    }
+
+
 def _resolve_phase_tss_range() -> tuple[float, float] | None:
     """Haal de TSS-band van de huidige phase op uit marathon_periodizer.
 
@@ -1007,9 +1080,18 @@ if week_offset >= 0:
             _av.set_week(selected_monday, _new_avail)
             st.cache_data.clear()
             try:
-                import plan_week as _pw
-                _pw.run(selected_monday, dry_run=False)
-                st.success("Week opnieuw gepland.")
+                _shifted = _try_shift_before_replan(selected_monday, _new_avail, state)
+                if _shifted["applied"]:
+                    _msg = f"{_shifted['applied']} sessie(s) verschoven — plan behouden."
+                    if _shifted.get("errors"):
+                        _msg += f" ⚠ {len(_shifted['errors'])} API-fout(en)."
+                    st.success(_msg)
+                elif _shifted["needs_replan"]:
+                    import plan_week as _pw
+                    _pw.run(selected_monday, dry_run=False)
+                    st.success("Week opnieuw gepland.")
+                else:
+                    st.info("Beschikbaarheid opgeslagen; geen wijziging in planning nodig.")
             except Exception as _exc:
                 st.error(f"Replan faalde: {_exc}")
             st.rerun()
