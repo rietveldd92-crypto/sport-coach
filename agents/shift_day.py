@@ -219,6 +219,21 @@ def plan_redistribution(
     if today is None:
         today = date.today()
 
+    # Target-dag in het verleden? Dan geen shift mogelijk — events daar
+    # zijn al (dis)completed. Laat caller terugvallen op cap of warning.
+    try:
+        target_d = date.fromisoformat(target_date)
+    except ValueError:
+        target_d = today
+    if target_d < today:
+        return {
+            "moves": [],
+            "kept": [],
+            "overflow": [],
+            "fits": True,  # "niets te doen" is geen falen
+            "reason": "target-datum ligt in het verleden; niet geschift",
+        }
+
     week_dates = [week_start + timedelta(days=i) for i in range(7)]
     occupancy = _group_by_date(events)
 
@@ -344,21 +359,41 @@ def apply_redistribution(plan: dict) -> dict:
     bestaande tijdstip (HH:MM:SS uit move['from_time']) intact zodat een
     ochtendtraining niet ineens middernacht wordt.
 
-    Returnt {"applied": int, "errors": [str]} zodat UI kan tonen wat er
-    gelukt is en wat niet.
+    Bij API-fout op één van de moves: best-effort rollback van al
+    gelukte moves terug naar hun originele datum. Voorkomt inconsistente
+    half-toegepaste staat. Rollback-fouten verschijnen apart in errors.
+
+    Returnt {"applied": int, "errors": [str], "rolled_back": int}.
     """
     import intervals_client as api  # lazy import; houdt shift_day importeerbaar zonder API
 
-    applied = 0
     errors: list[str] = []
+    successful: list[dict] = []  # voor rollback bij latere fout
+
     for move in plan.get("moves", []):
         try:
             time_part = move.get("from_time") or "00:00:00"
             new_start = f"{move['to']}T{time_part}"
             api.update_event(move["event_id"], start_date_local=new_start)
-            applied += 1
+            successful.append(move)
         except Exception as exc:
             errors.append(
                 f"Move {move.get('event_name', move['event_id'])} → {move['to']} faalde: {exc}"
             )
-    return {"applied": applied, "errors": errors}
+            # Rollback: zet al gelukte moves terug op hun from-datum
+            rolled = 0
+            for prev in successful:
+                try:
+                    back_time = prev.get("from_time") or "00:00:00"
+                    api.update_event(
+                        prev["event_id"],
+                        start_date_local=f"{prev['from']}T{back_time}",
+                    )
+                    rolled += 1
+                except Exception as rb_exc:
+                    errors.append(
+                        f"ROLLBACK faalde voor {prev.get('event_name', prev['event_id'])}: {rb_exc}"
+                    )
+            return {"applied": 0, "errors": errors, "rolled_back": rolled}
+
+    return {"applied": len(successful), "errors": errors, "rolled_back": 0}
