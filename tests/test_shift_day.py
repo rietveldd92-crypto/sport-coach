@@ -106,6 +106,22 @@ def test_z2_run_shifts_naar_vrije_dag():
     move = result["moves"][0]
     assert move["from"] == TUE
     assert move["to"] != TUE
+    # Tijd-behoud: move bevat from_time gelijk aan origineel
+    assert move["from_time"] == "00:00:00"  # onze fixture gebruikt T00:00:00
+
+
+def test_move_bewaart_tijdstip():
+    """Event dat om 06:30 staat moet met 06:30 verhuizen, niet middernacht."""
+    evt = _ev("e1", TUE, "Z2 run", sport="Run", minutes=60)
+    evt["start_date_local"] = f"{TUE}T06:30:00"
+    events = [evt]
+    avail = _full_avail()
+    result = sd.plan_redistribution(
+        events, avail, TUE, new_avail_min=0,
+        week_start=MONDAY, today=MONDAY,
+    )
+    assert len(result["moves"]) == 1
+    assert result["moves"][0]["from_time"] == "06:30:00"
 
 
 def test_grotere_overflow_shift_meerdere():
