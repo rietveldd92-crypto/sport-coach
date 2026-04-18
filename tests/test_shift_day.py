@@ -290,3 +290,54 @@ def test_verleden_datum_is_geen_kandidaat():
     for m in result["moves"]:
         move_to = date.fromisoformat(m["to"])
         assert move_to >= WEEK[2]
+
+
+def test_target_date_in_verleden_geen_actie():
+    """Target-dag is gisteren: geen shift, geen overflow, fits=True."""
+    events = [_ev("e1", TUE, "Z2 run 60 min", sport="Run", minutes=60)]
+    avail = {d: 120 for d in WEEK_ISO}
+    # Today = donderdag; target = dinsdag (verleden)
+    result = sd.plan_redistribution(
+        events, avail, TUE, new_avail_min=0,
+        week_start=MONDAY, today=WEEK[3],
+    )
+    assert result["moves"] == []
+    assert result["fits"] is True
+    assert "verleden" in result["reason"].lower()
+
+
+def test_apply_rollback_bij_partial_failure():
+    """Als move 2 van 3 faalt, moet de eerste teruggedraaid worden."""
+    from unittest.mock import MagicMock
+    import sys
+
+    mock_api = MagicMock()
+    # Eerste call OK, tweede faalt met Exception, rollback-call OK.
+    call_count = {"n": 0}
+
+    def _update(event_id, **kwargs):
+        call_count["n"] += 1
+        # Call 1 = move1 (OK), Call 2 = move2 (faalt), Call 3 = rollback move1
+        if call_count["n"] == 2:
+            raise RuntimeError("API 500")
+        return {}
+
+    mock_api.update_event.side_effect = _update
+    sys.modules["intervals_client"] = mock_api
+
+    plan = {
+        "moves": [
+            {"event_id": "e1", "event_name": "run1", "from": TUE, "to": WED,
+             "from_time": "00:00:00"},
+            {"event_id": "e2", "event_name": "run2", "from": TUE, "to": THU,
+             "from_time": "00:00:00"},
+        ]
+    }
+    res = sd.apply_redistribution(plan)
+    # Geen applied (alles teruggedraaid); e1 is rolled_back
+    assert res["applied"] == 0
+    assert res["rolled_back"] == 1
+    # 3 calls: move1, move2-fail, rollback move1
+    assert call_count["n"] == 3
+    # Sys.modules cleanup
+    del sys.modules["intervals_client"]

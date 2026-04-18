@@ -266,12 +266,23 @@ def _try_shift_before_replan(week_start, new_avail: dict, state: dict,
 
     # Alle shifts fitten — apply tegen de API
     apply_res = _sd.apply_redistribution({"moves": all_moves})
+    rolled = apply_res.get("rolled_back", 0)
+    if apply_res["applied"] == 0 and rolled > 0:
+        diag = f"apply faalde; {rolled} moves teruggedraaid → full replan"
+        return {
+            "applied": 0,
+            "errors": apply_res["errors"],
+            "needs_replan": True,
+            "targets": target_dates,
+            "moves": [],
+            "diag": diag,
+        }
     return {
         "applied": apply_res["applied"],
         "errors": apply_res["errors"],
         "needs_replan": False,
         "targets": target_dates,
-        "moves": all_moves,  # voor UI-feedback
+        "moves": all_moves if apply_res["applied"] else [],
         "diag": f"{apply_res['applied']} sessies verplaatst",
     }
 
