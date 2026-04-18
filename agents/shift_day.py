@@ -303,12 +303,18 @@ def plan_redistribution(
             sim_occupancy.setdefault(target_date, []).append(ev)
             continue
 
+        # Bewaar het oorspronkelijke tijdstip (HH:MM:SS) zodat apply
+        # het niet naar middernacht springt.
+        sdl = ev.get("start_date_local") or ""
+        from_time = sdl.split("T", 1)[1] if "T" in sdl else "00:00:00"
         moves.append({
             "event_id": ev_id,
             "event_name": ev_name,
             "from": target_date,
             "to": candidate,
             "dur_min": dur,
+            "from_time": from_time,
+            "sport": ev.get("type"),
         })
         sim_occupancy.setdefault(candidate, []).append(ev)
 
@@ -335,7 +341,8 @@ def apply_redistribution(plan: dict) -> dict:
     """Voer de plan_redistribution-output uit tegen intervals.icu.
 
     Verplaatst events via update_event(start_date_local). Houdt het
-    bestaande tijdstip (HH:MM:SS) intact voor zover mogelijk.
+    bestaande tijdstip (HH:MM:SS uit move['from_time']) intact zodat een
+    ochtendtraining niet ineens middernacht wordt.
 
     Returnt {"applied": int, "errors": [str]} zodat UI kan tonen wat er
     gelukt is en wat niet.
@@ -346,9 +353,8 @@ def apply_redistribution(plan: dict) -> dict:
     errors: list[str] = []
     for move in plan.get("moves", []):
         try:
-            # Houd tijd-component uit de originele start_date_local niet
-            # nodig: intervals.icu accepteert T00:00:00 voor dag-events.
-            new_start = f"{move['to']}T00:00:00"
+            time_part = move.get("from_time") or "00:00:00"
+            new_start = f"{move['to']}T{time_part}"
             api.update_event(move["event_id"], start_date_local=new_start)
             applied += 1
         except Exception as exc:

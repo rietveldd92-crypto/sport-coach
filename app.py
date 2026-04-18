@@ -271,6 +271,7 @@ def _try_shift_before_replan(week_start, new_avail: dict, state: dict,
         "errors": apply_res["errors"],
         "needs_replan": False,
         "targets": target_dates,
+        "moves": all_moves,  # voor UI-feedback
         "diag": f"{apply_res['applied']} sessies verplaatst",
     }
 
@@ -631,6 +632,30 @@ def show_tp_flash():
     if flash:
         tone = "positive" if flash["ok"] else "alert"
         ui.coach_card(flash["msg"], tone=tone)
+
+
+_DAY_NAMES_NL = ["ma", "di", "wo", "do", "vr", "za", "zo"]
+
+
+def show_shift_flash():
+    """Render het lijstje van verschoven sessies van de laatste avail-edit.
+
+    Overleeft één rerun (pop na tonen). Laat Dennis precies zien WAT er
+    geshift is zodat de "magie" te volgen is. Undo is handmatig: een
+    reversed-move knop per regel roept update_event terug aan.
+    """
+    moves = st.session_state.pop("shift_flash_moves", None)
+    if not moves:
+        return
+    from datetime import date as _date
+    lines = []
+    for mv in moves:
+        frm = _date.fromisoformat(mv["from"])
+        to = _date.fromisoformat(mv["to"])
+        frm_nl = f"{_DAY_NAMES_NL[frm.weekday()]} {frm.day}/{frm.month}"
+        to_nl = f"{_DAY_NAMES_NL[to.weekday()]} {to.day}/{to.month}"
+        lines.append(f"• **{mv.get('event_name', '?')}** — {frm_nl} → {to_nl}")
+    ui.coach_card("**Verschoven:**\n\n" + "\n\n".join(lines), tone="positive")
 
 
 def show_swap_flash():
@@ -1084,6 +1109,7 @@ if total_planned > 0:
 # Flash messages boven de week-list — werken voor alle rows
 show_tp_flash()
 show_swap_flash()
+show_shift_flash()
 
 # ── BESCHIKBAARHEID ────────────────────────────────────────────────────────
 # Alleen voor huidige week of verder in de toekomst — verleden heeft geen zin
@@ -1134,6 +1160,8 @@ if week_offset >= 0:
                     if _shifted.get("errors"):
                         _msg += f" ⚠ {len(_shifted['errors'])} API-fout(en)."
                     st.success(_msg)
+                    # Bewaar de moves zodat we ze na rerun kunnen tonen
+                    st.session_state["shift_flash_moves"] = _shifted.get("moves", [])
                 elif _shifted["needs_replan"]:
                     import plan_week as _pw
                     _pw.run(selected_monday, dry_run=False)
