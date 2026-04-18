@@ -1176,7 +1176,11 @@ if week_offset >= 0:
                 elif _shifted["needs_replan"]:
                     import plan_week as _pw
                     _pw.run(selected_monday, dry_run=False)
-                    st.success("Week opnieuw gepland.")
+                    _diag = _shifted.get("diag", "")
+                    if _diag:
+                        st.success(f"Week opnieuw gepland ({_diag}).")
+                    else:
+                        st.success("Week opnieuw gepland.")
                 else:
                     # Geen wijziging nodig. Toon diagnostiek zodat het niet
                     # aanvoelt als "er gebeurt niets".
