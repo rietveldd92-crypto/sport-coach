@@ -171,14 +171,28 @@ def get_alternatives(event, category: str = "vergelijkbaar"):
     return lib.get_swap_options(event, category, ftp=290)
 
 
-def _try_shift_before_replan(week_start, new_avail: dict, state: dict) -> dict:
+def _try_shift_before_replan(week_start, new_avail: dict, state: dict,
+                              prev_avail: dict | None = None) -> dict:
     """Probeer shift_day voor dagen met overflow voordat we full replan doen.
 
-    Per overflow-dag: roep plan_redistribution aan. Alleen als ALLE overflows
-    netjes fitten via shifts, passen we de moves toe en slaan de full replan
-    over. Bij ook maar één overflow-dag zonder complete fit → needs_replan.
+    Scope: alleen dagen waarvan avail in DEZE edit is verlaagd. Pre-existing
+    over-capacity (bv. een Z2 van 150 min op een dag met historische 60-min
+    avail) raken we niet aan — dat is niet de trigger van deze edit en
+    full replan daarvoor gooit onbedoeld andere aanpassingen weg.
 
-    Returnt {"applied": int, "errors": [str], "needs_replan": bool}.
+    Per overflow-dag: plan_redistribution. Alleen als ALLE targets fitten
+    via shifts, applyen we. Anders needs_replan=True → full replan fallback.
+
+    Args:
+        week_start: maandag van de week
+        new_avail: {date_iso: minutes} zoals door editor opgeslagen
+        state: volledige state dict (voor injury_return flag)
+        prev_avail: snapshot van avail VOORDAT deze edit begon. Als None,
+            vallen we terug op "kijk naar alle overflow-dagen" (oud gedrag,
+            fragieler).
+
+    Returnt {"applied": int, "errors": [str], "needs_replan": bool,
+             "targets": [date_iso], "diag": str}.
     """
     from datetime import date as _date, timedelta as _td
     from agents import shift_day as _sd
@@ -187,9 +201,10 @@ def _try_shift_before_replan(week_start, new_avail: dict, state: dict) -> dict:
     week_end = week_start + _td(days=6)
     try:
         events = _api.get_events(week_start, week_end)
-    except Exception:
+    except Exception as exc:
         # Geen events kunnen ophalen → fallback op full replan
-        return {"applied": 0, "errors": [], "needs_replan": True}
+        return {"applied": 0, "errors": [], "needs_replan": True,
+                "targets": [], "diag": f"events fetch faalde: {exc}"}
 
     # Houd alleen WORKOUT events; NOTES tellen niet mee voor tijdsbudget.
     events = [e for e in events
@@ -200,30 +215,43 @@ def _try_shift_before_replan(week_start, new_avail: dict, state: dict) -> dict:
     )
     today = _date.today()
 
-    # Identificeer overflow-dagen
-    overflow_dates: list[str] = []
+    # Bepaal target-dagen: alleen dagen waarvan avail verlaagd is EN die
+    # daardoor overflow hebben. Pre-existing mismatches laten we staan.
+    target_dates: list[str] = []
     for d_iso, avail_val in new_avail.items():
+        avail_val = avail_val or 0
         day_events = [e for e in events
                       if (e.get("start_date_local") or "")[:10] == d_iso]
         used = sum(_sd.event_duration_min(e) for e in day_events)
-        if used > (avail_val or 0):
-            overflow_dates.append(d_iso)
+        if used <= avail_val:
+            continue  # past al
+        if prev_avail is not None:
+            prev_val = prev_avail.get(d_iso)
+            # Alleen meedoen als avail IS gedaald deze sessie. Als de
+            # avail gelijk bleef of omhoog ging, is de overflow pre-existing.
+            if prev_val is None or avail_val >= prev_val:
+                continue
+        target_dates.append(d_iso)
 
-    if not overflow_dates:
-        return {"applied": 0, "errors": [], "needs_replan": False}
+    if not target_dates:
+        diag = "geen dagen met nieuwe overflow"
+        return {"applied": 0, "errors": [], "needs_replan": False,
+                "targets": [], "diag": diag}
 
-    # Per overflow-dag een plan genereren, incrementeel events-lijst
+    # Per target-dag een plan genereren, incrementeel events-lijst
     # bijwerken zodat volgende plan de vorige shifts al ziet.
     all_moves: list[dict] = []
-    for d_iso in overflow_dates:
+    for d_iso in target_dates:
         plan = _sd.plan_redistribution(
             events, new_avail, d_iso, new_avail.get(d_iso) or 0,
             week_start=week_start, today=today,
             injury_return=injury_return,
         )
         if not plan["fits"] or plan.get("overflow"):
-            # Kan niet geheel oplossen → val terug op full replan
-            return {"applied": 0, "errors": [], "needs_replan": True}
+            # Kan niet geheel oplossen → full replan
+            return {"applied": 0, "errors": [], "needs_replan": True,
+                    "targets": target_dates,
+                    "diag": f"shift faalde voor {d_iso}: {plan.get('reason')}"}
         # Werk events-lijst bij voor de volgende iteratie
         by_id = {str(e.get("id")): e for e in events}
         for mv in plan["moves"]:
@@ -233,7 +261,8 @@ def _try_shift_before_replan(week_start, new_avail: dict, state: dict) -> dict:
         all_moves.extend(plan["moves"])
 
     if not all_moves:
-        return {"applied": 0, "errors": [], "needs_replan": False}
+        return {"applied": 0, "errors": [], "needs_replan": False,
+                "targets": target_dates, "diag": "targets losten op zonder moves"}
 
     # Alle shifts fitten — apply tegen de API
     apply_res = _sd.apply_redistribution({"moves": all_moves})
@@ -241,6 +270,8 @@ def _try_shift_before_replan(week_start, new_avail: dict, state: dict) -> dict:
         "applied": apply_res["applied"],
         "errors": apply_res["errors"],
         "needs_replan": False,
+        "targets": target_dates,
+        "diag": f"{apply_res['applied']} sessies verplaatst",
     }
 
 
@@ -1064,6 +1095,19 @@ if week_offset >= 0:
         _avail_default_open = (week_offset >= 1 and not _av.is_week_set(selected_monday))
     except Exception:
         _avail_default_open = False
+    # Snapshot huidige avail vóórdat de editor rendert/auto-saved. We
+    # willen later alleen shiften voor dagen die DEZE sessie verlaagd zijn,
+    # niet voor pre-existing over-capacity elders.
+    _snap_key = f"avail_snap_{selected_monday.isoformat()}_w{week_offset}"
+    if _snap_key not in st.session_state:
+        try:
+            st.session_state[_snap_key] = {
+                k: v for k, v in _av.get_week(selected_monday).items()
+                if v is not None
+            }
+        except Exception:
+            st.session_state[_snap_key] = {}
+
     with st.expander("Beschikbaarheid", expanded=_avail_default_open):
         try:
             _new_avail = ui.availability_editor(
@@ -1079,8 +1123,12 @@ if week_offset >= 0:
             # Editor heeft al auto-opgeslagen; deze call is een no-op safeguard.
             _av.set_week(selected_monday, _new_avail)
             st.cache_data.clear()
+            _prev_avail = st.session_state.get(_snap_key) or {}
             try:
-                _shifted = _try_shift_before_replan(selected_monday, _new_avail, state)
+                _shifted = _try_shift_before_replan(
+                    selected_monday, _new_avail, state,
+                    prev_avail=_prev_avail,
+                )
                 if _shifted["applied"]:
                     _msg = f"{_shifted['applied']} sessie(s) verschoven — plan behouden."
                     if _shifted.get("errors"):
@@ -1091,7 +1139,15 @@ if week_offset >= 0:
                     _pw.run(selected_monday, dry_run=False)
                     st.success("Week opnieuw gepland.")
                 else:
-                    st.info("Beschikbaarheid opgeslagen; geen wijziging in planning nodig.")
+                    # Geen wijziging nodig. Toon diagnostiek zodat het niet
+                    # aanvoelt als "er gebeurt niets".
+                    _diag = _shifted.get("diag", "")
+                    if _diag:
+                        st.info(f"Beschikbaarheid opgeslagen — {_diag}.")
+                    else:
+                        st.info("Beschikbaarheid opgeslagen; geen wijziging in planning nodig.")
+                # Reset snapshot zodat volgende edit-sessie opnieuw start.
+                st.session_state.pop(_snap_key, None)
             except Exception as _exc:
                 st.error(f"Replan faalde: {_exc}")
             st.rerun()
