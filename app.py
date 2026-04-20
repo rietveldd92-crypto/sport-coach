@@ -872,6 +872,32 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
 
+    # ACWR badge — alleen tonen als out-of-zone (anders ruis); injury-return
+    # gebruikt striktere drempels.
+    from agents.load_manager import compute_acwr as _compute_acwr
+    _atl = state.get("load", {}).get("atl_estimate", 0)
+    _injury_return = bool((state.get("injury") or {}).get("return_from_injury", False))
+    _acwr = _compute_acwr(ctl, _atl, injury_return=_injury_return)
+    if _acwr["zone"] in ("elevated", "high", "detrained"):
+        _acwr_colors = {
+            "detrained": "var(--text-muted)",
+            "elevated": "var(--warning)",
+            "high": "var(--alert)",
+        }
+        _acwr_color = _acwr_colors.get(_acwr["zone"], "var(--text-muted)")
+        st.markdown(
+            f'<div style="margin: 0 0 1rem 0; padding: 0.6rem 0.9rem; '
+            f'border-radius: 10px; border: 1px solid {_acwr_color}; '
+            f'background: rgba(0,0,0,0.2);">'
+            f'<div style="font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.1em; '
+            f'color: {_acwr_color}; font-weight: 600; margin-bottom: 0.2rem;">'
+            f'ACWR · {_acwr["zone"].upper()}</div>'
+            f'<div style="font-size: 0.78rem; color: var(--text-muted);">'
+            f'{_acwr["message"]}</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
     st.markdown("")
     if st.button("Ververs", use_container_width=True):
         st.cache_data.clear()

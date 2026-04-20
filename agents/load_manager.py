@@ -160,6 +160,57 @@ def enforce_consistency_rules(
     }
 
 
+def compute_acwr(ctl: float, atl: float, injury_return: bool = False) -> dict:
+    """Acute:Chronic Workload Ratio — blessure-risico-signaal.
+
+    EWMA-variant (Williams et al. 2017): atl/ctl. ATL is 7-daagse EWMA van
+    dagelijkse TSS (acute load), CTL is 42-daagse EWMA (chronische load).
+    Ratio tussen beide is een proxy voor hoe snel de belasting stijgt t.o.v.
+    waar het lichaam aan gewend is.
+
+    Zones (sportwetenschappelijke consensus):
+        < 0.80 : detrained — te weinig prikkel
+        0.80–1.30 : sweet spot — optimaal
+        1.30–1.50 : elevated — voorzichtig, spike-risico
+        > 1.50 : high — sterk verhoogd blessurerisico
+
+    Bij return_from_injury zijn de drempels strikter (1.20 / 1.35) omdat
+    het lichaam opnieuw leert belasten.
+
+    Args:
+        ctl: Chronic training load (42-daags EWMA).
+        atl: Acute training load (7-daags EWMA).
+        injury_return: True als atleet in return-from-injury modus is.
+
+    Returns:
+        {"acwr": float (1dp), "zone": str, "message": str}
+    """
+    if ctl <= 0:
+        return {"acwr": 0.0, "zone": "unknown", "message": "Onvoldoende data voor ACWR."}
+
+    acwr = atl / ctl
+
+    if injury_return:
+        low, high, danger = 0.80, 1.20, 1.35
+    else:
+        low, high, danger = 0.80, 1.30, 1.50
+
+    if acwr < low:
+        zone = "detrained"
+        message = f"ACWR {acwr:.2f} — detraining, meer prikkel mag."
+    elif acwr < high:
+        zone = "sweet"
+        message = f"ACWR {acwr:.2f} — sweet spot."
+    elif acwr < danger:
+        zone = "elevated"
+        message = f"ACWR {acwr:.2f} — verhoogd, pas op met spikes."
+    else:
+        zone = "high"
+        message = f"ACWR {acwr:.2f} — blessurerisico hoog, bouw af."
+
+    return {"acwr": round(acwr, 2), "zone": zone, "message": message}
+
+
 def _load_state() -> dict:
     with open(STATE_PATH) as f:
         return json.load(f)
