@@ -1181,6 +1181,46 @@ if week_offset >= 0:
             st.error(f"Editor faalde: {type(_editor_exc).__name__}: {_editor_exc}")
             st.exception(_editor_exc)
             _new_avail = None
+
+        # Detecteer pre-existing overflow (plan ≠ avail) zodat de gebruiker
+        # niet vastloopt wanneer scope-narrowing geen nieuwe wijziging ziet
+        # maar de bestaande planning al niet in de avail past.
+        try:
+            from agents import shift_day as _sd_check
+            _current_avail = _av.get_week(selected_monday)
+            _events_wk, _ = fetch_week(selected_monday.isoformat())
+            _events_current = [
+                e for e in _events_wk
+                if e.get("category") == "WORKOUT" and not e.get("is_note")
+            ]
+            _overflow_days: list[tuple[str, int, int]] = []
+            for _d_iso, _av_val in _current_avail.items():
+                if _av_val is None:
+                    continue
+                _day_evs = [e for e in _events_current
+                            if (e.get("start_date_local") or "")[:10] == _d_iso]
+                _used = sum(_sd_check.event_duration_min(e) for e in _day_evs)
+                if _used > _av_val:
+                    _overflow_days.append((_d_iso, _used, _av_val))
+            if _overflow_days:
+                _lines = [f"• {d} — {u} min gepland, {a} min beschikbaar"
+                          for d, u, a in _overflow_days]
+                st.warning(
+                    f"Plan past niet in beschikbaarheid ({len(_overflow_days)} dag{'en' if len(_overflow_days) != 1 else ''}):\n\n"
+                    + "\n\n".join(_lines)
+                )
+                if st.button("Plan deze week opnieuw", key=f"force_replan_w{week_offset}",
+                             use_container_width=True, type="primary"):
+                    with st.spinner("Opnieuw plannen..."):
+                        import plan_week as _pw
+                        _pw.run(selected_monday, dry_run=False)
+                    st.success("Week opnieuw gepland.")
+                    st.cache_data.clear()
+                    st.session_state.pop(_snap_key, None)
+                    st.rerun()
+        except Exception as _ov_exc:
+            st.caption(f"Kon overflow-check niet uitvoeren: {_ov_exc}")
+
         if _new_avail is not None:
             # Editor heeft al auto-opgeslagen; deze call is een no-op safeguard.
             _av.set_week(selected_monday, _new_avail)
