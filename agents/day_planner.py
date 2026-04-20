@@ -206,12 +206,11 @@ def plan_days(
         if not pool and strict:
             unplaced_long.append(lng)
             continue
+        # Best-effort: laat alleen avail-eis + adjacency los; NOOIT 2 longs same day.
         if not pool:
-            # Best-effort: geen 2e long zelfde dag, maar avail-eis en adjacency los.
             pool = [(d, v) for d, v in ranked if not _has_long(d, placements)]
-        if not pool and ranked:
-            pool = [ranked[0]]
         if not pool:
+            # Geen dag zonder long — sla over (betere keuze dan stapelen).
             continue
         dag, _ = pool[0]
         placed = _set_day(lng, dag, week_start)
@@ -237,11 +236,13 @@ def plan_days(
         if not strict_pool and strict:
             unplaced_hard.append(hrd)
             continue
+        # Best-effort: laat avail-eis + fits los, MAAR spacing blijft harde regel.
         pool = strict_pool or [
             (d, v) for d, v in ranked
             if not _placement_violates_hard_spacing(hrd, d, placements)
-        ] or ranked
+        ]
         if not pool:
+            # Geen spacing-vrije dag — sla over (betere keuze dan stapelen).
             continue
         pool = sorted(pool, key=lambda x: (len(placements[x[0]]), -x[1]))
         dag = pool[0][0]
@@ -267,11 +268,14 @@ def plan_days(
         if not strict_pool and strict:
             unplaced_easy.append(es)
             continue
+        # Best-effort: laat avail-eis + fits los, MAAR run-adjacency blijft
+        # harde regel (nooit 2 runs zelfde dag, nooit runs op opeenvolgende dagen).
         pool = strict_pool or [
             (d, v) for d, v in ranked
             if not _placement_violates_run_adjacency(es, d, placements)
-        ] or ranked
+        ]
         if not pool:
+            # Geen plek zonder back-to-back runs — sla over.
             continue
 
         def _brick_score(item):
@@ -291,3 +295,53 @@ def plan_days(
         )
 
     return [s for ss in placements.values() for s in ss]
+
+
+def fill_empty_days_with_easy_bikes(
+    placed: list[dict],
+    week_avail_by_dag: dict[str, int],
+    week_start: date,
+    ftp: int = 290,
+    max_fills: int = 3,
+) -> list[dict]:
+    """Vul lege dagen (met avail ≥ 30) met een easy Z2 bike-sessie.
+
+    Runs worden niet gebruikt (back-to-back regel + blessurerisico).
+    Easy bike op lege dag = extra aerobe volume zonder spacing-conflicten.
+    Tot `max_fills` extra sessies per week.
+
+    Returns: placed + eventuele fill-sessies.
+    """
+    placements: dict[str, list[dict]] = {d: [] for d in DAYS_NL}
+    for s in placed:
+        placements.setdefault(s.get("dag"), []).append(s)
+
+    # Lege dagen met voldoende avail, gesorteerd op avail desc
+    empty = sorted(
+        [(d, week_avail_by_dag.get(d, 0)) for d in DAYS_NL
+         if not placements.get(d) and week_avail_by_dag.get(d, 0) >= MIN_AVAIL_EASY],
+        key=lambda x: -x[1],
+    )
+    if not empty:
+        return placed
+
+    try:
+        from agents import workout_library as lib
+    except Exception:
+        return placed
+
+    additions: list[dict] = []
+    for dag, avail in empty[:max_fills]:
+        dur = min(avail, 60)  # maximaal 60min filler — niet stapelen
+        try:
+            sessie = lib.endurance_ride(max(30, dur))
+        except Exception:
+            continue
+        sessie["dag"] = dag
+        sessie["datum"] = (week_start + timedelta(days=_day_idx(dag))).isoformat()
+        # Markeer als fill zodat log/feedback het herkent
+        sessie["naam"] = f"Aerobe vulling – {sessie.get('duur_min', dur)} min Z2"
+        sessie["is_fill"] = True
+        additions.append(sessie)
+
+    return placed + additions
