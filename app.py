@@ -1182,6 +1182,23 @@ if week_offset >= 0:
             st.exception(_editor_exc)
             _new_avail = None
 
+        # Budget-check: past beschikbare tijd bij het weekdoel? Zo niet, geef
+        # user expliciet terug hoeveel uren tekort — voorkomt stille under-
+        # planning (avail 7u/wk vs target 12u/wk produceert ~50% TSS).
+        try:
+            _budget = _av.check_budget(selected_monday, int(_weekly_target or 400))
+            if not _budget["ok"]:
+                _need_h = _budget["needed_min"] / 60
+                _have_h = _budget["available_min"] / 60
+                _short_h = _budget["shortfall_min"] / 60
+                st.warning(
+                    f"**Tekort voor weekdoel**: {_have_h:.1f}u beschikbaar, "
+                    f"~{_need_h:.1f}u nodig voor {int(_weekly_target)} TSS "
+                    f"(tekort {_short_h:.1f}u). Plan zal onder target uitkomen."
+                )
+        except Exception as _bud_exc:
+            st.caption(f"Budget-check faalde: {_bud_exc}")
+
         # Detecteer pre-existing overflow (plan ≠ avail) zodat de gebruiker
         # niet vastloopt wanneer scope-narrowing geen nieuwe wijziging ziet
         # maar de bestaande planning al niet in de avail past.
