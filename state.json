@@ -5,7 +5,7 @@
   "race_goal": "Amsterdam Marathon sub 3:45",
   "race_name": "Amsterdam Marathon",
   "current_phase": "accumulatie_I",
-  "week_number": 2,
+  "week_number": 3,
   "plan_start": "2026-04-06",
   "injury": {
     "active_signals": [],
@@ -26,30 +26,30 @@
   },
   "signal_buffer": {},
   "load": {
-    "ctl_estimate": 49.0,
-    "atl_estimate": 50.6,
-    "tsb_estimate": -1.6,
-    "last_calculated": "2026-04-14",
-    "weekly_tss_target": 510
+    "ctl_estimate": 51.7,
+    "atl_estimate": 57.5,
+    "tsb_estimate": -5.8,
+    "last_calculated": "2026-04-20",
+    "weekly_tss_target": 660
   },
   "build_deload": {
-    "consecutive_build_weeks": 26,
+    "consecutive_build_weeks": 2,
     "target_build_weeks": 3,
     "last_deload_week": "2026-04-13",
     "is_deload_week": false,
     "deload_modifier": 0.7
   },
   "progression": {
-    "threshold_step": 2,
-    "sweetspot_step": 4,
-    "over_unders_step": 3,
+    "threshold_step": 3,
+    "sweetspot_step": 5,
+    "over_unders_step": 4,
     "endurance_spin_min": 120,
     "long_ride_min": 150,
-    "z2_run_variety_index": 0,
-    "long_run_variety_index": 0,
-    "cp_step": 0,
+    "z2_run_variety_index": 1,
+    "long_run_variety_index": 1,
+    "cp_step": 1,
     "bike_u_baseline_min": 450,
-    "last_bump_week": "2026-04-13"
+    "last_bump_week": "2026-04-20"
   },
   "weekly_log": [
     {
@@ -311,7 +311,7 @@
     }
   },
   "consistency_warnings": [
-    "Long run te groot: 10.0 km = 42% van weektotaal (max 35% = 8.4 km)"
+    "Long run te groot: 12.0 km = 44% van weektotaal (max 35% = 9.4 km)"
   ],
   "availability": {
     "2026-04-13": 60,
@@ -320,6 +320,13 @@
     "2026-04-16": 60,
     "2026-04-17": 60,
     "2026-04-18": 60,
-    "2026-04-19": 60
+    "2026-04-19": 60,
+    "2026-04-20": 60,
+    "2026-04-21": 60,
+    "2026-04-22": 60,
+    "2026-04-23": 60,
+    "2026-04-24": 60,
+    "2026-04-25": 60,
+    "2026-04-26": 60
   }
 }
