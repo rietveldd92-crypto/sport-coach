@@ -6,6 +6,9 @@ on:
     - cron: '0 5 * * *'
   workflow_dispatch: # Handmatig triggeren
 
+permissions:
+  contents: write
+
 jobs:
   plan:
     runs-on: ubuntu-latest
@@ -34,5 +37,9 @@ jobs:
             exit 0
           }
           git add state.json
-          git diff --staged --quiet || git commit -m "chore: update state.json after weekly plan"
+          if git diff --staged --quiet; then
+            echo "No state changes — skipping commit/push"
+            exit 0
+          fi
+          git commit -m "chore: update state.json after weekly plan"
           git push
