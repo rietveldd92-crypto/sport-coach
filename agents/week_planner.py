@@ -24,6 +24,12 @@ import intervals_client as api
 
 DAYS_NL = ["maandag", "dinsdag", "woensdag", "donderdag", "vrijdag", "zaterdag", "zondag"]
 
+
+class _DayPlannerDidPlacement(Exception):
+    """Intern sentinel — signaleert dat de nieuwe day_planner placement deed,
+    zodat de oude avail-remap kan worden overgeslagen zonder indentatie-hack.
+    """
+
 STRENGTH_NOTE = (
     "KRACHTTRAINING (30-40 min) — 2-3 sets, stop ruim voor falen\n\n"
     "Adductoren & heup:\n"
@@ -317,7 +323,37 @@ def build_week(
           f"{len(events_to_delete)} te verwijderen.")
 
     all_sessions = run_sessions + bike_sessions
-    all_sessions = _validate_no_back_to_back_hard(all_sessions)
+
+    # ── AVAIL-FIRST PLACEMENT (day_planner) ──────────────────────────────────
+    # Harde regels: longs eerst op hoogst-avail dagen, hards met spacing,
+    # runs nooit back-to-back. Coaches leveren dag-suggesties — die overschrijven we.
+    day_planner_ok = False
+    try:
+        from agents import availability as _av_mod
+        from agents.day_planner import SchedulingConflict, plan_days
+
+        _avail = _av_mod.get_week(week_start)
+        _avail_by_dag = {
+            DAYS_NL[i]: (_avail.get((week_start + timedelta(days=i)).isoformat()) or 0)
+            for i in range(7)
+        }
+        # Alleen herplaatsen als er voldoende avail-data is (anders originele plan)
+        if sum(_avail_by_dag.values()) > 0:
+            try:
+                replaced = plan_days(all_sessions, _avail_by_dag, week_start)
+                all_sessions = replaced
+                day_planner_ok = True
+                print(f"  Day-planner: {len(replaced)} sessies op avail geplaatst.")
+            except SchedulingConflict as _sc:
+                print(f"  ⚠️  Day-planner conflict — {_sc.reason}")
+                print(f"      Niet geplaatst: "
+                      f"{[u.get('naam') for u in _sc.unplaced]}")
+                print("      Val terug op coach-placement + avail-remap.")
+    except Exception as _dp_exc:
+        print(f"  Day-planner overgeslagen: {_dp_exc}")
+
+    if not day_planner_ok:
+        all_sessions = _validate_no_back_to_back_hard(all_sessions)
 
     # Groepeer sessies per dag
     sessions_by_day: dict[str, list] = {}
@@ -329,7 +365,10 @@ def build_week(
     # Als de atleet minder tijd heeft dan de geplande sessies, schaal
     # proportioneel terug. 0-minuten dagen zijn al als skip_run_days uit
     # de plan_sessions-chain gefilterd; hier handelen we de 30-240 range af.
+    # Skip als day_planner al succesvol placement deed — dan is alles avail-aware.
     try:
+        if day_planner_ok:
+            raise _DayPlannerDidPlacement  # early-skip sentinel
         from agents import availability as _av
         _week_avail = _av.get_week(week_start)
         _day_to_date = {dag: _day_label(week_start, dag) for dag in DAYS_NL}
@@ -488,6 +527,8 @@ def build_week(
             if final_total > avail:
                 sessions_by_day[dag] = _av.cap_sessions_for_day(final_sess, avail)
                 print(f"  Dag {dag}: ingekort van {final_total} → {avail} min (geen swap mogelijk)")
+    except _DayPlannerDidPlacement:
+        pass  # day_planner deed de placement al, geen remap nodig
     except Exception as _e:
         print(f"  Beschikbaarheid-cap overgeslagen: {_e}")
 
