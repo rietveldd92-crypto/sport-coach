@@ -134,10 +134,11 @@ De app moet voelen als een persoonlijke coach die je kent, niet als een dashboar
 - Streak bijhouden (motivatie door consistentie)
 - Koppelen aan verbetering: "Je symmetrie is 49/51 sinds je de clamshells consequent doet"
 
-### 4.4 ACWR Alert
-- Acute:Chronic Workload Ratio (7-daags / 28-daags)
-- Waarschuwen bij ratio >1.3 (injury danger zone)
-- Visueel in de recovery score integreren
+### 4.4 ACWR Alert ✅
+- Acute:Chronic Workload Ratio via EWMA-methode (Williams et al. 2017): ATL/CTL
+- Drempels: sweet 0.80–1.30, elevated 1.30–1.50, high >1.50
+- Injury-return strikter: elevated vanaf 1.20, high vanaf 1.35
+- Eigen sidebar-badge (alleen bij out-of-zone, geen ruis bij sweet spot)
 
 ---
 

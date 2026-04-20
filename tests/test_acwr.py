@@ -53,14 +53,19 @@ def test_negative_ctl_returns_unknown():
     assert r["zone"] == "unknown"
 
 
+def test_zero_atl_returns_unknown():
+    # Voorkomt false "detrained"-alarm bij ontbrekende ATL in state
+    r = compute_acwr(ctl=50.0, atl=0.0)
+    assert r["zone"] == "unknown"
+
+
 def test_message_includes_ratio():
     r = compute_acwr(ctl=50.0, atl=60.0)
     assert "1.20" in r["message"]
 
 
-def test_current_dennis_state_is_sweet():
-    # Werkelijke waarden uit state.json ~ 2026-04-20: CTL 52.9, ATL 57.6
-    r = compute_acwr(ctl=52.9, atl=57.6, injury_return=True)
-    # 57.6/52.9 = 1.089 → sweet (< 1.20 injury-strict)
+def test_low_injury_return_ratio_is_sweet():
+    # CTL 53 / ATL 58 → 1.09 → sweet ook met injury-strict (<1.20)
+    r = compute_acwr(ctl=53.0, atl=58.0, injury_return=True)
     assert r["zone"] == "sweet"
     assert 1.05 < r["acwr"] < 1.15

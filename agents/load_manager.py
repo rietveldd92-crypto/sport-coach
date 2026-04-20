@@ -174,8 +174,10 @@ def compute_acwr(ctl: float, atl: float, injury_return: bool = False) -> dict:
         1.30–1.50 : elevated — voorzichtig, spike-risico
         > 1.50 : high — sterk verhoogd blessurerisico
 
-    Bij return_from_injury zijn de drempels strikter (1.20 / 1.35) omdat
-    het lichaam opnieuw leert belasten.
+    Bij return_from_injury schuift de "elevated"-drempel van 1.30 naar 1.20
+    en "high" van 1.50 naar 1.35. Rationale: een atleet die net terugkomt
+    heeft minder marge — weefsels zijn nog niet volledig geremodelleerd, dus
+    eerder waarschuwen (Gabbett-principe: relatieve belastingstoename telt).
 
     Args:
         ctl: Chronic training load (42-daags EWMA).
@@ -183,9 +185,10 @@ def compute_acwr(ctl: float, atl: float, injury_return: bool = False) -> dict:
         injury_return: True als atleet in return-from-injury modus is.
 
     Returns:
-        {"acwr": float (1dp), "zone": str, "message": str}
+        {"acwr": float (2dp), "zone": str, "message": str}
+        Zones: "unknown" | "detrained" | "sweet" | "elevated" | "high".
     """
-    if ctl <= 0:
+    if ctl <= 0 or atl <= 0:
         return {"acwr": 0.0, "zone": "unknown", "message": "Onvoldoende data voor ACWR."}
 
     acwr = atl / ctl

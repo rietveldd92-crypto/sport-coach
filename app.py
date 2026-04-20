@@ -874,10 +874,9 @@ with st.sidebar:
 
     # ACWR badge — alleen tonen als out-of-zone (anders ruis); injury-return
     # gebruikt striktere drempels.
-    from agents.load_manager import compute_acwr as _compute_acwr
     _atl = state.get("load", {}).get("atl_estimate", 0)
     _injury_return = bool((state.get("injury") or {}).get("return_from_injury", False))
-    _acwr = _compute_acwr(ctl, _atl, injury_return=_injury_return)
+    _acwr = load_manager.compute_acwr(ctl, _atl, injury_return=_injury_return)
     if _acwr["zone"] in ("elevated", "high", "detrained"):
         _acwr_colors = {
             "detrained": "var(--text-muted)",
