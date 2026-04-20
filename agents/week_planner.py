@@ -332,7 +332,7 @@ def build_week(
     day_planner_ok = False
     try:
         from agents import availability as _av_mod
-        from agents.day_planner import plan_days
+        from agents.day_planner import fill_empty_days_with_easy_bikes, plan_days
 
         _avail = _av_mod.get_week(week_start)
         _avail_by_dag = {
@@ -341,6 +341,17 @@ def build_week(
         }
         if sum(_avail_by_dag.values()) > 0:
             all_sessions = plan_days(all_sessions, _avail_by_dag, week_start)
+            # Vul lege dagen met easy bikes als er TSS-gap is én avail onbenut
+            planned_tss = sum((s.get("tss_geschat") or 0) for s in all_sessions)
+            target_tss = load_manager.get("recommended_weekly_tss") or 0
+            if target_tss and planned_tss < target_tss * 0.85:
+                before = len(all_sessions)
+                all_sessions = fill_empty_days_with_easy_bikes(
+                    all_sessions, _avail_by_dag, week_start,
+                )
+                added = len(all_sessions) - before
+                if added:
+                    print(f"  Day-planner: {added} aerobe vulling(en) op lege dagen.")
             day_planner_ok = True
             print(f"  Day-planner: {len(all_sessions)} sessies op avail geplaatst.")
     except Exception as _dp_exc:
