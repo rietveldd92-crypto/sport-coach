@@ -325,30 +325,24 @@ def build_week(
     all_sessions = run_sessions + bike_sessions
 
     # ── AVAIL-FIRST PLACEMENT (day_planner) ──────────────────────────────────
-    # Harde regels: longs eerst op hoogst-avail dagen, hards met spacing,
-    # runs nooit back-to-back. Coaches leveren dag-suggesties — die overschrijven we.
+    # Default best-effort: longs naar hoogst-avail dagen, hards met spacing,
+    # runs nooit back-to-back. Coaches leveren dag-suggesties die we overschrijven.
+    # Bij krappe avail landt een long soms op een dag waar hij net niet past —
+    # de per-dag-cap hieronder snijdt dat netjes bij.
     day_planner_ok = False
     try:
         from agents import availability as _av_mod
-        from agents.day_planner import SchedulingConflict, plan_days
+        from agents.day_planner import plan_days
 
         _avail = _av_mod.get_week(week_start)
         _avail_by_dag = {
             DAYS_NL[i]: (_avail.get((week_start + timedelta(days=i)).isoformat()) or 0)
             for i in range(7)
         }
-        # Alleen herplaatsen als er voldoende avail-data is (anders originele plan)
         if sum(_avail_by_dag.values()) > 0:
-            try:
-                replaced = plan_days(all_sessions, _avail_by_dag, week_start)
-                all_sessions = replaced
-                day_planner_ok = True
-                print(f"  Day-planner: {len(replaced)} sessies op avail geplaatst.")
-            except SchedulingConflict as _sc:
-                print(f"  ⚠️  Day-planner conflict — {_sc.reason}")
-                print(f"      Niet geplaatst: "
-                      f"{[u.get('naam') for u in _sc.unplaced]}")
-                print("      Val terug op coach-placement + avail-remap.")
+            all_sessions = plan_days(all_sessions, _avail_by_dag, week_start)
+            day_planner_ok = True
+            print(f"  Day-planner: {len(all_sessions)} sessies op avail geplaatst.")
     except Exception as _dp_exc:
         print(f"  Day-planner overgeslagen: {_dp_exc}")
 
@@ -360,6 +354,27 @@ def build_week(
     for s in all_sessions:
         dag = s["dag"]
         sessions_by_day.setdefault(dag, []).append(s)
+
+    # ── PER-DAG CAP: sessies die over avail heen gaan, netjes terugsnijden.
+    # Day-planner kan best-effort sessies op krappe dagen geplaatst hebben
+    # (bv. long 165min op dag met 60min avail). cap_sessions_for_day rebuiltr
+    # of kort proportioneel in zodat het plan eerlijk wordt.
+    if day_planner_ok:
+        try:
+            from agents import availability as _av_cap
+            _wa = _av_cap.get_week(week_start)
+            for dag_naam in list(sessions_by_day.keys()):
+                dag_date = _day_label(week_start, dag_naam).isoformat()
+                avail_min = _wa.get(dag_date)
+                if avail_min is None or avail_min <= 0:
+                    continue
+                sess = sessions_by_day[dag_naam]
+                total = sum(s.get("duur_min") or 0 for s in sess)
+                if total > avail_min + 10:  # respecteer 10-min tolerance
+                    sessions_by_day[dag_naam] = _av_cap.cap_sessions_for_day(sess, avail_min)
+                    print(f"  Dag {dag_naam}: ingekort {total} → {avail_min} min (post day-planner cap)")
+        except Exception as _cap_exc:
+            print(f"  Per-dag cap overgeslagen: {_cap_exc}")
 
     # ── BESCHIKBAARHEID — duur cappen per dag ────────────────────────────────
     # Als de atleet minder tijd heeft dan de geplande sessies, schaal
