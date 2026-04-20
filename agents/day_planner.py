@@ -151,14 +151,23 @@ def plan_days(
     week_start: date,
     *,
     allow_adjacent_longs: bool = True,
+    strict: bool = False,
 ) -> list[dict]:
-    """Plaats sessies op dagen volgens R1–R5. Raise SchedulingConflict bij fail.
+    """Plaats sessies op dagen volgens R1–R5.
+
+    Default = best-effort: relaxet regels als strict-placement onmogelijk is.
+    Caller (week_planner) moet daarna evt. per-dag cappen want een long kan
+    op een krappe dag landen.
+
+    `strict=True` = raise SchedulingConflict zodra een regel niet past
+    (behouden voor tests/expliciete validatie).
 
     Args:
         sessions: run + bike sessies (dag-veld wordt genegeerd/overschreven).
         week_avail_by_dag: {"maandag": 60, ...} — 0 = rustdag, >0 = avail.
         week_start: maandag-datum van de te plannen week.
-        allow_adjacent_longs: als False, hardfail bij 2 longs naast elkaar.
+        allow_adjacent_longs: als False, hardfail bij 2 longs naast elkaar (strict mode).
+        strict: raise SchedulingConflict ipv relaxen.
 
     Returns:
         Sessies met dag + datum ingevuld. Volgorde niet gegarandeerd.
@@ -183,30 +192,33 @@ def plan_days(
     placed_long: list[dict] = []
     unplaced_long: list[dict] = []
     for lng in longs_sorted:
-        # Zoek beste dag: hoogste avail, past, nooit 2 longs op zelfde dag,
-        # bij voorkeur niet adjacent aan andere long.
-        candidates = [(d, v) for d, v in ranked
-                      if _space_left(d, placements, v) >= max(_min_avail_for("long"),
-                                                               (lng.get("duur_min") or 0) - AVAIL_TOLERANCE)
-                      and _fits(lng, _space_left(d, placements, v))
-                      and not _has_long(d, placements)]
-        if not candidates:
-            unplaced_long.append(lng)
-            continue
+        # Strict: ≥ min_avail, past, geen 2e long op zelfde dag, niet adjacent.
+        strict_pool = [(d, v) for d, v in ranked
+                       if _space_left(d, placements, v) >= max(_min_avail_for("long"),
+                                                                (lng.get("duur_min") or 0) - AVAIL_TOLERANCE)
+                       and _fits(lng, _space_left(d, placements, v))
+                       and not _has_long(d, placements)]
         non_adjacent = [
-            (d, v) for d, v in candidates
+            (d, v) for d, v in strict_pool
             if not any(_adjacent(d, pd) for pd in [s["dag"] for s in placed_long])
         ]
-        pool = non_adjacent or (candidates if allow_adjacent_longs else [])
-        if not pool:
+        pool = non_adjacent or (strict_pool if allow_adjacent_longs else [])
+        if not pool and strict:
             unplaced_long.append(lng)
             continue
-        dag, _ = pool[0]  # ranked op avail desc
+        if not pool:
+            # Best-effort: geen 2e long zelfde dag, maar avail-eis en adjacency los.
+            pool = [(d, v) for d, v in ranked if not _has_long(d, placements)]
+        if not pool and ranked:
+            pool = [ranked[0]]
+        if not pool:
+            continue
+        dag, _ = pool[0]
         placed = _set_day(lng, dag, week_start)
         placements[dag].append(placed)
         placed_long.append(placed)
 
-    if unplaced_long:
+    if strict and unplaced_long:
         raise SchedulingConflict(
             reason=(f"Kan {len(unplaced_long)} lange sessie(s) niet plaatsen — "
                     f"onvoldoende dagen met ≥{MIN_AVAIL_LONG} min avail."),
@@ -215,26 +227,28 @@ def plan_days(
         )
 
     # ── R2: hards met spacing ───────────────────────────────────────────────
-    # Plaats langste/zwaarste hard eerst (grootste duur → minste plaatsen)
     hards_sorted = sorted(hards, key=lambda s: -(s.get("duur_min") or 0))
-    placed_hard: list[dict] = []
     unplaced_hard: list[dict] = []
     for hrd in hards_sorted:
-        candidates = [(d, v) for d, v in ranked
-                      if _space_left(d, placements, v) >= _min_avail_for("hard")
-                      and _fits(hrd, _space_left(d, placements, v))
-                      and not _placement_violates_hard_spacing(hrd, d, placements)]
-        if not candidates:
+        strict_pool = [(d, v) for d, v in ranked
+                       if _space_left(d, placements, v) >= _min_avail_for("hard")
+                       and _fits(hrd, _space_left(d, placements, v))
+                       and not _placement_violates_hard_spacing(hrd, d, placements)]
+        if not strict_pool and strict:
             unplaced_hard.append(hrd)
             continue
-        # Kies dag met minste concurrentie (geen bestaande sessies) eerst
-        candidates.sort(key=lambda x: (len(placements[x[0]]), -x[1]))
-        dag = candidates[0][0]
+        pool = strict_pool or [
+            (d, v) for d, v in ranked
+            if not _placement_violates_hard_spacing(hrd, d, placements)
+        ] or ranked
+        if not pool:
+            continue
+        pool = sorted(pool, key=lambda x: (len(placements[x[0]]), -x[1]))
+        dag = pool[0][0]
         placed = _set_day(hrd, dag, week_start)
         placements[dag].append(placed)
-        placed_hard.append(placed)
 
-    if unplaced_hard:
+    if strict and unplaced_hard:
         raise SchedulingConflict(
             reason=(f"Kan {len(unplaced_hard)} harde sessie(s) niet plaatsen — "
                     f"geen dagen met ≥{MIN_AVAIL_HARD} min en afstand van long/hard."),
@@ -243,30 +257,32 @@ def plan_days(
         )
 
     # ── R3 + R5: easy sessies; bricks op pre-occupied high-avail dagen ──────
-    # Sorteer easy descending op duur zodat grootste eerst landen
     easys_sorted = sorted(easys, key=lambda s: -(s.get("duur_min") or 0))
     unplaced_easy: list[dict] = []
     for es in easys_sorted:
-        candidates = [(d, v) for d, v in ranked
-                      if _space_left(d, placements, v) >= _min_avail_for("easy")
-                      and _fits(es, _space_left(d, placements, v))
-                      and not _placement_violates_run_adjacency(es, d, placements)]
-        if not candidates:
+        strict_pool = [(d, v) for d, v in ranked
+                       if _space_left(d, placements, v) >= _min_avail_for("easy")
+                       and _fits(es, _space_left(d, placements, v))
+                       and not _placement_violates_run_adjacency(es, d, placements)]
+        if not strict_pool and strict:
             unplaced_easy.append(es)
             continue
-        # Voorkeursvolgorde:
-        # - brick-kandidaat: dag heeft al sessie + is niet hard/long met weinig ruimte
-        # - anders: dag met weinig sessies (spread out)
+        pool = strict_pool or [
+            (d, v) for d, v in ranked
+            if not _placement_violates_run_adjacency(es, d, placements)
+        ] or ranked
+        if not pool:
+            continue
+
         def _brick_score(item):
             d, v = item
-            has_something = bool(placements[d])
-            return (0 if has_something else 1, len(placements[d]), -v)
-        candidates.sort(key=_brick_score)
-        dag = candidates[0][0]
+            return (0 if placements[d] else 1, len(placements[d]), -v)
+        pool = sorted(pool, key=_brick_score)
+        dag = pool[0][0]
         placed = _set_day(es, dag, week_start)
         placements[dag].append(placed)
 
-    if unplaced_easy:
+    if strict and unplaced_easy:
         raise SchedulingConflict(
             reason=(f"Kan {len(unplaced_easy)} easy sessie(s) niet plaatsen "
                     f"zonder back-to-back runs."),

@@ -93,7 +93,16 @@ def test_long_raises_when_no_day_has_enough_avail():
     avail = {d: 60 for d in DAYS_NL}  # geen enkele dag ≥ 90
     sessies = [_sessie("Long run", 120)]
     with pytest.raises(SchedulingConflict):
-        plan_days(sessies, avail, WEEK_START)
+        plan_days(sessies, avail, WEEK_START, strict=True)
+
+
+def test_long_best_effort_lands_on_highest_avail_when_tight():
+    # Default (strict=False): long landt op hoogste avail dag, caller capt later.
+    avail = {d: 60 for d in DAYS_NL}
+    sessies = [_sessie("Long run", 120)]
+    result = plan_days(sessies, avail, WEEK_START)
+    assert len(result) == 1
+    assert result[0]["dag"] == "maandag"  # alle dagen gelijk → DAYS_NL order
 
 
 # ── R2: hards met spacing ───────────────────────────────────────────────────
@@ -122,14 +131,13 @@ def test_hard_not_adjacent_to_long():
 
 
 def test_hard_raises_when_cant_space():
-    # Alleen 2 dagen beschikbaar, beide adjacent → hard+long kan niet
     avail = {d: 0 for d in DAYS_NL}
     avail["vrijdag"] = 180
     avail["zaterdag"] = 180
     sessies = [_sessie("Long run", 120),
                _sessie("Threshold", 60, type_="threshold")]
     with pytest.raises(SchedulingConflict):
-        plan_days(sessies, avail, WEEK_START)
+        plan_days(sessies, avail, WEEK_START, strict=True)
 
 
 # ── R3: geen back-to-back runs ──────────────────────────────────────────────
@@ -175,7 +183,8 @@ def test_longs_adjacent_blocked_when_disallowed():
     sessies = [_sessie("Long run", 120), _sessie("Long ride", 150, sport="VirtualRide",
                                                    type_="endurance_ride")]
     with pytest.raises(SchedulingConflict):
-        plan_days(sessies, avail, WEEK_START, allow_adjacent_longs=False)
+        plan_days(sessies, avail, WEEK_START,
+                  allow_adjacent_longs=False, strict=True)
 
 
 # ── R5: brick op pre-occupied dag ───────────────────────────────────────────
@@ -215,7 +224,7 @@ def test_avail_tolerance_rejects_large_overrun():
     avail["dinsdag"] = 60
     sessies = [_sessie("Threshold 90", 90, type_="threshold")]
     with pytest.raises(SchedulingConflict):
-        plan_days(sessies, avail, WEEK_START)
+        plan_days(sessies, avail, WEEK_START, strict=True)
 
 
 # ── Echte week-scenario (2026-04-20 van gebruiker) ──────────────────────────
