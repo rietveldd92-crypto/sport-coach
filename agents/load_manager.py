@@ -160,6 +160,65 @@ def enforce_consistency_rules(
     }
 
 
+def _apply_weekly_progression(state: dict, is_deload_week: bool,
+                               today: date) -> None:
+    """Bumpt build/deload-counter en progression-state 1x/week.
+
+    Muteert `state` in-place. Moet idempotent zijn: meerdere calls binnen
+    dezelfde kalenderweek mogen GEEN dubbele bumps geven (bug: eerder tikte
+    consecutive_build_weeks bij elke analyze()-call door naar 29+ terwijl
+    last_deload_week pas 1 week geleden was).
+
+    Progression (threshold/sweetspot/over_unders/cp) bumpt ook 1x/week tot
+    een cap. Proper completion-hook bestaat nog niet; weekly-bump is de
+    pragmatische vervanger om "dezelfde workout elke week" te voorkomen.
+    Caps matchen het aantal gedefinieerde steps in bike_coach/workout_library.
+
+    Deload bumpt niet — bike_coach halveert zelf (t_step-2) bij deload.
+    """
+    bd = state.setdefault("build_deload", {})
+    prog = state.setdefault("progression", {})
+
+    monday_today = (today - timedelta(days=today.weekday())).isoformat()
+    last_bump_week = prog.get("last_bump_week")
+    is_new_week = last_bump_week != monday_today
+    consecutive_build = bd.get("consecutive_build_weeks", 0)
+
+    if is_deload_week:
+        bd["consecutive_build_weeks"] = 0
+        bd["last_deload_week"] = today.isoformat()
+        bd["is_deload_week"] = True
+        # Deload: geen progression-bumps. last_bump_week wordt wel gezet
+        # zodat volgende week weer 1 bump doet (niet 2 wanneer deload net
+        # over een week-grens heen valt).
+        prog["last_bump_week"] = monday_today
+        return
+
+    bd["is_deload_week"] = False
+
+    if not is_new_week:
+        return  # al gebumpt deze week — idempotent
+
+    bd["consecutive_build_weeks"] = consecutive_build + 1
+
+    # Duurrit + easy spin: 5 min langer per 2 build-weken
+    if (consecutive_build + 1) % 2 == 0:
+        prog["endurance_spin_min"] = min(120, prog.get("endurance_spin_min", 60) + 5)
+        prog["long_ride_min"] = min(150, prog.get("long_ride_min", 80) + 5)
+
+    # Variatie-index rotert
+    prog["z2_run_variety_index"] = (prog.get("z2_run_variety_index", 0) + 1) % 4
+    prog["long_run_variety_index"] = (prog.get("long_run_variety_index", 0) + 1) % 3
+
+    # Intensiteit-stap incrementeert tot cap
+    prog["threshold_step"] = min(10, prog.get("threshold_step", 1) + 1)
+    prog["sweetspot_step"] = min(8, prog.get("sweetspot_step", 1) + 1)
+    prog["over_unders_step"] = min(6, prog.get("over_unders_step", 1) + 1)
+    prog["cp_step"] = min(5, prog.get("cp_step", 0) + 1)
+
+    prog["last_bump_week"] = monday_today
+
+
 def compute_acwr(ctl: float, atl: float, injury_return: bool = False) -> dict:
     """Acute:Chronic Workload Ratio — blessure-risico-signaal.
 
@@ -459,37 +518,9 @@ def analyze(activities: list = None, injury_guard_output: dict = None) -> dict:
         + ctl_message
     )
 
-    # Update build/deload state
-    if is_deload_week:
-        bd["consecutive_build_weeks"] = 0
-        bd["last_deload_week"] = date.today().isoformat()
-        bd["is_deload_week"] = True
-    else:
-        bd["consecutive_build_weeks"] = consecutive_build + 1
-        bd["is_deload_week"] = False
-    state["build_deload"] = bd
-
-    # Progression: alleen volume/variety wordt hier gebumpt. Step-progression
-    # voor threshold/sweetspot/over_unders hoort NIET bij analyze(), want die
-    # wordt bij elke replan aangeroepen — inclusief wanneer de atleet alleen
-    # zijn beschikbaarheid wijzigt. Step-bumps horen bij voltooiing van een
-    # sessie van dat type (toekomstige completion-hook). Tot die hook er is:
-    # step_progression handmatig aanpassen via UI / state.
-    prog = state.get("progression", {})
-    monday_today = (date.today() - timedelta(days=date.today().weekday())).isoformat()
-    last_bump_week = prog.get("last_bump_week")
-    is_new_week = last_bump_week != monday_today
-
-    if not is_deload_week and is_new_week:
-        # Duurrit en easy spin worden elke 2 weken 5 min langer
-        if (consecutive_build + 1) % 2 == 0:
-            prog["endurance_spin_min"] = min(120, prog.get("endurance_spin_min", 60) + 5)
-            prog["long_ride_min"] = min(150, prog.get("long_ride_min", 80) + 5)
-        # Z2 run en long run variatie-index rotert
-        prog["z2_run_variety_index"] = (prog.get("z2_run_variety_index", 0) + 1) % 4
-        prog["long_run_variety_index"] = (prog.get("long_run_variety_index", 0) + 1) % 3
-        prog["last_bump_week"] = monday_today
-    state["progression"] = prog
+    # Build/deload counter + progression bumpen 1x/week (pure helper)
+    _apply_weekly_progression(state, is_deload_week, today=date.today())
+    bd = state["build_deload"]  # herlaad na helper
 
     # Sla bijgewerkte waarden op
     load["ctl_estimate"] = ctl
