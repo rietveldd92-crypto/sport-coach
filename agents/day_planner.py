@@ -332,14 +332,15 @@ def fill_empty_days_with_easy_bikes(
 
     additions: list[dict] = []
     for dag, avail in empty[:max_fills]:
-        dur = min(avail, 60)  # maximaal 60min filler — niet stapelen
+        # Op high-avail dagen (≥120min) plaats een langere Z2 duurrit (tot 150min)
+        # ipv het wegsmijten van 3 uur avail met een 60min filler.
+        dur = min(avail, 150) if avail >= 120 else min(avail, 60)
         try:
             sessie = lib.endurance_ride(max(30, dur))
         except Exception:
             continue
         sessie["dag"] = dag
         sessie["datum"] = (week_start + timedelta(days=_day_idx(dag))).isoformat()
-        # Markeer als fill zodat log/feedback het herkent
         sessie["naam"] = f"Aerobe vulling – {sessie.get('duur_min', dur)} min Z2"
         sessie["is_fill"] = True
         additions.append(sessie)

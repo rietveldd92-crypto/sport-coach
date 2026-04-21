@@ -334,6 +334,11 @@ def build_week(
         from agents import availability as _av_mod
         from agents.day_planner import fill_empty_days_with_easy_bikes, plan_days
 
+        # Als week nog geen avail heeft, copy van vorige week (default 60min).
+        if not _av_mod.is_week_set(week_start):
+            _av_mod.copy_from_prev_week(week_start)
+            print(f"  Avail voor {week_start} automatisch gekopieerd van vorige week.")
+
         _avail = _av_mod.get_week(week_start)
         _avail_by_dag = {
             DAYS_NL[i]: (_avail.get((week_start + timedelta(days=i)).isoformat()) or 0)
