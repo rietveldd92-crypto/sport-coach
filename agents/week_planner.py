@@ -330,9 +330,11 @@ def build_week(
     # Bij krappe avail landt een long soms op een dag waar hij net niet past —
     # de per-dag-cap hieronder snijdt dat netjes bij.
     day_planner_ok = False
+    day_planner_warnings: list[dict] = []
     try:
         from agents import availability as _av_mod
         from agents.day_planner import fill_empty_days_with_easy_bikes, plan_days
+        from shared import load_state as _load_state
 
         # Als week nog geen avail heeft, copy van vorige week (default 60min).
         if not _av_mod.is_week_set(week_start):
@@ -345,7 +347,15 @@ def build_week(
             for i in range(7)
         }
         if sum(_avail_by_dag.values()) > 0:
-            all_sessions = plan_days(all_sessions, _avail_by_dag, week_start)
+            # Lees user-voorkeur voor back-to-back runs uit state.
+            _prefs = (_load_state() or {}).get("preferences") or {}
+            _b2b_ok = bool(_prefs.get("runs_back_to_back_ok", False))
+            all_sessions, day_planner_warnings = plan_days(
+                all_sessions,
+                _avail_by_dag,
+                week_start,
+                runs_back_to_back_ok=_b2b_ok,
+            )
             # Vul lege dagen met easy bikes als er TSS-gap is én avail onbenut
             planned_tss = sum((s.get("tss_geschat") or 0) for s in all_sessions)
             target_tss = load_manager.get("recommended_weekly_tss") or 0
@@ -359,8 +369,22 @@ def build_week(
                     print(f"  Day-planner: {added} aerobe vulling(en) op lege dagen.")
             day_planner_ok = True
             print(f"  Day-planner: {len(all_sessions)} sessies op avail geplaatst.")
+            for _w in day_planner_warnings:
+                print(f"    ⚠ Tier-{_w.get('tier')} · {_w.get('message')}")
     except Exception as _dp_exc:
         print(f"  Day-planner overgeslagen: {_dp_exc}")
+
+    # Persist warnings + week-context zodat de Streamlit-UI ze kan tonen.
+    try:
+        from shared import load_state as _ls, save_state as _ss
+        _st = _ls() or {}
+        _st["last_plan_warnings"] = {
+            "week_start": week_start.isoformat(),
+            "warnings": day_planner_warnings,
+        }
+        _ss(_st)
+    except Exception:
+        pass  # UI-feature, nooit de planner blokkeren
 
     if not day_planner_ok:
         all_sessions = _validate_no_back_to_back_hard(all_sessions)

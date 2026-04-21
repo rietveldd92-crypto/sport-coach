@@ -41,5 +41,8 @@
         "z2_run_variety_index": 0,
         "long_run_variety_index": 0
     },
-    "weekly_log": []
+    "weekly_log": [],
+    "preferences": {
+        "runs_back_to_back_ok": false
+    }
 }

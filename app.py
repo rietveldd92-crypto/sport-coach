@@ -898,6 +898,26 @@ with st.sidebar:
         )
 
     st.markdown("")
+
+    # ── Voorkeuren (planner-regels) ─────────────────────────────────────
+    _prefs = state.get("preferences") or {}
+    _b2b_current = bool(_prefs.get("runs_back_to_back_ok", False))
+    _b2b_new = st.checkbox(
+        "Back-to-back runs toestaan",
+        value=_b2b_current,
+        help=(
+            "Uit (default): runs nooit op 2 opeenvolgende dagen — blessurepreventie "
+            "tijdens opbouw/rehab. Aan: toelaten zodra je weer stabiel loopt."
+        ),
+        key="pref_b2b_runs",
+    )
+    if _b2b_new != _b2b_current:
+        state.setdefault("preferences", {})["runs_back_to_back_ok"] = _b2b_new
+        from shared import save_state as _save_state
+        _save_state(state)
+        st.caption("Voorkeur opgeslagen.")
+
+    st.markdown("")
     if st.button("Ververs", use_container_width=True):
         st.cache_data.clear()
 
@@ -1198,6 +1218,20 @@ if week_offset >= 0:
                 )
         except Exception as _bud_exc:
             st.caption(f"Budget-check faalde: {_bud_exc}")
+
+        # Planner-warnings (Tier 2) uit laatste run tonen zolang week matcht.
+        try:
+            _lpw = state.get("last_plan_warnings") or {}
+            if _lpw.get("week_start") == selected_monday.isoformat():
+                _tier2 = [w for w in (_lpw.get("warnings") or []) if w.get("tier") == 2]
+                if _tier2:
+                    _lines = [f"• {w.get('message')}" for w in _tier2]
+                    st.warning(
+                        "**Planner-waarschuwingen** (sterke regels gebroken — plan staat, "
+                        "maar let op):\n\n" + "\n\n".join(_lines)
+                    )
+        except Exception:
+            pass
 
         # Detecteer pre-existing overflow (plan ≠ avail) zodat de gebruiker
         # niet vastloopt wanneer scope-narrowing geen nieuwe wijziging ziet
