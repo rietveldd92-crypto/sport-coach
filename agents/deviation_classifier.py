@@ -5,7 +5,7 @@ Pure function. No I/O, no side effects. Consumes already-matched
 """
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date
 from typing import Any, Optional
 
 from .models import Deviation
@@ -56,12 +56,9 @@ def _date_from(obj: Optional[dict[str, Any]]) -> Optional[date]:
     if not raw:
         return None
     try:
-        return datetime.fromisoformat(raw.replace("Z", "")).date()
+        return date.fromisoformat(raw[:10])
     except ValueError:
-        try:
-            return date.fromisoformat(raw[:10])
-        except ValueError:
-            return None
+        return None
 
 
 def _severity(tss_delta: float) -> str:

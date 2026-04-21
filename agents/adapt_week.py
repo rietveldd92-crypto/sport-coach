@@ -6,7 +6,7 @@ ze naar intervals.icu en het adjustments_log.
 """
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from typing import Any, Optional
 
 from .models import AdaptResult, Deviation, Modification
@@ -24,12 +24,9 @@ def _event_date(ev: dict[str, Any]) -> Optional[date]:
     if not raw:
         return None
     try:
-        return datetime.fromisoformat(raw.replace("Z", "")).date()
+        return date.fromisoformat(raw[:10])
     except ValueError:
-        try:
-            return date.fromisoformat(raw[:10])
-        except ValueError:
-            return None
+        return None
 
 
 def _event_tss(ev: dict[str, Any]) -> float:
