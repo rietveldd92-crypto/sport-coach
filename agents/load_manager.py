@@ -188,18 +188,39 @@ def _apply_weekly_progression(state: dict, is_deload_week: bool,
         bd["consecutive_build_weeks"] = 0
         bd["last_deload_week"] = today.isoformat()
         bd["is_deload_week"] = True
+        # Leg de laatste build-step vast zodat we er na deload 1 trede ónder
+        # kunnen herstarten (ladder-request: "1 trede lager oppakken").
+        prog["pre_deload_threshold_step"] = prog.get("threshold_step", 1)
+        prog["pre_deload_sweetspot_step"] = prog.get("sweetspot_step", 1)
         # Deload: geen progression-bumps. last_bump_week wordt wel gezet
         # zodat volgende week weer 1 bump doet (niet 2 wanneer deload net
         # over een week-grens heen valt).
         prog["last_bump_week"] = monday_today
         return
 
+    was_deload = bd.get("is_deload_week", False)
     bd["is_deload_week"] = False
 
     if not is_new_week:
         return  # al gebumpt deze week — idempotent
 
     bd["consecutive_build_weeks"] = consecutive_build + 1
+
+    # Eerste build-week ná deload: 1 trede onder de pre-deload step oppakken.
+    # Daarna bouwen we vanaf dat punt weer normaal op — geen dubbele bump.
+    if was_deload:
+        pre_thr = prog.get("pre_deload_threshold_step")
+        pre_ss = prog.get("pre_deload_sweetspot_step")
+        if pre_thr is not None:
+            prog["threshold_step"] = max(1, pre_thr - 1)
+        if pre_ss is not None:
+            prog["sweetspot_step"] = max(1, pre_ss - 1)
+        prog["last_bump_week"] = monday_today
+        # Variety-indexes wel roteren zodat de intro-week na deload niet
+        # identiek is aan die vóór deload.
+        prog["z2_run_variety_index"] = (prog.get("z2_run_variety_index", 0) + 1) % 4
+        prog["long_run_variety_index"] = (prog.get("long_run_variety_index", 0) + 1) % 3
+        return
 
     # Duurrit + easy spin: 5 min langer per 2 build-weken
     if (consecutive_build + 1) % 2 == 0:
@@ -210,8 +231,8 @@ def _apply_weekly_progression(state: dict, is_deload_week: bool,
     prog["z2_run_variety_index"] = (prog.get("z2_run_variety_index", 0) + 1) % 4
     prog["long_run_variety_index"] = (prog.get("long_run_variety_index", 0) + 1) % 3
 
-    # Intensiteit-stap incrementeert tot cap
-    prog["threshold_step"] = min(10, prog.get("threshold_step", 1) + 1)
+    # Intensiteit-stap incrementeert tot cap (cap matcht len(steps) in workout_library.threshold)
+    prog["threshold_step"] = min(13, prog.get("threshold_step", 1) + 1)
     prog["sweetspot_step"] = min(8, prog.get("sweetspot_step", 1) + 1)
     prog["over_unders_step"] = min(6, prog.get("over_unders_step", 1) + 1)
     prog["cp_step"] = min(5, prog.get("cp_step", 0) + 1)
