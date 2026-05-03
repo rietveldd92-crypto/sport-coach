@@ -157,6 +157,7 @@ def run(week_start: date, dry_run: bool = True, skip_run_days: list = None):
     lm_result = load_manager.analyze(
         activities=activities,
         injury_guard_output=ig_result,
+        week_start=week_start,
     )
 
     phase = lm_result["current_phase"]

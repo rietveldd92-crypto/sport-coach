@@ -376,13 +376,15 @@ def _calculate_ctl_atl(activities: list, stored_ctl: float, stored_atl: float) -
     return round(ctl, 1), round(atl, 1)
 
 
-def analyze(activities: list = None, injury_guard_output: dict = None) -> dict:
+def analyze(activities: list = None, injury_guard_output: dict = None, week_start=None) -> dict:
     """
     Analyseer trainingsbelasting en geef weekdoel terug.
 
     Args:
         activities: Activiteiten van afgelopen 42 dagen
         injury_guard_output: Output van Injury Guard (voor volume_modifier)
+        week_start: Maandag van de te plannen week. Bepaalt is_deload_week en
+            WEEKLY_TSS_TABLE-lookup voor díe week (niet voor vandaag). Default = vandaag.
 
     Returns:
         dict met CTL/ATL/TSB, fase, weekdoel en aanbevelingen
@@ -450,7 +452,7 @@ def analyze(activities: list = None, injury_guard_output: dict = None) -> dict:
     # Fallback: build_deload counter voor latere weken of als tabel ontbreekt.
     try:
         from agents.marathon_periodizer import WEEKLY_PLAN, get_week_number
-        wk_num_periodizer = get_week_number()
+        wk_num_periodizer = get_week_number(today=week_start) if week_start else get_week_number()
         is_deload_week = bool(WEEKLY_PLAN[wk_num_periodizer - 1].get("is_recovery", False))
     except (ImportError, IndexError, KeyError):
         is_deload_week = consecutive_build >= target_build
@@ -497,7 +499,7 @@ def analyze(activities: list = None, injury_guard_output: dict = None) -> dict:
     # moet TSS structureel hoger liggen dan onderhouds-niveau.
     try:
         from agents.marathon_periodizer import WEEKLY_TSS_TABLE, get_week_number
-        wk_num_progressie = get_week_number()
+        wk_num_progressie = get_week_number(today=week_start) if week_start else get_week_number()
         if wk_num_progressie in WEEKLY_TSS_TABLE:
             tabel_target = WEEKLY_TSS_TABLE[wk_num_progressie]
             if tabel_target > target_tss:
