@@ -209,12 +209,13 @@ def _apply_weekly_progression(state: dict, is_deload_week: bool,
     # Eerste build-week ná deload: 1 trede onder de pre-deload step oppakken.
     # Daarna bouwen we vanaf dat punt weer normaal op — geen dubbele bump.
     if was_deload:
-        pre_thr = prog.get("pre_deload_threshold_step")
-        pre_ss = prog.get("pre_deload_sweetspot_step")
-        if pre_thr is not None:
-            prog["threshold_step"] = max(1, pre_thr - 1)
-        if pre_ss is not None:
-            prog["sweetspot_step"] = max(1, pre_ss - 1)
+        # Backfill: oude state vóór deze feature heeft geen pre_deload_*.
+        # Val terug op huidige step zodat -1 alsnog werkt en we niet een
+        # stille "geen progressie"-week krijgen na rollout.
+        pre_thr = prog.get("pre_deload_threshold_step", prog.get("threshold_step", 1))
+        pre_ss = prog.get("pre_deload_sweetspot_step", prog.get("sweetspot_step", 1))
+        prog["threshold_step"] = max(1, pre_thr - 1)
+        prog["sweetspot_step"] = max(1, pre_ss - 1)
         prog["last_bump_week"] = monday_today
         # Variety-indexes wel roteren zodat de intro-week na deload niet
         # identiek is aan die vóór deload.

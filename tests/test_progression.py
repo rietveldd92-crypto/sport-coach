@@ -231,6 +231,27 @@ def test_post_deload_does_not_double_bump():
     assert state["progression"]["threshold_step"] == 7
 
 
+def test_post_deload_backfills_when_pre_deload_keys_missing():
+    """Rollout-regressie: oude state heeft geen pre_deload_*. Backfill via
+    huidige threshold_step zodat -1 alsnog werkt en de week niet stilletjes
+    overgeslagen wordt door de was_deload-return.
+    """
+    # Geen pre_deload_threshold_step in state — we_d een upgrade vlak na deload
+    state = _fresh_state(consecutive=0, last_bump="2026-04-13",
+                         last_deload="2026-04-13", threshold_step=7,
+                         sweetspot_step=5)
+    state["build_deload"]["is_deload_week"] = True
+    # NB: geen pre_deload_* keys gezet
+
+    _apply_weekly_progression(state, is_deload_week=False,
+                              today=date(2026, 4, 20))
+
+    # Backfill: pakt huidige step als basis, doet -1
+    assert state["progression"]["threshold_step"] == 6
+    assert state["progression"]["sweetspot_step"] == 4
+    assert state["build_deload"]["is_deload_week"] is False
+
+
 def test_first_ever_run_no_last_bump():
     state = _fresh_state(consecutive=0, last_bump=None)
     monday = date(2026, 4, 20)
