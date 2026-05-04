@@ -35,7 +35,7 @@ def _next_monday(from_date: date = None) -> date:
 
 
 def _load_state() -> dict:
-    with open(STATE_PATH) as f:
+    with open(STATE_PATH, encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -247,7 +247,7 @@ def run(week_start: date, dry_run: bool = True, skip_run_days: list = None):
         "injury_status": ig_result["status"],
         "notes": ig_result["message"],
     })
-    with open(STATE_PATH, "w") as f:
+    with open(STATE_PATH, "w", encoding="utf-8") as f:
         json.dump(state, f, indent=2, ensure_ascii=False)
 
     return events

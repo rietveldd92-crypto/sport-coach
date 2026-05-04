@@ -449,7 +449,7 @@ def _plan_marathon_sessions(
     from pathlib import Path as _Path
     _state_path = _Path(__file__).parent.parent / "state.json"
     try:
-        with open(_state_path) as _f:
+        with open(_state_path, encoding="utf-8") as _f:
             _state = _json.load(_f)
         _prog = _state.get("progression", {})
         _z2_idx = _prog.get("z2_run_variety_index", 0)

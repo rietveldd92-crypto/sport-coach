@@ -202,7 +202,7 @@ def get_alternatives(event: dict) -> list[dict]:
     e_name = event.get("name", "").lower()
 
     try:
-        with open(STATE_PATH) as f:
+        with open(STATE_PATH, encoding="utf-8") as f:
             state = json.load(f)
         prog = state.get("progression", {})
     except Exception:

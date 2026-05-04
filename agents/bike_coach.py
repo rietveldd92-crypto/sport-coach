@@ -530,7 +530,7 @@ def plan_sessions(
 
         # Lees progressie-state
         state_path = Path(__file__).parent.parent / "state.json"
-        with open(state_path) as f:
+        with open(state_path, encoding="utf-8") as f:
             state = json.load(f)
         prog = state.get("progression", {})
         t_step = prog.get("threshold_step", 1)

@@ -295,12 +295,12 @@ def compute_acwr(ctl: float, atl: float, injury_return: bool = False) -> dict:
 
 
 def _load_state() -> dict:
-    with open(STATE_PATH) as f:
+    with open(STATE_PATH, encoding="utf-8") as f:
         return json.load(f)
 
 
 def _save_state(state: dict) -> None:
-    with open(STATE_PATH, "w") as f:
+    with open(STATE_PATH, "w", encoding="utf-8") as f:
         json.dump(state, f, indent=2, ensure_ascii=False)
 
 

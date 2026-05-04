@@ -11,7 +11,7 @@ STATE_PATH = Path(__file__).parent / "state.json"
 def load_state(state_path: Path = STATE_PATH) -> dict:
     """Laad state.json. Geeft leeg dict bij ontbreken/fout."""
     try:
-        with open(state_path) as f:
+        with open(state_path, encoding="utf-8") as f:
             return json.load(f)
     except Exception:
         return {}
@@ -19,7 +19,7 @@ def load_state(state_path: Path = STATE_PATH) -> dict:
 
 def save_state(state: dict, state_path: Path = STATE_PATH) -> None:
     """Schrijf state.json."""
-    with open(state_path, "w") as f:
+    with open(state_path, "w", encoding="utf-8") as f:
         json.dump(state, f, indent=2, ensure_ascii=False)
 
 
