@@ -442,18 +442,31 @@ def fill_empty_days_with_easy_bikes(
     except Exception:
         return placed
 
+    # Week-stabiele seed zodat de rotatie niet steeds in dezelfde volgorde begint
+    # (anders is fill[0] altijd endurance_ride → eerst lege dag krijgt altijd dat).
+    week_seed = week_start.toordinal() % 2
+
     additions: list[dict] = []
-    for dag, avail in empty[:max_fills]:
+    for fill_idx, (dag, avail) in enumerate(empty[:max_fills]):
         # Op high-avail dagen (≥120min) plaats een langere Z2 duurrit (tot 150min)
         # ipv het wegsmijten van 3 uur avail met een 60min filler.
         dur = min(avail, 150) if avail >= 120 else min(avail, 60)
+        dur = max(30, dur)
+        # Roteer tussen duurrit en zwift group ride om ma=vr duplicates te voorkomen.
+        variant = (fill_idx + week_seed) % 2
         try:
-            sessie = lib.endurance_ride(max(30, dur))
+            if variant == 0:
+                sessie = lib.endurance_ride(dur)
+            else:
+                sessie = lib.zwift_group_ride(dur)
         except Exception:
             continue
         sessie["dag"] = dag
         sessie["datum"] = (week_start + timedelta(days=_day_idx(dag))).isoformat()
-        sessie["naam"] = f"Aerobe vulling – {sessie.get('duur_min', dur)} min Z2"
+        # Behoud het originele workout-specifieke label zodat ma/vr zichtbaar anders zijn,
+        # maar markeer als vulling voor de UI.
+        original_naam = sessie.get("naam") or f"Z2 – {dur} min"
+        sessie["naam"] = f"Aerobe vulling: {original_naam}"
         sessie["is_fill"] = True
         additions.append(sessie)
 

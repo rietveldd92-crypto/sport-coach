@@ -99,13 +99,13 @@ def test_deload_resets_counter_no_step_bump():
 
 def test_step_progression_caps_at_max():
     state = _fresh_state(last_bump="2026-04-13",
-                         threshold_step=10, sweetspot_step=8,
+                         threshold_step=13, sweetspot_step=8,
                          over_unders_step=6, cp_step=5)
     monday = date(2026, 4, 20)
 
     _apply_weekly_progression(state, is_deload_week=False, today=monday)
 
-    assert state["progression"]["threshold_step"] == 10
+    assert state["progression"]["threshold_step"] == 13
     assert state["progression"]["sweetspot_step"] == 8
     assert state["progression"]["over_unders_step"] == 6
     assert state["progression"]["cp_step"] == 5
@@ -154,6 +154,101 @@ def test_new_week_after_deload_resumes_counter():
                               today=date(2026, 4, 20))
 
     assert state["build_deload"]["consecutive_build_weeks"] == 1
+    assert state["build_deload"]["is_deload_week"] is False
+
+
+def test_deload_captures_pre_deload_step():
+    """Voor post-deload -1: deload legt pre_deload_step vast in state."""
+    state = _fresh_state(consecutive=3, last_bump="2026-04-13",
+                         threshold_step=7, sweetspot_step=5)
+
+    _apply_weekly_progression(state, is_deload_week=True,
+                              today=date(2026, 4, 20))
+
+    assert state["progression"]["pre_deload_threshold_step"] == 7
+    assert state["progression"]["pre_deload_sweetspot_step"] == 5
+    # Tijdens deload zelf verandert step nog niet
+    assert state["progression"]["threshold_step"] == 7
+
+
+def test_post_deload_step_drops_one_rung():
+    """Eerste build-week na deload pakt 1 trede onder pre_deload op.
+
+    User-request: "rustweek dan 1 trede lager dan waar we waren
+    voor de rustweek weer oppakken". Voorkomt dat de mentaal zware
+    sprong (bv. 3x15) direct na rust weer geforceerd wordt.
+    """
+    # Simuleer: pre-deload step 7, nu deload voorbij
+    state = _fresh_state(consecutive=0, last_bump="2026-04-13",
+                         last_deload="2026-04-13", threshold_step=7,
+                         sweetspot_step=5)
+    state["build_deload"]["is_deload_week"] = True
+    state["progression"]["pre_deload_threshold_step"] = 7
+    state["progression"]["pre_deload_sweetspot_step"] = 5
+
+    _apply_weekly_progression(state, is_deload_week=False,
+                              today=date(2026, 4, 20))
+
+    # Eén trede lager dan pre-deload
+    assert state["progression"]["threshold_step"] == 6
+    assert state["progression"]["sweetspot_step"] == 4
+    assert state["build_deload"]["is_deload_week"] is False
+
+
+def test_post_deload_step_clamps_at_one():
+    """Als pre_deload step 1 was, kunnen we niet lager — blijft 1."""
+    state = _fresh_state(consecutive=0, last_bump="2026-04-13",
+                         last_deload="2026-04-13", threshold_step=1)
+    state["build_deload"]["is_deload_week"] = True
+    state["progression"]["pre_deload_threshold_step"] = 1
+    state["progression"]["pre_deload_sweetspot_step"] = 1
+
+    _apply_weekly_progression(state, is_deload_week=False,
+                              today=date(2026, 4, 20))
+
+    assert state["progression"]["threshold_step"] == 1
+    assert state["progression"]["sweetspot_step"] == 1
+
+
+def test_post_deload_does_not_double_bump():
+    """Eerste week na deload: NIET +1 bovenop -1 (=netto 0).
+    Dan moet de 2e build-week weer normaal +1 doen.
+    """
+    state = _fresh_state(consecutive=0, last_bump="2026-04-13",
+                         last_deload="2026-04-13", threshold_step=7)
+    state["build_deload"]["is_deload_week"] = True
+    state["progression"]["pre_deload_threshold_step"] = 7
+    state["progression"]["pre_deload_sweetspot_step"] = 5
+
+    # Week 1 na deload: step 7 → 6
+    _apply_weekly_progression(state, is_deload_week=False,
+                              today=date(2026, 4, 20))
+    assert state["progression"]["threshold_step"] == 6
+
+    # Week 2 na deload: step 6 → 7 (normale +1 bump)
+    _apply_weekly_progression(state, is_deload_week=False,
+                              today=date(2026, 4, 27))
+    assert state["progression"]["threshold_step"] == 7
+
+
+def test_post_deload_backfills_when_pre_deload_keys_missing():
+    """Rollout-regressie: oude state heeft geen pre_deload_*. Backfill via
+    huidige threshold_step zodat -1 alsnog werkt en de week niet stilletjes
+    overgeslagen wordt door de was_deload-return.
+    """
+    # Geen pre_deload_threshold_step in state — we_d een upgrade vlak na deload
+    state = _fresh_state(consecutive=0, last_bump="2026-04-13",
+                         last_deload="2026-04-13", threshold_step=7,
+                         sweetspot_step=5)
+    state["build_deload"]["is_deload_week"] = True
+    # NB: geen pre_deload_* keys gezet
+
+    _apply_weekly_progression(state, is_deload_week=False,
+                              today=date(2026, 4, 20))
+
+    # Backfill: pakt huidige step als basis, doet -1
+    assert state["progression"]["threshold_step"] == 6
+    assert state["progression"]["sweetspot_step"] == 4
     assert state["build_deload"]["is_deload_week"] is False
 
 

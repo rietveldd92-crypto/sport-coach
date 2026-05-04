@@ -188,18 +188,40 @@ def _apply_weekly_progression(state: dict, is_deload_week: bool,
         bd["consecutive_build_weeks"] = 0
         bd["last_deload_week"] = today.isoformat()
         bd["is_deload_week"] = True
+        # Leg de laatste build-step vast zodat we er na deload 1 trede ónder
+        # kunnen herstarten (ladder-request: "1 trede lager oppakken").
+        prog["pre_deload_threshold_step"] = prog.get("threshold_step", 1)
+        prog["pre_deload_sweetspot_step"] = prog.get("sweetspot_step", 1)
         # Deload: geen progression-bumps. last_bump_week wordt wel gezet
         # zodat volgende week weer 1 bump doet (niet 2 wanneer deload net
         # over een week-grens heen valt).
         prog["last_bump_week"] = monday_today
         return
 
+    was_deload = bd.get("is_deload_week", False)
     bd["is_deload_week"] = False
 
     if not is_new_week:
         return  # al gebumpt deze week — idempotent
 
     bd["consecutive_build_weeks"] = consecutive_build + 1
+
+    # Eerste build-week ná deload: 1 trede onder de pre-deload step oppakken.
+    # Daarna bouwen we vanaf dat punt weer normaal op — geen dubbele bump.
+    if was_deload:
+        # Backfill: oude state vóór deze feature heeft geen pre_deload_*.
+        # Val terug op huidige step zodat -1 alsnog werkt en we niet een
+        # stille "geen progressie"-week krijgen na rollout.
+        pre_thr = prog.get("pre_deload_threshold_step", prog.get("threshold_step", 1))
+        pre_ss = prog.get("pre_deload_sweetspot_step", prog.get("sweetspot_step", 1))
+        prog["threshold_step"] = max(1, pre_thr - 1)
+        prog["sweetspot_step"] = max(1, pre_ss - 1)
+        prog["last_bump_week"] = monday_today
+        # Variety-indexes wel roteren zodat de intro-week na deload niet
+        # identiek is aan die vóór deload.
+        prog["z2_run_variety_index"] = (prog.get("z2_run_variety_index", 0) + 1) % 4
+        prog["long_run_variety_index"] = (prog.get("long_run_variety_index", 0) + 1) % 3
+        return
 
     # Duurrit + easy spin: 5 min langer per 2 build-weken
     if (consecutive_build + 1) % 2 == 0:
@@ -210,8 +232,8 @@ def _apply_weekly_progression(state: dict, is_deload_week: bool,
     prog["z2_run_variety_index"] = (prog.get("z2_run_variety_index", 0) + 1) % 4
     prog["long_run_variety_index"] = (prog.get("long_run_variety_index", 0) + 1) % 3
 
-    # Intensiteit-stap incrementeert tot cap
-    prog["threshold_step"] = min(10, prog.get("threshold_step", 1) + 1)
+    # Intensiteit-stap incrementeert tot cap (cap matcht len(steps) in workout_library.threshold)
+    prog["threshold_step"] = min(13, prog.get("threshold_step", 1) + 1)
     prog["sweetspot_step"] = min(8, prog.get("sweetspot_step", 1) + 1)
     prog["over_unders_step"] = min(6, prog.get("over_unders_step", 1) + 1)
     prog["cp_step"] = min(5, prog.get("cp_step", 0) + 1)
@@ -274,12 +296,12 @@ def compute_acwr(ctl: float, atl: float, injury_return: bool = False) -> dict:
 
 
 def _load_state() -> dict:
-    with open(STATE_PATH) as f:
+    with open(STATE_PATH, encoding="utf-8") as f:
         return json.load(f)
 
 
 def _save_state(state: dict) -> None:
-    with open(STATE_PATH, "w") as f:
+    with open(STATE_PATH, "w", encoding="utf-8") as f:
         json.dump(state, f, indent=2, ensure_ascii=False)
 
 
@@ -355,13 +377,15 @@ def _calculate_ctl_atl(activities: list, stored_ctl: float, stored_atl: float) -
     return round(ctl, 1), round(atl, 1)
 
 
-def analyze(activities: list = None, injury_guard_output: dict = None) -> dict:
+def analyze(activities: list = None, injury_guard_output: dict = None, week_start=None) -> dict:
     """
     Analyseer trainingsbelasting en geef weekdoel terug.
 
     Args:
         activities: Activiteiten van afgelopen 42 dagen
         injury_guard_output: Output van Injury Guard (voor volume_modifier)
+        week_start: Maandag van de te plannen week. Bepaalt is_deload_week en
+            WEEKLY_TSS_TABLE-lookup voor díe week (niet voor vandaag). Default = vandaag.
 
     Returns:
         dict met CTL/ATL/TSB, fase, weekdoel en aanbevelingen
@@ -429,7 +453,7 @@ def analyze(activities: list = None, injury_guard_output: dict = None) -> dict:
     # Fallback: build_deload counter voor latere weken of als tabel ontbreekt.
     try:
         from agents.marathon_periodizer import WEEKLY_PLAN, get_week_number
-        wk_num_periodizer = get_week_number()
+        wk_num_periodizer = get_week_number(today=week_start) if week_start else get_week_number()
         is_deload_week = bool(WEEKLY_PLAN[wk_num_periodizer - 1].get("is_recovery", False))
     except (ImportError, IndexError, KeyError):
         is_deload_week = consecutive_build >= target_build
@@ -476,7 +500,7 @@ def analyze(activities: list = None, injury_guard_output: dict = None) -> dict:
     # moet TSS structureel hoger liggen dan onderhouds-niveau.
     try:
         from agents.marathon_periodizer import WEEKLY_TSS_TABLE, get_week_number
-        wk_num_progressie = get_week_number()
+        wk_num_progressie = get_week_number(today=week_start) if week_start else get_week_number()
         if wk_num_progressie in WEEKLY_TSS_TABLE:
             tabel_target = WEEKLY_TSS_TABLE[wk_num_progressie]
             if tabel_target > target_tss:

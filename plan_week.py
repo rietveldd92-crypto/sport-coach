@@ -35,7 +35,7 @@ def _next_monday(from_date: date = None) -> date:
 
 
 def _load_state() -> dict:
-    with open(STATE_PATH) as f:
+    with open(STATE_PATH, encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -157,6 +157,7 @@ def run(week_start: date, dry_run: bool = True, skip_run_days: list = None):
     lm_result = load_manager.analyze(
         activities=activities,
         injury_guard_output=ig_result,
+        week_start=week_start,
     )
 
     phase = lm_result["current_phase"]
@@ -230,14 +231,15 @@ def run(week_start: date, dry_run: bool = True, skip_run_days: list = None):
         dry_run=dry_run,
     )
 
-    # Update weeklog in state
+    # Update weeklog in state — vervang bestaande entry voor deze week-start
+    # i.p.v. appenden, anders verzamelt elke replan-run een dubbele log-regel.
     state = _load_state()
     workout_tss = sum(
         e.get("tss") or 0
         for e in events
         if isinstance(e, dict) and e.get("categorie") == "WORKOUT"
     )
-    state["weekly_log"].append({
+    new_entry = {
         "week_start": week_start.isoformat(),
         "fase": phase,
         "planned_tss": lm_result["recommended_weekly_tss"],
@@ -245,8 +247,18 @@ def run(week_start: date, dry_run: bool = True, skip_run_days: list = None):
         "actual_tss": None,
         "injury_status": ig_result["status"],
         "notes": ig_result["message"],
-    })
-    with open(STATE_PATH, "w") as f:
+    }
+    log = state.setdefault("weekly_log", [])
+    for i, existing in enumerate(log):
+        if existing.get("week_start") == new_entry["week_start"]:
+            # Behoud actual_tss als die al is ingevuld door evaluate_week.
+            if existing.get("actual_tss") is not None:
+                new_entry["actual_tss"] = existing["actual_tss"]
+            log[i] = new_entry
+            break
+    else:
+        log.append(new_entry)
+    with open(STATE_PATH, "w", encoding="utf-8") as f:
         json.dump(state, f, indent=2, ensure_ascii=False)
 
     return events

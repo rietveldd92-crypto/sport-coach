@@ -324,3 +324,31 @@ def test_real_week_scenario():
                            if (s.get("sport") or "") == "Run"})
     for a, b in zip(run_indices, run_indices[1:]):
         assert b - a >= 2, f"Runs back-to-back: {run_indices}"
+
+
+
+# ── fill_empty_days_with_easy_bikes variety ─────────────────────────────────
+
+def test_fill_empty_days_rotates_variants():
+    """Meerdere lege dagen in dezelfde week krijgen verschillende workouts
+    (anders is ma=vr een duplicate zoals de user zag: 2x Duurrit rolling Z2 75min)."""
+    from agents.day_planner import fill_empty_days_with_easy_bikes
+    week_start = date(2026, 4, 27)
+    # Alle dagen leeg, ~75min avail overal
+    avail = {d: 75 for d in DAYS_NL}
+    result = fill_empty_days_with_easy_bikes([], avail, week_start, max_fills=3)
+    # Er zijn tenminste 2 fills geplaatst
+    assert len(result) >= 2
+    # Niet alle namen hetzelfde
+    namen = {r.get("naam") for r in result}
+    assert len(namen) >= 2, f"Alle fillers identiek: {namen}"
+
+
+def test_fill_empty_days_all_flagged_is_fill():
+    from agents.day_planner import fill_empty_days_with_easy_bikes
+    week_start = date(2026, 4, 27)
+    avail = {d: 60 for d in DAYS_NL}
+    result = fill_empty_days_with_easy_bikes([], avail, week_start)
+    for r in result:
+        assert r.get("is_fill") is True
+

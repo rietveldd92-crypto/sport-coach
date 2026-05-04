@@ -76,6 +76,8 @@ def threshold(ftp: int, step: int) -> dict:
          "Langere blokken. Even doortrappen in het tweede blok.", "volume"),
         ("3x8 min @ 103%",  "3x\n- 8m 103% 85rpm\n- 4m 55% 95rpm",  49, 0.92,
          "Piek: boven FTP. Kort maar pittig.", "piek"),
+        ("3x12 min @ 97%",  "3x\n- 12m 97% 85rpm\n- 4m 55% 95rpm",  62, 0.92,
+         "36 min @ FTP — tussenstap op weg naar 3x15. Derde blok is karakter.", "volume"),
         ("3x15 min @ 97%",  "3x\n- 15m 97% 85rpm\n- 5m 55% 95rpm",  75, 0.93,
          "45 min totaal. Mentale hardheid — derde blok is karakter.", "volume"),
         ("2x15 min @ 100%", "2x\n- 15m 100% 85rpm\n- 5m 55% 95rpm", 55, 0.93,
@@ -328,6 +330,45 @@ def endurance_ride(duration_min: int) -> dict:
         "duur_min": duration_min, "tss_geschat": _tss_bike(duration_min, 0.66),
         "sport": "VirtualRide", "zone": "Z2",
         "intensiteit_factor": 0.66, "fun": 3,
+    }
+
+
+def endurance_ride_with_tempo(duration_min: int, tempo_min: int = 25) -> dict:
+    """Lange Z2 duurrit met één tempoblok (77% FTP ~ marathon-pace) in het midden.
+
+    Delahaije-filosofie: een lange rit met één kwaliteitsblok is goud voor
+    aerobic durability. Tempoblok niet hard, wel bewust boven Z2.
+    """
+    # Veilige ondergrens: als de rit te kort is voor een zinvolle sandwich,
+    # val terug op een standaard endurance_ride — voorkomt nonsense-workouts.
+    if duration_min < 75:
+        return endurance_ride(duration_min)
+
+    tempo_min = max(15, min(tempo_min, 35))
+    warmup = 15
+    cooldown = 10
+    remaining = duration_min - warmup - cooldown - tempo_min
+    pre = remaining // 2
+    post = remaining - pre
+    return {
+        "type": "endurance_tempo_sandwich_long",
+        "naam": f"Lange rit + tempoblok – {duration_min} min ({tempo_min}m @ 77%)",
+        "beschrijving": (
+            f"Warmup\n- {warmup}m ramp 50-65% 88rpm\n\n"
+            f"Main Set\n"
+            f"- {pre}m 65% 85rpm\n"
+            f"- {tempo_min}m 77% 82rpm (tempoblok – marathon-pace gevoel)\n"
+            f"- {post}m 65% 90rpm\n\n\n"
+            f"Cooldown\n- {cooldown}m ramp 60-45%\n\n"
+            f"Louis zegt: één tempoblok van {tempo_min} min in een lange Z2-rit "
+            f"is goud voor je aerobic durability. Niet harder dan 77% — je moet "
+            f"praten kunnen. Wel bewust 'aan' zitten."
+            f"{DELAHAIJE_BIKE}"
+        ),
+        "duur_min": duration_min,
+        "tss_geschat": _tss_bike(duration_min, 0.72),
+        "sport": "VirtualRide", "zone": "Z2+Tempo",
+        "intensiteit_factor": 0.72, "fun": 3,
     }
 
 
@@ -1664,7 +1705,21 @@ def pick_bike_hard(ftp: int, cycle: int, slot: str,
 
 
 def pick_bike_easy(duration_min: int, variety_index: int) -> dict:
-    """Selecteer een makkelijke fietssessie met variatie."""
+    """Selecteer een makkelijke fietssessie met variatie.
+
+    Bij lange ritten (≥90 min) roteert er een tempoblok-variant in
+    (Louis-advies: één tempoblok in elke lange rit voor durability).
+    """
+    if duration_min >= 90:
+        # Voor long rides: rotatie waarin de tempo-sandwich vaak voorkomt.
+        idx = variety_index % 3
+        if idx == 0:
+            return endurance_ride_with_tempo(duration_min, tempo_min=25)
+        elif idx == 1:
+            return endurance_ride(duration_min)
+        else:
+            return zwift_group_ride(duration_min)
+    # Kortere sessies: geen tempoblok — anders wordt elke Z2 een kwaliteitssessie.
     idx = variety_index % 4
     if idx == 0:
         return endurance_ride(duration_min)
