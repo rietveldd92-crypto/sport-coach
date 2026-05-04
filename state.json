@@ -5,12 +5,12 @@
   "race_goal": "Amsterdam Marathon sub 3:45",
   "race_name": "Amsterdam Marathon",
   "current_phase": "accumulatie_I",
-  "week_number": 3,
+  "week_number": 5,
   "plan_start": "2026-04-06",
   "injury": {
     "active_signals": [],
     "last_signal_date": "2026-03-08",
-    "days_symptom_free": 36,
+    "days_symptom_free": 57,
     "return_from_injury": true,
     "run_intensity_unlocked": true,
     "strides_unlocked": true,
@@ -26,30 +26,32 @@
   },
   "signal_buffer": {},
   "load": {
-    "ctl_estimate": 51.7,
-    "atl_estimate": 57.5,
-    "tsb_estimate": -5.8,
-    "last_calculated": "2026-04-20",
-    "weekly_tss_target": 660
+    "ctl_estimate": 52.6,
+    "atl_estimate": 43.8,
+    "tsb_estimate": 8.8,
+    "last_calculated": "2026-05-04",
+    "weekly_tss_target": 680
   },
   "build_deload": {
-    "consecutive_build_weeks": 2,
+    "consecutive_build_weeks": 1,
     "target_build_weeks": 3,
-    "last_deload_week": "2026-04-13",
+    "last_deload_week": "2026-05-03",
     "is_deload_week": false,
     "deload_modifier": 0.7
   },
   "progression": {
-    "threshold_step": 3,
-    "sweetspot_step": 5,
-    "over_unders_step": 4,
+    "threshold_step": 4,
+    "sweetspot_step": 6,
+    "over_unders_step": 5,
     "endurance_spin_min": 120,
     "long_ride_min": 150,
-    "z2_run_variety_index": 1,
-    "long_run_variety_index": 1,
-    "cp_step": 1,
+    "z2_run_variety_index": 2,
+    "long_run_variety_index": 2,
+    "cp_step": 2,
     "bike_u_baseline_min": 450,
-    "last_bump_week": "2026-04-20"
+    "last_bump_week": "2026-05-04",
+    "pre_deload_threshold_step": 3,
+    "pre_deload_sweetspot_step": 5
   },
   "weekly_log": [
     {
@@ -77,7 +79,7 @@
       "geschat_tss": 0,
       "actual_tss": null,
       "injury_status": "groen",
-      "notes": "GROEN: 29 symptoomvrije dag(en). Strides mogen. Tempolopen mogen. | Feedback: Bedankt voor de feedback. Sessie gemist ï¿½ dit meenemen in de komende planning."
+      "notes": "GROEN: 29 symptoomvrije dag(en). Strides mogen. Tempolopen mogen. | Feedback: Bedankt voor de feedback. Sessie gemist Ã¯Â¿Â½ dit meenemen in de komende planning."
     },
     {
       "week_start": "2026-04-13",
@@ -294,25 +296,101 @@
       "actual_tss": null,
       "injury_status": "groen",
       "notes": "GROEN: 36 symptoomvrije dag(en). Strides mogen. Tempolopen mogen."
+    },
+    {
+      "week_start": "2026-05-04",
+      "fase": "accumulatie_I",
+      "planned_tss": 680,
+      "geschat_tss": 602,
+      "actual_tss": null,
+      "injury_status": "groen",
+      "notes": "GROEN: 56 symptoomvrije dag(en). Strides mogen. Tempolopen mogen."
+    },
+    {
+      "week_start": "2026-05-25",
+      "fase": "accumulatie_I",
+      "planned_tss": 340,
+      "geschat_tss": 290,
+      "actual_tss": null,
+      "injury_status": "groen",
+      "notes": "GROEN: 56 symptoomvrije dag(en). Strides mogen. Tempolopen mogen."
+    },
+    {
+      "week_start": "2026-05-04",
+      "fase": "accumulatie_I",
+      "planned_tss": 680,
+      "geschat_tss": 602,
+      "actual_tss": null,
+      "injury_status": "groen",
+      "notes": "GROEN: 56 symptoomvrije dag(en). Strides mogen. Tempolopen mogen."
+    },
+    {
+      "week_start": "2026-05-04",
+      "fase": "accumulatie_I",
+      "planned_tss": 680,
+      "geschat_tss": 0,
+      "actual_tss": null,
+      "injury_status": "groen",
+      "notes": "GROEN: 56 symptoomvrije dag(en). Strides mogen. Tempolopen mogen."
+    },
+    {
+      "week_start": "2026-05-04",
+      "fase": "accumulatie_I",
+      "planned_tss": 680,
+      "geschat_tss": 602,
+      "actual_tss": null,
+      "injury_status": "groen",
+      "notes": "GROEN: 56 symptoomvrije dag(en). Strides mogen. Tempolopen mogen."
+    },
+    {
+      "week_start": "2026-05-04",
+      "fase": "accumulatie_I",
+      "planned_tss": 680,
+      "geschat_tss": 0,
+      "actual_tss": null,
+      "injury_status": "groen",
+      "notes": "GROEN: 56 symptoomvrije dag(en). Strides mogen. Tempolopen mogen."
+    },
+    {
+      "week_start": "2026-05-04",
+      "fase": "accumulatie_I",
+      "planned_tss": 680,
+      "geschat_tss": 602,
+      "actual_tss": null,
+      "injury_status": "groen",
+      "notes": "GROEN: 56 symptoomvrije dag(en). Strides mogen. Tempolopen mogen."
+    },
+    {
+      "week_start": "2026-05-04",
+      "fase": "accumulatie_I",
+      "planned_tss": 680,
+      "geschat_tss": 0,
+      "actual_tss": null,
+      "injury_status": "groen",
+      "notes": "GROEN: 57 symptoomvrije dag(en). Strides mogen. Tempolopen mogen."
     }
   ],
   "tp_sync_log": {
     "102842985": {
       "tp_workout_id": 3672397106,
       "synced_at": "2026-04-08T22:35:09",
-      "title": "Threshold â€“ 3x8 min @ 95%",
+      "title": "Threshold Ã¢â‚¬â€œ 3x8 min @ 95%",
       "workout_day": "2026-04-08"
     },
     "102842986": {
       "tp_workout_id": 3672391939,
       "synced_at": "2026-04-08T22:35:09",
-      "title": "Bosrun â€“ 35 min",
+      "title": "Bosrun Ã¢â‚¬â€œ 35 min",
       "workout_day": "2026-04-09"
     }
   },
   "consistency_warnings": [
-    "Long run te groot: 12.0 km = 44% van weektotaal (max 35% = 9.4 km)"
+    "Run-km groei gecapt: 31.0 → 22.8 km (max +20% vanaf 19.0 km)",
+    "Long run te groot: 14.0 km = 61% van weektotaal (max 35% = 8.0 km)"
   ],
+  "preferences": {
+    "runs_back_to_back_ok": false
+  },
   "availability": {
     "2026-04-13": 60,
     "2026-04-14": 60,
@@ -327,6 +405,17 @@
     "2026-04-23": 60,
     "2026-04-24": 60,
     "2026-04-25": 60,
-    "2026-04-26": 60
+    "2026-04-26": 60,
+    "2026-05-04": 60,
+    "2026-05-05": 60,
+    "2026-05-06": 60,
+    "2026-05-07": 0,
+    "2026-05-08": 120,
+    "2026-05-09": 180,
+    "2026-05-10": 180
+  },
+  "last_plan_warnings": {
+    "week_start": "2026-05-04",
+    "warnings": []
   }
 }
