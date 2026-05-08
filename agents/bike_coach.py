@@ -402,7 +402,10 @@ def select_bike_sessions_for_week(week_number: int, phase_naam: str, state: dict
     """
     Selecteer bike-sessies volgens de Delahaije toolkit:
       - Threshold is vast anker in ELKE week, ALLE fases.
-      - 2e/3e slot rouleert op week_number % 4:
+      - Accumulatie I (run-intensiteit 'geen'): slot 2 = sweetspot
+        zodat de fiets de aerobe prikkel compenseert die de loop niet krijgt.
+        Geeft 2 intensieve bike-sessies per week (threshold + sweetspot).
+      - Andere toolkit-fases: 2e slot rouleert op week_number % 4:
           1 -> fatmax_medium
           2 -> fatmax_lang
           3 -> cp_intervals (als cp_step toelaat, vanaf wk 3)
@@ -413,6 +416,7 @@ def select_bike_sessions_for_week(week_number: int, phase_naam: str, state: dict
     prog = state.get("progression", {})
     cp_step = prog.get("cp_step", 0)
     t_step = prog.get("threshold_step", 1)
+    ss_step = prog.get("sweetspot_step", 1)
     ftp = state.get("ftp", 250)
     is_deload = state.get("build_deload", {}).get("is_deload_week", False)
 
@@ -424,6 +428,11 @@ def select_bike_sessions_for_week(week_number: int, phase_naam: str, state: dict
 
     # Threshold-anker altijd
     sessies = [_threshold(ftp, t_step)]
+
+    # Accumulatie I: 2 intensieve slots (run heeft geen intensiteit, fiets compenseert)
+    if phase_naam == "accumulatie_I":
+        sessies.append(_sweetspot(ftp, ss_step))
+        return sessies
 
     # Rouleer 2e slot
     mod = week_number % 4
@@ -440,6 +449,13 @@ def select_bike_sessions_for_week(week_number: int, phase_naam: str, state: dict
     else:  # mod == 0
         sessies.append(long_slow_session(ftp))
 
+    # Burnout-constraint: max 1 threshold-sessie per week.
+    # Zie memory feedback_threshold_burnout_constraint.md.
+    threshold_count = sum(1 for s in sessies if s.get("type") == "threshold")
+    assert threshold_count <= 1, (
+        f"Bike-week heeft {threshold_count} threshold-sessies — max is 1. "
+        f"Vervang een threshold door sweetspot/VO2/tempo."
+    )
     return sessies
 
 
