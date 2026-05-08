@@ -1093,7 +1093,7 @@ if today_event:
     )
 
     # Workout structuur — uitklapbaar onder de hero
-    description = event.get("description", "")
+    description = event.get("description") or ""
     if description.strip():
         show_details_key = "show_details_today"
         col_detail, _ = st.columns([2, 4])
