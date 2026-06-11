@@ -120,7 +120,9 @@ def analyze(wellness_data: list = None, activities: list = None, feedback_signal
         dict met status, flags en aanbevelingen
     """
     state = _load_state()
-    injury = state["injury"]
+    # Verse installatie (lege DB, geen state.json): default-structuur
+    # zodat /api/today op een kale deploy gewoon GROEN toont.
+    injury = state.get("injury") or {}
     buffer = _get_buffer(state)
 
     active_signals = list(injury.get("active_signals", []))

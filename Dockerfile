@@ -5,13 +5,13 @@
 #           sport-coach
 
 # ── Stage 1: frontend (Vite → web/dist) ──────────────────────────────────
-# bookworm-slim (glibc) i.p.v. alpine (musl): de package-lock is op glibc
-# gegenereerd; rollup's platform-specifieke optional dep ontbreekt anders
-# (npm bug #4828 → "Cannot find module @rollup/rollup-linux-x64-musl").
+# bookworm-slim (glibc) en `npm install` i.p.v. `npm ci`: geen lockfile-
+# afhankelijkheid in het image — voorkomt platform-mismatch van rollup's
+# optionele binaries (npm bug #4828) en lock-desync-fouten.
 FROM node:22-bookworm-slim AS webbuild
 WORKDIR /build/web
-COPY web/package.json web/package-lock.json ./
-RUN npm ci --no-audit --no-fund
+COPY web/package.json ./
+RUN npm install --no-audit --no-fund
 COPY web/ ./
 RUN npm run build
 
@@ -22,4 +22,12 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1
 
 COPY requirements.txt ./
-RUN pip install -r requir
+RUN pip install -r requirements.txt
+
+COPY . .
+COPY --from=webbuild /build/web/dist ./web/dist
+
+# api/main.py serveert web/dist met SPA-fallback; /api blijft de REST-laag.
+# $PORT wordt door Railway geïnjecteerd; lokaal valt hij terug op 8000.
+EXPOSE 8000
+CMD ["sh", "-c", "uvicorn api.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
