@@ -5,7 +5,10 @@
 #           sport-coach
 
 # ── Stage 1: frontend (Vite → web/dist) ──────────────────────────────────
-FROM node:22-alpine AS webbuild
+# bookworm-slim (glibc) i.p.v. alpine (musl): de package-lock is op glibc
+# gegenereerd; rollup's platform-specifieke optional dep ontbreekt anders
+# (npm bug #4828 → "Cannot find module @rollup/rollup-linux-x64-musl").
+FROM node:22-bookworm-slim AS webbuild
 WORKDIR /build/web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci --no-audit --no-fund
@@ -19,11 +22,4 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1
 
 COPY requirements.txt ./
-RUN pip install -r requirements.txt
-
-COPY . .
-COPY --from=webbuild /build/web/dist ./web/dist
-
-# api/main.py serveert web/dist met SPA-fallback; /api blijft de REST-laag.
-# $PORT wordt door Railway geïnjecteerd; lokaal valt hij terug op 8000.
-EXPOSE 800
+RUN pip install -r requir
