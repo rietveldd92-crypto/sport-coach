@@ -1,13 +1,12 @@
+# Runtime (API + agents). De Streamlit-stack staat in requirements-legacy.txt
+# en is alleen nodig voor legacy_streamlit/ — niet installeren in de container,
+# anders OOM't de Railway-build (exit 137).
 requests==2.32.3
 python-dotenv==1.0.1
 google-genai>=1.0.0
-streamlit>=1.40.0
 pandas>=2.0.0
-altair>=5.0.0
-plotly>=5.20.0
 pydantic>=2.0.0
-ortools>=9.10  # slot-solver (Fase 1) — stond nog niet in requirements
-# API-laag (Fase 3, UPGRADE_PLAN §7)
+ortools>=9.10
 fastapi>=0.115.0
 uvicorn[standard]>=0.30.0
 apscheduler>=3.10.0
