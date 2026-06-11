@@ -13,7 +13,7 @@ import intervals_client as api
 
 FTP = 290
 HR_MAX = 190
-HR_Z2_MAX = round(HR_MAX * 0.80)  # 152 bpm
+HR_Z2_MAX = 145  # operationeel easy-plafond (Dennis: erboven = grijze zone, slechter herstel)
 HR_Z2_MIN = round(HR_MAX * 0.68)  # 129 bpm
 
 
@@ -453,7 +453,7 @@ def _analyze_run_hard(wtype, event, activity, act_id, base):
 
     focus = ("Focus op: pace consistency per interval (Delahaije: 'de laatste moet net zo snel zijn als de eerste'), "
              "HR response per interval, en of het volume en intensiteit past bij de fase. "
-             "Bij tempo: was het drempelpace (4:05-4:15/km voor marathon sub 3:45)?")
+             "Bij tempo: was het drempelpace (~4:00-4:10/km voor marathon sub 3:00)? Negeer running-power.")
 
     return {"workout_type": wtype, "metrics": base, "insights": insights, "prompt_focus": focus}
 

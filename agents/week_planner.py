@@ -274,6 +274,99 @@ def _validate_no_back_to_back_hard(all_sessions: list) -> list:
     return all_sessions
 
 
+def _plan_with_slot_solver(
+    week_start: date,
+    all_sessions: list[dict],
+    load_manager: dict,
+    injury_guard: dict,
+) -> tuple[list[dict], list[dict]]:
+    """Planner v2: plaats sessies via de CP-SAT slot-solver (UPGRADE_PLAN §5).
+
+    Returnt (placed_sessions, warnings). Sessies krijgen dag/datum én een
+    concrete starttijd (``start_tijd``) + solver-metadata (``_solver``)
+    voor de placements-tabel. Raist bij ontbrekende beschikbaarheid zodat
+    de caller kan terugvallen op het legacy day_planner-pad.
+    """
+    from agents import availability as _av_mod
+    from core import availability_v2 as av2
+    from core import slot_solver
+    from shared import load_state as _load_state
+
+    if not _av_mod.is_week_set(week_start):
+        _av_mod.copy_from_prev_week(week_start)
+        print(f"  Avail voor {week_start} automatisch gekopieerd van vorige week.")
+
+    slots = av2.get_slots_for_week(week_start)
+    if not any(slots.values()):
+        raise RuntimeError("geen beschikbaarheidsvensters voor deze week")
+
+    _prefs = (_load_state() or {}).get("preferences") or {}
+    options = slot_solver.SolverOptions(
+        runs_back_to_back_ok=bool(_prefs.get("runs_back_to_back_ok", False)),
+        no_run_intensity=not bool(injury_guard.get("run_intensity_allowed", True)),
+    )
+    result = slot_solver.solve_week(all_sessions, slots, options=options)
+
+    warnings: list[dict] = []
+    placed: list[dict] = []
+    for pl in result.placements:
+        # Keys zijn index-gebaseerd ("s0", "s1", ...) — map terug.
+        idx = int(pl.key[1:]) if pl.key.startswith("s") else None
+        sessie = dict(all_sessions[idx]) if idx is not None else {}
+        offset = (pl.date - week_start).days
+        sessie["dag"] = DAYS_NL[offset] if 0 <= offset < 7 else sessie.get("dag")
+        sessie["datum"] = pl.date.isoformat()
+        sessie["start_tijd"] = pl.slot_start
+        sessie["_solver"] = {
+            "kind": pl.kind,
+            "score": pl.score,
+            "notes": "; ".join(pl.notes),
+        }
+        placed.append(sessie)
+
+    for dr in result.dropped:
+        warnings.append({
+            "tier": 2,
+            "code": "solver_dropped",
+            "dag": None,
+            "sessie": dr.naam,
+            "message": f"'{dr.naam}' niet geplaatst: {dr.reason}",
+        })
+    if result.status == "INFEASIBLE":
+        print(f"  Slot-solver: week past niet volledig — "
+              f"{len(result.dropped)} sessie(s) vervallen (beste relaxatie).")
+    print(f"  Slot-solver: {len(placed)} sessies geplaatst "
+          f"(status {result.status}, score {result.objective:.0f}).")
+
+    # TSS-gap opvullen met easy bikes op lege dagen (zelfde gedrag als legacy).
+    planned_tss = sum((s.get("tss_geschat") or 0) for s in placed)
+    target_tss = load_manager.get("recommended_weekly_tss") or 0
+    if target_tss and planned_tss < target_tss * 0.85:
+        from agents.day_planner import fill_empty_days_with_easy_bikes
+
+        avail_by_dag = {
+            DAYS_NL[i]: sum(
+                s.duration_min
+                for s in slots.get(week_start + timedelta(days=i), [])
+            )
+            for i in range(7)
+        }
+        before = len(placed)
+        placed = fill_empty_days_with_easy_bikes(placed, avail_by_dag, week_start)
+        for sessie in placed[before:]:
+            day_slots = slots.get(date.fromisoformat(sessie["datum"]), [])
+            if day_slots:
+                sessie["start_tijd"] = day_slots[0].start
+            sessie["_solver"] = {
+                "kind": "easy", "score": 0.0,
+                "notes": "Aerobe vulling op lege dag (TSS-gap)",
+            }
+        if len(placed) > before:
+            print(f"  Slot-solver: {len(placed) - before} aerobe vulling(en) op lege dagen.")
+
+    return placed, warnings
+
+
 def build_week(
     week_start: date,
     run_sessions: list,
@@ -324,14 +417,32 @@ def build_week(
 
     all_sessions = run_sessions + bike_sessions
 
-    # ── AVAIL-FIRST PLACEMENT (day_planner) ──────────────────────────────────
+    # ── PLANNER V2: SLOT-SOLVER (feature flag PLANNER_V2, default aan) ──────
+    # CP-SAT bepaalt dag + concrete starttijd per sessie; plaatsing gaat
+    # straks ook naar de placements-tabel. Bij falen → legacy day_planner.
+    day_planner_ok = False
+    day_planner_warnings: list[dict] = []
+    try:
+        from core import planner_v2_enabled
+
+        if planner_v2_enabled():
+            all_sessions, day_planner_warnings = _plan_with_slot_solver(
+                week_start, all_sessions, load_manager, injury_guard,
+            )
+            day_planner_ok = True
+            for _w in day_planner_warnings:
+                print(f"    ⚠ {_w.get('message')}")
+    except Exception as _sv_exc:
+        print(f"  Slot-solver overgeslagen ({_sv_exc}) — fallback day_planner.")
+
+    # ── AVAIL-FIRST PLACEMENT (day_planner, legacy pad bij flag uit) ─────────
     # Default best-effort: longs naar hoogst-avail dagen, hards met spacing,
     # runs nooit back-to-back. Coaches leveren dag-suggesties die we overschrijven.
     # Bij krappe avail landt een long soms op een dag waar hij net niet past —
     # de per-dag-cap hieronder snijdt dat netjes bij.
-    day_planner_ok = False
-    day_planner_warnings: list[dict] = []
     try:
+        if day_planner_ok:
+            raise _DayPlannerDidPlacement
         from agents import availability as _av_mod
         from agents.day_planner import fill_empty_days_with_easy_bikes, plan_days
         from shared import load_state as _load_state
@@ -371,6 +482,8 @@ def build_week(
             print(f"  Day-planner: {len(all_sessions)} sessies op avail geplaatst.")
             for _w in day_planner_warnings:
                 print(f"    ⚠ Tier-{_w.get('tier')} · {_w.get('message')}")
+    except _DayPlannerDidPlacement:
+        pass  # slot-solver heeft de placement al gedaan
     except Exception as _dp_exc:
         print(f"  Day-planner overgeslagen: {_dp_exc}")
 
@@ -640,6 +753,9 @@ def build_week(
                     "categorie": "WORKOUT",
                     "sport": sessie["sport"],
                     "tss": sessie.get("tss_geschat"),
+                    # Planner v2: concrete starttijd + solver-uitleg
+                    "start_tijd": sessie.get("start_tijd"),
+                    "solver_meta": sessie.get("_solver"),
                 })
 
     # ── PRINT OVERZICHT ─────────────────────────────────────────────────────
@@ -697,6 +813,11 @@ def build_week(
         try:
             api.delete_event(e["id"])
             deleted += 1
+            try:
+                import history_db as _hdb
+                _hdb.delete_placement(str(e["id"]))
+            except Exception:
+                pass  # placements zijn metadata; nooit de planner blokkeren
         except Exception as ex:
             print(f"  Fout bij verwijderen '{e.get('name')}': {ex}")
     if deleted:
@@ -713,8 +834,24 @@ def build_week(
                 category=event["categorie"],
                 sport_type=event["sport"],
                 load_target=event["tss"],
+                start_time=event.get("start_tijd"),
             )
             created_events.append(result)
+            # Planner v2: plaatsing vastleggen in de placements-tabel.
+            meta = event.get("solver_meta")
+            if meta and event.get("categorie") == "WORKOUT" and result.get("id"):
+                try:
+                    import history_db as _hdb
+                    _hdb.upsert_placement(
+                        str(result["id"]),
+                        date=event["datum"].isoformat(),
+                        slot_start=event.get("start_tijd"),
+                        session_kind=meta.get("kind"),
+                        solver_score=meta.get("score"),
+                        solver_notes=meta.get("notes"),
+                    )
+                except Exception as _pl_exc:
+                    print(f"  Placement-log faalde voor '{event['naam']}': {_pl_exc}")
         except Exception as e:
             errors.append(f"{event['naam']} op {event['datum']}: {e}")
 

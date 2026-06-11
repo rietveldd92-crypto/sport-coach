@@ -544,10 +544,9 @@ def plan_sessions(
         has_long_run = marathon_volume.get("lange_duurloop_km", 0) > 0
         is_deload = load_manager.get("is_deload_week", False)
 
-        # Lees progressie-state
-        state_path = Path(__file__).parent.parent / "state.json"
-        with open(state_path, encoding="utf-8") as f:
-            state = json.load(f)
+        # Lees progressie-state (SQLite, fallback state.json)
+        from shared import load_state
+        state = load_state()
         prog = state.get("progression", {})
         t_step = prog.get("threshold_step", 1)
         ss_step = prog.get("sweetspot_step", 1)

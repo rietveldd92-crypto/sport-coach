@@ -1,15 +1,27 @@
-"""Gedeelde helpers — voorkomt duplicatie tussen app.py, coach.py, auto_feedback.py etc."""
+"""Gedeelde helpers — voorkomt duplicatie tussen app.py, coach.py, auto_feedback.py etc.
+
+Sinds Fase 0 (UPGRADE_PLAN §8) leven load_state/save_state op SQLite
+(history.db, tabellen athlete_state + availability_override) in plaats van
+state.json. Het dict-formaat dat callers zien is exact gelijk gebleven:
+{"injury": {...}, "load": {...}, ..., "availability": {"YYYY-MM-DD": minuten}}.
+
+state.json blijft als read-only fallback bestaan totdat
+scripts/migrate_state_json.py is gedraaid.
+"""
 from __future__ import annotations
 
 import json
+import logging
 from datetime import date, timedelta
 from pathlib import Path
 
 STATE_PATH = Path(__file__).parent / "state.json"
 
+_log = logging.getLogger(__name__)
 
-def load_state(state_path: Path = STATE_PATH) -> dict:
-    """Laad state.json. Geeft leeg dict bij ontbreken/fout."""
+
+def _load_state_json(state_path: Path) -> dict:
+    """Legacy: laad state.json. Geeft leeg dict bij ontbreken/fout."""
     try:
         with open(state_path, encoding="utf-8") as f:
             return json.load(f)
@@ -17,10 +29,62 @@ def load_state(state_path: Path = STATE_PATH) -> dict:
         return {}
 
 
-def save_state(state: dict, state_path: Path = STATE_PATH) -> None:
-    """Schrijf state.json."""
+def _save_state_json(state: dict, state_path: Path) -> None:
+    """Legacy: schrijf state.json."""
     with open(state_path, "w", encoding="utf-8") as f:
         json.dump(state, f, indent=2, ensure_ascii=False)
+
+
+def load_state(state_path: Path | None = None) -> dict:
+    """Laad de athlete state.
+
+    Leest uit SQLite (athlete_state + availability_override) en geeft
+    hetzelfde dict-formaat terug als het oude state.json. Zolang de DB
+    nog leeg is (migratiescript niet gedraaid), valt dit terug op
+    state.json zodat niets breekt.
+
+    Een expliciet afwijkend ``state_path`` (tests) blijft puur op JSON
+    werken.
+    """
+    if state_path is not None and state_path != STATE_PATH:
+        return _load_state_json(state_path)
+
+    try:
+        import history_db
+
+        if not history_db.athlete_state_is_empty():
+            state = history_db.get_athlete_state()
+            availability = history_db.get_availability_minutes()
+            if availability or "availability" in state:
+                state["availability"] = availability
+            return state
+        _log.info(
+            "athlete_state is leeg — fallback naar state.json. "
+            "Draai scripts/migrate_state_json.py om naar SQLite te migreren."
+        )
+    except Exception:
+        _log.exception("Kon athlete_state niet uit history.db lezen — fallback naar state.json")
+    return _load_state_json(STATE_PATH)
+
+
+def save_state(state: dict, state_path: Path | None = None) -> None:
+    """Schrijf de athlete state naar SQLite (whole-state overwrite,
+    net als het oude state.json). ``availability`` gaat naar
+    availability_override; alle andere top-level keys naar athlete_state.
+
+    Een expliciet afwijkend ``state_path`` (tests) blijft puur op JSON
+    werken.
+    """
+    if state_path is not None and state_path != STATE_PATH:
+        _save_state_json(state, state_path)
+        return
+
+    import history_db
+
+    state = dict(state)  # caller's dict niet muteren
+    availability = state.pop("availability", None)
+    history_db.replace_athlete_state(state)
+    history_db.replace_availability_minutes(availability or {})
 
 
 def types_match(event_type: str, activity_type: str) -> bool:

@@ -1,0 +1,27 @@
+# Versiebeheer / tooling
+.git/
+.claude/
+.devcontainer/
+.pytest_cache/
+__pycache__/
+*.pyc
+.venv/
+
+# Secrets & lokale state — gaan via env/volume mee, nooit in het image
+.env
+.env.local
+.streamlit/
+history.db*
+state.json
+state.json.bak
+scripts/_*.json
+
+# Frontend: wordt in stage 1 gebouwd; host-artefacten niet meekopiëren
+web/node_modules/
+web/dist/
+
+# Niet nodig in het image
+tests/
+legacy_streamlit/
+*.pdf
+*.md

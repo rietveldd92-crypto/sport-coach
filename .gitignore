@@ -23,3 +23,12 @@ scripts/_*.json
 # Schema lives in history_db.py (migrations run at app start).
 history.db
 history.db-*
+
+# v2: state leeft in SQLite; json is lokale fallback/backup
+state.json
+state.json.bak
+
+# Frontend build-artefacten
+web/node_modules/
+web/dist/
+.fuse_hidden*

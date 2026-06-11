@@ -308,6 +308,89 @@ def run_adaptive_cycle(
     return {"deviations": deviations, "result": result, "applied": all_ok}
 
 
+def run_feedback_cycle(
+    *,
+    dry_run: bool = False,
+    no_adapt: bool = False,
+    detect_only: bool = False,
+) -> dict:
+    """Volledige auto-feedback run — importeerbaar zonder side effects.
+
+    Dit is de kern die voorheen in main() zat; de APScheduler-job in
+    api/scheduler.py roept deze functie dagelijks aan (Fase 3).
+
+    Returns: {"processed": int, "adapted": bool}
+    """
+    print(f"\n  Auto-feedback check — {date.today()}")
+
+    def _adaptive(week_events, week_activities) -> bool:
+        if no_adapt:
+            return False
+        print("\n  Adaptive cycle: deviations detecteren...")
+        try:
+            result = run_adaptive_cycle(
+                week_events,
+                week_activities,
+                dry_run=dry_run,
+                detect_only=detect_only,
+            )
+            return bool(result and result.get("applied"))
+        except Exception as exc:
+            print(f"  Adaptive cycle failed: {exc}")
+            return False
+
+    new_workouts, week_events, week_activities = find_new_completed_workouts()
+    if not new_workouts:
+        print("  Geen nieuwe voltooide workouts.")
+        # Toch adaptive cycle draaien — ook zonder nieuwe feedback kunnen
+        # er sacred sessies gemist zijn die herplanning vereisen.
+        adapted = _adaptive(week_events, week_activities)
+        return {"processed": 0, "adapted": adapted}
+
+    print(f"  {len(new_workouts)} nieuwe voltooide workout(s) gevonden.\n")
+
+    # Bouw matched-formaat één keer voor de hele week, hergebruik voor elke workout
+    week_matched = _build_week_matched(week_events, week_activities)
+
+    log = _load_feedback_log()
+    email_body = []
+
+    for item in new_workouts:
+        act = item["activity"]
+        event = item["event"]
+        event_name = event.get("name", "?")
+        act_date = act.get("start_date_local", "")[:10]
+
+        print(f"  {act_date} — {event_name}")
+        feedback = generate_feedback(event, act, week_matched=week_matched)
+        print(f"  {feedback}\n")
+
+        # Post naar intervals.icu
+        post_feedback_to_intervals(event, feedback, dry_run=dry_run)
+
+        # Verzamel voor email
+        email_body.append(f"{act_date} — {event_name}\n{feedback}\n")
+
+        # Markeer als verwerkt
+        log["processed_activities"].append(item["activity_id"])
+
+    # Sla log op
+    if not dry_run:
+        _save_feedback_log(log)
+
+    # Stuur email als er feedback is
+    if email_body and not dry_run:
+        subject = f"Coach feedback — {date.today()}"
+        body = "Coach feedback op je workouts:\n\n" + "\n".join(email_body)
+        body += "\n\nEen gelukkige atleet is een snelle atleet. — Delahaije"
+        send_email(subject, body)
+
+    print(f"  Klaar. {len(new_workouts)} workout(s) verwerkt.")
+
+    adapted = _adaptive(week_events, week_activities)
+    return {"processed": len(new_workouts), "adapted": adapted}
+
+
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="Auto-feedback op voltooide workouts")
@@ -343,79 +426,11 @@ def main():
 """)
         return
 
-    print(f"\n  Auto-feedback check — {date.today()}")
-
-    new_workouts, week_events, week_activities = find_new_completed_workouts()
-    if not new_workouts:
-        print("  Geen nieuwe voltooide workouts.")
-        # Toch adaptive cycle draaien — ook zonder nieuwe feedback kunnen
-        # er sacred sessies gemist zijn die herplanning vereisen.
-        if not args.no_adapt:
-            print("\n  Adaptive cycle: deviations detecteren...")
-            try:
-                run_adaptive_cycle(
-                    week_events,
-                    week_activities,
-                    dry_run=args.dry_run,
-                    detect_only=args.detect_only,
-                )
-            except Exception as exc:
-                print(f"  Adaptive cycle failed: {exc}")
-        return
-
-    print(f"  {len(new_workouts)} nieuwe voltooide workout(s) gevonden.\n")
-
-    # Bouw matched-formaat één keer voor de hele week, hergebruik voor elke workout
-    week_matched = _build_week_matched(week_events, week_activities)
-
-    log = _load_feedback_log()
-    email_body = []
-
-    for item in new_workouts:
-        act = item["activity"]
-        event = item["event"]
-        act_name = act.get("name", "?")
-        event_name = event.get("name", "?")
-        act_date = act.get("start_date_local", "")[:10]
-
-        print(f"  {act_date} — {event_name}")
-        feedback = generate_feedback(event, act, week_matched=week_matched)
-        print(f"  {feedback}\n")
-
-        # Post naar intervals.icu
-        post_feedback_to_intervals(event, feedback, dry_run=args.dry_run)
-
-        # Verzamel voor email
-        email_body.append(f"{act_date} — {event_name}\n{feedback}\n")
-
-        # Markeer als verwerkt
-        log["processed_activities"].append(item["activity_id"])
-
-    # Sla log op
-    if not args.dry_run:
-        _save_feedback_log(log)
-
-    # Stuur email als er feedback is
-    if email_body and not args.dry_run:
-        subject = f"Coach feedback — {date.today()}"
-        body = "Coach feedback op je workouts:\n\n" + "\n".join(email_body)
-        body += "\n\nEen gelukkige atleet is een snelle atleet. — Delahaije"
-        send_email(subject, body)
-
-    print(f"  Klaar. {len(new_workouts)} workout(s) verwerkt.")
-
-    # ── Adaptive cycle ───────────────────────────────────────────────────
-    if not args.no_adapt:
-        print("\n  Adaptive cycle: deviations detecteren...")
-        try:
-            run_adaptive_cycle(
-                week_events,
-                week_activities,
-                dry_run=args.dry_run,
-                detect_only=args.detect_only,
-            )
-        except Exception as exc:
-            print(f"  Adaptive cycle failed: {exc}")
+    run_feedback_cycle(
+        dry_run=args.dry_run,
+        no_adapt=args.no_adapt,
+        detect_only=args.detect_only,
+    )
 
 
 if __name__ == "__main__":

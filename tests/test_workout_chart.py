@@ -1,7 +1,10 @@
-"""Tests voor viz.workout_chart parser + render-guard."""
+"""Tests voor de (gearchiveerde) workout-chart parser + render-guard."""
 from __future__ import annotations
 
-from viz.workout_chart import parse_workout_structure, render_workout_chart
+from legacy_streamlit.viz.workout_chart import (
+    parse_workout_structure,
+    render_workout_chart,
+)
 
 
 SIMPLE = """Warmup

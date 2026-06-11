@@ -38,18 +38,11 @@ def test_mark_and_lookup_sync_entry(tmp_path: Path):
     assert "synced_at" in entry
 
 
-def test_mark_synced_preserves_existing_state_keys(tmp_path: Path):
-    """state.json has other fields (load, phase, etc.) — don't nuke them."""
+def test_mark_synced_leaves_state_json_untouched(tmp_path: Path):
+    """Sinds Fase 0 leeft de synclog in history.db — state.json blijft met rust."""
     state_file = tmp_path / "state.json"
-    state_file.write_text(
-        json.dumps(
-            {
-                "current_phase": "build",
-                "load": {"ctl_estimate": 55},
-            }
-        ),
-        encoding="utf-8",
-    )
+    original = {"current_phase": "build", "load": {"ctl_estimate": 55}}
+    state_file.write_text(json.dumps(original), encoding="utf-8")
 
     tp_sync_service.mark_synced(
         event_id="evt-1",
@@ -59,10 +52,13 @@ def test_mark_synced_preserves_existing_state_keys(tmp_path: Path):
         state_file=state_file,
     )
 
-    saved = json.loads(state_file.read_text(encoding="utf-8"))
-    assert saved["current_phase"] == "build"
-    assert saved["load"]["ctl_estimate"] == 55
-    assert "evt-1" in saved["tp_sync_log"]
+    # state.json is niet aangeraakt
+    assert json.loads(state_file.read_text(encoding="utf-8")) == original
+    # entry staat wél in de DB-synclog
+    entry = tp_sync_service.is_synced("evt-1")
+    assert entry is not None
+    assert entry["tp_workout_id"] == 1
+    assert "evt-1" in tp_sync_service.load_sync_log()
 
 
 # ---------------------------------------------------------------------------

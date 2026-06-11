@@ -8,11 +8,14 @@ Filosofie: Guido Hartensveld / Jim van den Berg
 - Elke sessie heeft een rehab-reminder (glute med activatie)
 
 Zone definities (hartslag, loopspecifiek):
-  Z1: <68% HRmax — herstel, actief herstel
-  Z2: 68-80% HRmax — aeroob basis (hier wordt het werk gedaan)
-  Z3: 81-87% HRmax — drempel (VERMIJDEN tijdens basis/opbouw)
+  Z1: <68% HRmax (<129 bpm) — herstel, actief herstel
+  Z2: 68-76% HRmax (129-145 bpm) — aeroob basis (hier wordt het werk gedaan).
+      145 bpm = hard easy-plafond; 146-152 (77-80%) is voor deze atleet de
+      grijze zone die herstel kost → vermijden op easy/duur runs.
+  Z3: 81-87% HRmax — drempel (alleen tempoduur ~83-85% vanaf wk 7; echt
+      drempelwerk pas vanaf wk 15)
   Z4: 88-95% HRmax — VO2max (alleen specifieke fase)
-  Z5: >95% HRmax — maximaal (race-simulatie, week 13)
+  Z5: >95% HRmax — maximaal (race-simulatie / 5k-test)
 """
 
 from datetime import date
@@ -444,14 +447,10 @@ def _plan_marathon_sessions(
 
     sessions = []
 
-    # Lees variatie-index uit state.json
-    import json as _json
-    from pathlib import Path as _Path
-    _state_path = _Path(__file__).parent.parent / "state.json"
+    # Lees variatie-index uit de athlete state (SQLite, fallback state.json)
     try:
-        with open(_state_path, encoding="utf-8") as _f:
-            _state = _json.load(_f)
-        _prog = _state.get("progression", {})
+        from shared import load_state as _load_state
+        _prog = (_load_state() or {}).get("progression", {})
         _z2_idx = _prog.get("z2_run_variety_index", 0)
     except Exception:
         _z2_idx = 0

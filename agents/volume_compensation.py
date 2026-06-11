@@ -34,8 +34,8 @@ _FALLBACK_PACE_SEC_PER_KM = 330  # 5:30/km easy
 
 
 def _load_state() -> dict:
-    with open(STATE_PATH, encoding="utf-8") as f:
-        return json.load(f)
+    from shared import load_state
+    return load_state()
 
 
 def _is_run(sport: str) -> bool:

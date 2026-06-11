@@ -1,8 +1,12 @@
-"""Beschikbaarheidsbeheer — per dag hoeveel tijd is er voor training.
+"""Beschikbaarheidsbeheer — compat-laag in minuten per dag.
 
-Opslaan in state.json onder `"availability": {"YYYY-MM-DD": minutes}`.
+Sinds Fase 1 (Planner v2) is ``core/availability_v2.py`` de bron:
+tijdvensters per datum (override) of per weekdag (patroon). Deze module
+blijft het minuten-dict-contract leveren voor bestaande callers:
+``get_week`` geeft {date_iso: minuten|None}, afgeleid van de slots;
+``set_week`` schrijft minuten als overrides (07:00 + minuten).
+
 Stap van 30 min, max 240 (4 uur) per dag. Waarde 0 = rustdag.
-
 De planner gebruikt 0-minuten-dagen als `skip_run_days` en waarschuwt als
 het weektotaal lager is dan nodig voor het TSS-doel.
 """
@@ -26,16 +30,6 @@ DAYS_NL = ["maandag", "dinsdag", "woensdag", "donderdag", "vrijdag", "zaterdag",
 TSS_PER_HOUR = 55.0
 
 
-def _load_state() -> dict:
-    with open(STATE_PATH, encoding="utf-8") as f:
-        return json.load(f)
-
-
-def _save_state(state: dict) -> None:
-    with open(STATE_PATH, "w", encoding="utf-8") as f:
-        json.dump(state, f, indent=2, ensure_ascii=False)
-
-
 def _week_dates(week_start: date) -> list[date]:
     return [week_start + timedelta(days=i) for i in range(7)]
 
@@ -52,13 +46,13 @@ def get_week(week_start: date) -> dict[str, Optional[int]]:
     """Haal beschikbaarheid op voor 7 dagen vanaf week_start.
 
     Returnt dict {date_iso: minutes|None}. None = nog niet ingesteld.
+    Minuten zijn afgeleid van de v2-slots (override → patroon → legacy).
     """
-    state = _load_state()
-    stored = state.get("availability", {}) or {}
+    from core import availability_v2 as av2
+
     out: dict[str, Optional[int]] = {}
     for d in _week_dates(week_start):
-        key = d.isoformat()
-        out[key] = stored.get(key)
+        out[d.isoformat()] = av2.minutes_for_day(d)
     return out
 
 
@@ -68,15 +62,18 @@ def is_week_set(week_start: date) -> bool:
 
 
 def set_week(week_start: date, minutes_by_date: dict[str, int]) -> None:
-    """Schrijf een week aan beschikbaarheid in één transactie."""
-    state = _load_state()
-    avail = state.get("availability") or {}
+    """Schrijf een week aan beschikbaarheid (minuten → override-vensters).
+
+    Per dag één venster 07:00 + minuten; 0 = expliciete rustdag-marker.
+    Dagen waarvan het totaal niet wijzigt behouden hun (eventueel rijkere)
+    v2-vensters.
+    """
+    from core import availability_v2 as av2
+
     for d in _week_dates(week_start):
         key = d.isoformat()
         if key in minutes_by_date:
-            avail[key] = clamp(int(minutes_by_date[key]))
-    state["availability"] = avail
-    _save_state(state)
+            av2.set_override_minutes(d, clamp(int(minutes_by_date[key])))
 
 
 def copy_from_prev_week(week_start: date) -> dict[str, int]:

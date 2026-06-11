@@ -5,7 +5,7 @@ CTL (Chronic Training Load) = fitheid (42-daags gemiddelde van dagelijkse TSS)
 ATL (Acute Training Load) = vermoeidheid (7-daags gemiddelde)
 TSB (Training Stress Balance) = vorm = CTL - ATL
 
-Race: Amsterdam Marathon 18 oktober 2026 (sub 3:45). 28-weken Delahaije
+Race: Amsterdam Marathon 18 oktober 2026 (sub 3:00). 28-weken Delahaije
 blokperiodisering — week-number en fase komen uit marathon_periodizer als
 single source of truth.
 """
@@ -296,13 +296,13 @@ def compute_acwr(ctl: float, atl: float, injury_return: bool = False) -> dict:
 
 
 def _load_state() -> dict:
-    with open(STATE_PATH, encoding="utf-8") as f:
-        return json.load(f)
+    from shared import load_state
+    return load_state()
 
 
 def _save_state(state: dict) -> None:
-    with open(STATE_PATH, "w", encoding="utf-8") as f:
-        json.dump(state, f, indent=2, ensure_ascii=False)
+    from shared import save_state
+    save_state(state)
 
 
 def _weeks_to_race() -> int:

@@ -3,8 +3,10 @@
 Centraliseert drie dingen die de UI anders zelf zou moeten weten:
 
 * **Sync-log** — welke intervals.icu events zijn al naar TP gepusht? Bewaard
-  in ``state.json`` zodat dubbele pushes over sessies heen voorkomen
-  worden (business analyst review obs 417: MVP-must item).
+  in ``history.db`` (tabel ``workout_tp_sync``) zodat dubbele pushes over
+  sessies heen voorkomen worden (business analyst review obs 417: MVP-must
+  item). Tot Fase 0 stond dit in ``state.json`` onder ``tp_sync_log``;
+  scripts/migrate_state_json.py neemt oude entries mee.
 * **Connection test** — één call richting TP die ``(ok, human_message)``
   teruggeeft, gebruikt door de sidebar-status-indicator zonder dat de
   UI-code zelf TP-exception-types hoeft te kennen.
@@ -14,11 +16,11 @@ Centraliseert drie dingen die de UI anders zelf zou moeten weten:
 """
 from __future__ import annotations
 
-import json
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+import history_db
 import trainingpeaks_client as tpc
 from trainingpeaks_errors import TPAPIError, TPAuthError, TPConversionError
 from workout_converter import convert
@@ -54,34 +56,44 @@ def is_syncable_date(event_date: date | str, today: date | None = None) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Sync log persistence (state.json)
+# Sync log persistence (history.db → workout_tp_sync)
+#
+# De ``state_file`` parameters blijven bestaan voor signatuur-compatibiliteit
+# (Fase 0), maar worden genegeerd: de log leeft in SQLite. Test-isolatie
+# loopt via history_db.DB_PATH (zie tests/conftest.py).
 # ---------------------------------------------------------------------------
 
 
-def _load_state(state_file: Path = STATE_PATH) -> dict[str, Any]:
+def _row_to_entry(row: dict | None) -> dict | None:
+    """Map een workout_tp_sync rij naar het oude sync-log entry formaat."""
+    if not row:
+        return None
+    tp_id: Any = row.get("tp_workout_id")
     try:
-        with open(state_file, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return {}
-
-
-def _save_state(state: dict[str, Any], state_file: Path = STATE_PATH) -> None:
-    # Simple read-modify-write. Single-user local use — no locking.
-    state_file.parent.mkdir(parents=True, exist_ok=True)
-    with open(state_file, "w", encoding="utf-8") as f:
-        json.dump(state, f, indent=2, ensure_ascii=False)
+        tp_id = int(tp_id)
+    except (TypeError, ValueError):
+        pass
+    return {
+        "tp_workout_id": tp_id,
+        "synced_at": row.get("last_synced_at"),
+        "title": row.get("synced_event_name"),
+        "workout_day": row.get("workout_day"),
+    }
 
 
 def load_sync_log(state_file: Path = STATE_PATH) -> dict[str, Any]:
     """Return ``{event_id: {tp_workout_id, synced_at, title, workout_day}}``."""
-    return _load_state(state_file).get(SYNC_LOG_KEY, {})
+    history_db.ensure_migrations()
+    return {
+        str(row["event_id"]): _row_to_entry(row)
+        for row in history_db.get_all_tp_sync()
+    }
 
 
 def is_synced(event_id: str, state_file: Path = STATE_PATH) -> dict | None:
     """Return the sync-log entry for ``event_id`` or None if never synced."""
-    log = load_sync_log(state_file)
-    return log.get(str(event_id))
+    history_db.ensure_migrations()
+    return _row_to_entry(history_db.get_tp_sync(str(event_id)))
 
 
 def mark_synced(
@@ -91,17 +103,16 @@ def mark_synced(
     workout_day: str,
     state_file: Path = STATE_PATH,
 ) -> None:
-    """Append/update a sync entry for ``event_id`` in state.json."""
-    state = _load_state(state_file)
-    log = state.get(SYNC_LOG_KEY) or {}
-    log[str(event_id)] = {
-        "tp_workout_id": tp_workout_id,
-        "synced_at": datetime.now().isoformat(timespec="seconds"),
-        "title": title,
-        "workout_day": workout_day,
-    }
-    state[SYNC_LOG_KEY] = log
-    _save_state(state, state_file)
+    """Append/update a sync entry for ``event_id`` in workout_tp_sync."""
+    history_db.ensure_migrations()
+    history_db.record_tp_sync(
+        str(event_id),
+        tp_workout_id=str(tp_workout_id),
+        event_name=title,
+        sync_hash=None,  # handmatige sync kent geen doc-hash; bestaande blijft staan
+        workout_day=workout_day,
+        synced_at=datetime.now().isoformat(timespec="seconds"),
+    )
 
 
 # ---------------------------------------------------------------------------

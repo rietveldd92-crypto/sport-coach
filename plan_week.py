@@ -35,8 +35,8 @@ def _next_monday(from_date: date = None) -> date:
 
 
 def _load_state() -> dict:
-    with open(STATE_PATH, encoding="utf-8") as f:
-        return json.load(f)
+    from shared import load_state
+    return load_state()
 
 
 def print_status():
@@ -258,8 +258,8 @@ def run(week_start: date, dry_run: bool = True, skip_run_days: list = None):
             break
     else:
         log.append(new_entry)
-    with open(STATE_PATH, "w", encoding="utf-8") as f:
-        json.dump(state, f, indent=2, ensure_ascii=False)
+    from shared import save_state
+    save_state(state)
 
     return events
 

@@ -81,11 +81,19 @@ def get_events(start: date = None, end: date = None, resolve: bool = False) -> l
 
 
 def create_event(event_date: date, name: str, description: str = "", category: str = "WORKOUT",
-                 sport_type: str = "Ride", load_target: int = None) -> dict:
-    """Maak een nieuw event/workout aan in de kalender."""
+                 sport_type: str = "Ride", load_target: int = None,
+                 start_time: str = None) -> dict:
+    """Maak een nieuw event/workout aan in de kalender.
+
+    ``start_time`` ("HH:MM" of "HH:MM:SS") zet een concrete starttijd in
+    start_date_local — de slot-solver (Planner v2) levert die mee.
+    """
+    time_part = "00:00:00"
+    if start_time:
+        time_part = start_time if len(str(start_time)) > 5 else f"{start_time}:00"
     payload = {
         "category": category,
-        "start_date_local": f"{event_date.isoformat()}T00:00:00",
+        "start_date_local": f"{event_date.isoformat()}T{time_part}",
         "name": name,
         "description": description,
         "type": sport_type,
@@ -160,6 +168,21 @@ def get_activity_streams(activity_id: str, types: list[str] = None) -> dict:
                      auth=_auth(), params=params, timeout=30)
     r.raise_for_status()
     return r.json()
+
+
+# ── FAKE-MODUS (Fase 4) ────────────────────────────────────────────────────
+# INTERVALS_FAKE=1 → alle netwerk-functies hierboven worden bij import
+# vervangen door de gedeelde fixture uit core.fake_intervals. Daarmee
+# draaien frontend-dev en smoke-tests volledig offline tegen dezelfde
+# data als de pytest-integratietests.
+
+FAKE_MODE = False
+
+if os.environ.get("INTERVALS_FAKE", "").strip().lower() in {
+        "1", "true", "yes", "on"}:
+    from core.fake_intervals import install_fake as _install_fake
+
+    _install_fake()
 
 
 if __name__ == "__main__":

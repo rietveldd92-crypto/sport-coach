@@ -196,3 +196,17 @@ def apply_skip(event_id: str) -> None:
     import intervals_client as api
 
     api.delete_event(event_id)
+
+
+def apply_move(event_id: str, new_date_iso: str, new_time: str = "07:00") -> dict:
+    """Verplaats een event naar een andere datum/starttijd.
+
+    Gebruikt door de Planner v2-replan (core/replan.py): de solver bepaalt
+    dag + slot-starttijd, deze functie schrijft het naar intervals.icu.
+    """
+    import intervals_client as api
+
+    time_part = new_time if len(str(new_time)) > 5 else f"{new_time}:00"
+    return api.update_event(
+        event_id, start_date_local=f"{new_date_iso}T{time_part}"
+    )

@@ -1,0 +1,155 @@
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/jetbrains-mono";
+@import "@fontsource-variable/fraunces/opsz.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Base — identiek aan ui_components.py design tokens */
+  --bg: #0e0f12;
+  --bg-raised: #17181c;
+  --bg-elevated: #1e1f24;
+  --border: #24262d;
+  --border-strong: #2e3038;
+
+  /* Text */
+  --text: #f4f2ee;
+  --text-muted: #8a8680;
+  --text-dim: #5b5852;
+
+  /* Accent — terracotta */
+  --accent: #c4603c;
+  --accent-hover: #d47049;
+  --accent-bg: rgba(196, 96, 60, 0.08);
+  --accent-border: rgba(196, 96, 60, 0.35);
+
+  /* Status */
+  --positive: #5b8c5a;
+  --positive-bg: rgba(91, 140, 90, 0.1);
+  --warning: #d4a24c;
+  --warning-bg: rgba(212, 162, 76, 0.1);
+  --alert: #b84646;
+  --alert-bg: rgba(184, 70, 70, 0.1);
+
+  /* Zones — consistent overal (Z1 grijsblauw · Z2 groenig · tempo amber ·
+     drempel terracotta · race rood) */
+  --zone-z1: #6b80a1;
+  --zone-z2: #5e8f68;
+  --zone-tempo: #d4a24c;
+  --zone-drempel: #c4603c;
+  --zone-race: #b84646;
+}
+
+html {
+  background: var(--bg);
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Inter Variable", system-ui, sans-serif;
+  font-feature-settings: "tnum" 1, "cv11" 1;
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior-y: none;
+}
+
+#root {
+  min-height: 100dvh;
+}
+
+/* Fraunces met optical sizing voluit op grote koppen */
+.font-display {
+  font-variation-settings: "opsz" 72;
+  letter-spacing: -0.02em;
+}
+
+/* Subtiele entree voor schermwissels */
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.rise-in {
+  animation: rise-in 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.rise-in-late {
+  animation: rise-in 0.35s cubic-bezier(0.22, 1, 0.36, 1) 0.08s both;
+}
+
+/* Bottom-sheet */
+@keyframes sheet-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.sheet-backdrop {
+  animation: fade-in 0.2s ease both;
+}
+.sheet-panel {
+  animation: sheet-up 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Range sliders in eigen stijl */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border-strong);
+  outline: none;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 3px solid var(--bg);
+  cursor: pointer;
+}
+input[type="range"]::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 3px solid var(--bg);
+  cursor: pointer;
+}
+
+/* Tijd-inputs (availability editor) */
+input[type="time"] {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  color: var(--text);
+  font-family: "JetBrains Mono Variable", monospace;
+  font-size: 0.85rem;
+  padding: 6px 8px;
+  color-scheme: dark;
+}
+
+::selection {
+  background: var(--accent-border);
+}

@@ -1,0 +1,26 @@
+# Railway-deploy (zelfde patroon als parcello: Dockerfile-build).
+#
+# Eenmalige setup in het Railway-dashboard:
+#   1. Service aanmaken vanaf deze repo (build pikt railway.toml op).
+#   2. Volume mounten op /data  (SQLite moet een persistente schijf hebben).
+#   3. Variables zetten:
+#        SPORT_DB_PATH        = /data/history.db
+#        API_TOKEN            = <lang willekeurig geheim>   (verplicht: publieke URL!)
+#        SCHEDULER_ENABLED    = 1
+#        TZ                   = Europe/Amsterdam            (zondagse herijking 18:00 lokaal)
+#        INTERVALS_ATHLETE_ID = i85836
+#        INTERVALS_API_KEY    = <intervals.icu key>
+#        GOOGLE_API_KEY       = <gemini key>                (optioneel: coach-feedback)
+#        TP_SYNC_ENABLED / TP_AUTH_COOKIE                   (optioneel: Zwift-sync)
+#   4. Database seeden vanaf je lokale machine:
+#        curl -X POST https://<app>.up.railway.app/api/admin/import-db \
+#             -H "Authorization: Bearer $API_TOKEN" --data-binary @history.db
+#   5. PWA koppelen op je telefoon: open https://<app>.up.railway.app/?token=<API_TOKEN>
+#      en installeer via "Zet op beginscherm". Backup: GET /api/admin/export-db.
+
+[build]
+dockerfilePath = "Dockerfile"
+
+[deploy]
+healthcheckPath = "/api/health"
+restartPolicyType = "ON_FAILURE"

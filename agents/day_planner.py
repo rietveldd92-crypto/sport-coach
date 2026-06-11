@@ -1,5 +1,11 @@
 """Day planner — availability-first dagtoewijzing voor week-sessies.
 
+DEPRECATED (Fase 1, UPGRADE_PLAN §5): dit greedy tier-systeem is vervangen
+door de CP-SAT slot-solver in ``core/slot_solver.py`` (feature flag
+PLANNER_V2, default aan). Deze module blijft bestaan voor het flag-uit-pad
+en levert nog de gedeelde classificatie (``classify_intensity``) en
+``fill_empty_days_with_easy_bikes``. Geen nieuwe features hier toevoegen.
+
 Regels in tiers (afgestemd met gebruiker 2026-04-21):
 
 TIER 1 — Heilig (nooit breken; in best-effort skip je een sessie liever):

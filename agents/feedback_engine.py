@@ -39,7 +39,9 @@ HARD_WORKOUT_TYPES = {
 ATHLETE_FTP = 290
 ATHLETE_HRMAX = 190
 Z2_HR_MIN = round(ATHLETE_HRMAX * 0.68)  # 129
-Z2_HR_MAX = round(ATHLETE_HRMAX * 0.80)  # 152
+# Operationeel easy-plafond: Dennis herstelt aantoonbaar beter als HR op easy
+# runs/bikes onder 145 blijft; alles 145–152 = grijze zone voor hem.
+Z2_HR_MAX = 145
 
 _gemini_client = None
 _genai_types = None
@@ -58,10 +60,11 @@ def _ensure_gemini():
 
     key = os.getenv("GOOGLE_API_KEY")
     if not key:
-        # Streamlit secrets fallback (alleen als streamlit beschikbaar)
+        # config.get_secret kijkt zelf naar st.secrets én .env — agents
+        # importeren geen streamlit (UPGRADE_PLAN Fase 0).
         try:
-            import streamlit as st
-            key = st.secrets.get("GOOGLE_API_KEY")
+            from config import get_secret
+            key = get_secret("GOOGLE_API_KEY")
         except Exception:
             pass
     if not key:
@@ -81,7 +84,7 @@ def gemini_available() -> bool:
 
 COACH_SYSTEM_PROMPT = """Jij bent mijn persoonlijke coach. Wees direct, eerlijk en analytisch.
 
-Doel: maximaliseer mijn prestatie en ontwikkeling richting de Amsterdam Marathon (sub 3:45) op 18 oktober 2026.
+Doel: maximaliseer mijn prestatie en ontwikkeling richting de Amsterdam Marathon (sub 3:00) op 18 oktober 2026.
 
 Houd rekening met:
 - Ik functioneer het best met hoge standaarden, autonomie en inhoudelijke feedback
@@ -336,7 +339,7 @@ def build_prompt(
     insights_str = "\n".join(f"- {i}" for i in insights) if insights else "- Geen bijzonderheden uit de auto-analyse."
 
     deep_data = []
-    if metrics.get("interval_powers"):
+    if metrics.get("interval_powers") and not wtype.startswith("run"):
         deep_data.append(
             f"Power per work-interval: {metrics['interval_powers']}W (gem {metrics.get('interval_avg_power', '?')}W = {metrics.get('interval_pct_ftp', '?')}% FTP, spread {metrics.get('interval_power_spread_pct', '?')}%)"
         )
@@ -361,7 +364,12 @@ def build_prompt(
         deep_data.append(f"Gem. kadans: {metrics['cadence']}")
     deep_str = "\n".join(f"- {d}" for d in deep_data) if deep_data else "- Geen interval/split-detail beschikbaar."
 
-    if metrics.get("avg_power") and metrics.get("np_power"):
+    is_run = wtype.startswith("run")
+    if is_run:
+        # Running power is voor deze atleet onbetrouwbaar en wordt bewust genegeerd —
+        # loop-feedback stuurt uitsluitend op HR + pace.
+        power_line = ""
+    elif metrics.get("avg_power") and metrics.get("np_power"):
         power_line = f"Vermogen: {metrics['avg_power']}W (gem) / {metrics['np_power']}W (NP) = {round(metrics['avg_power']/ATHLETE_FTP*100)}% FTP"
     elif metrics.get("avg_power"):
         power_line = f"Vermogen: {metrics['avg_power']}W = {round(metrics['avg_power']/ATHLETE_FTP*100)}% FTP"
@@ -376,9 +384,10 @@ def build_prompt(
     prompt = f"""{COACH_SYSTEM_PROMPT}
 
 REFERENTIEWAARDEN ATLEET (gebruik DEZE, verzin geen andere)
-- FTP: {ATHLETE_FTP}W
+- FTP: {ATHLETE_FTP}W (alleen relevant voor de FIETS)
 - HRmax: {ATHLETE_HRMAX}bpm
-- Z2 hartslag-bandbreedte: {Z2_HR_MIN}–{Z2_HR_MAX}bpm (68–80% HRmax)
+- Easy/Z2 hartslag-bandbreedte: {Z2_HR_MIN}–{Z2_HR_MAX}bpm. {Z2_HR_MAX}bpm is een hard plafond op easy runs/bikes — alles erboven (tot ~152) is voor deze atleet de grijze zone en kost herstel.
+- HARDLOPEN: negeer running-power volledig (onbetrouwbaar). Beoordeel loop-workouts uitsluitend op HR, pace en kadans.
 
 LIVE STATE
 {state_ctx}
@@ -434,27 +443,31 @@ Noem nooit interne workout-type tags zoals "bike_threshold", "run_long", "run_in
 
 # ── GEMINI CALL ────────────────────────────────────────────────────────────
 
-def gemini_call(model_name: str, prompt: str) -> str:
-    """Single Gemini-call met juiste config per model.
+def _generation_config(model_name: str):
+    """GenerateContentConfig per model.
 
     - Flash: thinking uit (snel + voorspelbaar token-budget)
     - Pro: thinking aan met beperkt budget (kwaliteit telt hier)
     """
-    if not _ensure_gemini():
-        raise RuntimeError("Gemini client niet beschikbaar (geen GOOGLE_API_KEY)")
-
     if "flash" in model_name:
-        cfg = _genai_types.GenerateContentConfig(
+        return _genai_types.GenerateContentConfig(
             max_output_tokens=2000,
             temperature=0.7,
             thinking_config=_genai_types.ThinkingConfig(thinking_budget=0),
         )
-    else:
-        cfg = _genai_types.GenerateContentConfig(
-            max_output_tokens=4000,
-            temperature=0.7,
-            thinking_config=_genai_types.ThinkingConfig(thinking_budget=1024),
-        )
+    return _genai_types.GenerateContentConfig(
+        max_output_tokens=4000,
+        temperature=0.7,
+        thinking_config=_genai_types.ThinkingConfig(thinking_budget=1024),
+    )
+
+
+def gemini_call(model_name: str, prompt: str) -> str:
+    """Single Gemini-call met juiste config per model."""
+    if not _ensure_gemini():
+        raise RuntimeError("Gemini client niet beschikbaar (geen GOOGLE_API_KEY)")
+
+    cfg = _generation_config(model_name)
 
     response = _gemini_client.models.generate_content(
         model=model_name,
@@ -469,6 +482,27 @@ def gemini_call(model_name: str, prompt: str) -> str:
         except (AttributeError, IndexError):
             raise RuntimeError("lege response zonder candidate")
     return text
+
+
+def gemini_stream(model_name: str, prompt: str):
+    """Streaming Gemini-call — generator van tekst-chunks.
+
+    Gebruikt door de SSE-route GET /api/coach/feedback (Fase 3).
+    Raises RuntimeError als er geen API-key is; de caller valt dan
+    terug op rule_feedback (non-streaming).
+    """
+    if not _ensure_gemini():
+        raise RuntimeError("Gemini client niet beschikbaar (geen GOOGLE_API_KEY)")
+
+    cfg = _generation_config(model_name)
+    for chunk in _gemini_client.models.generate_content_stream(
+        model=model_name,
+        contents=prompt,
+        config=cfg,
+    ):
+        text = getattr(chunk, "text", None)
+        if text:
+            yield text
 
 
 # ── HIGH-LEVEL ENTRY POINTS ────────────────────────────────────────────────
@@ -519,18 +553,4 @@ def generate_feedback(
 
 def rule_feedback(analysis: dict) -> str:
     """Fallback als Gemini niet beschikbaar is. Geen quote, geen motivatiepraat."""
-    insights = analysis.get("insights", [])
-    if not insights:
-        return (
-            "**Wat gaat goed**\nWorkout voltooid, geen bijzonderheden uit auto-analyse.\n\n"
-            "**Wat gaat fout / risico's**\nGeen risico's gedetecteerd.\n\n"
-            "**Concreet advies**\n1. Volg het bestaande weekplan.\n\n"
-            "**Aanpassing in strategie**\nGeen aanpassing nodig."
-        )
-    text = " ".join(insights[:3])
-    return (
-        f"**Wat gaat goed**\n{text}\n\n"
-        "**Wat gaat fout / risico's**\nGeen specifieke risico's uit deze auto-analyse — Gemini AI niet beschikbaar voor diepere check.\n\n"
-        "**Concreet advies**\n1. Volg het bestaande plan tot AI weer werkt.\n\n"
-        "**Aanpassing in strategie**\nGeen aanpassing nodig."
-    )
+ 
