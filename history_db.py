@@ -33,6 +33,10 @@ DB_PATH = Path(os.environ.get("SPORT_DB_PATH")
 
 def _connect() -> sqlite3.Connection:
     """Open een nieuwe connectie. Callers sluiten 'm zelf via with."""
+    # Op een verse Railway-mount kan de map (/data) nog niet bestaan; zonder
+    # dit crasht sqlite3.connect met "unable to open database file" en faalt
+    # de hele startup (502). mkdir is idempotent en goedkoop.
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     # WAL voor betere concurrent reads (al is het single-user)
