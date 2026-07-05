@@ -240,6 +240,27 @@ def test_recalibration_binnen_band_doet_niets():
     assert [w.run_km for w in after] == [w.run_km for w in before]
 
 
+def test_recalibration_force_regenereert_ondanks_binnen_band():
+    """force=True moet regenereren, óók als de uitvoering keurig op schema
+    ligt — nodig om een net geregistreerd B/C-tussendoel (mini-taper)
+    meteen te stansen, zonder te wachten op toevallige afwijking."""
+    goal = _seed_goal_with_plan()
+    before = load_plan_weeks(goal.id)
+    wk10_monday = PLAN_START + timedelta(weeks=9)
+    today = wk10_monday + timedelta(days=6)
+
+    report = weekly_recalibration(
+        today=today,
+        actual_ctl=58.0,
+        actual_run_km=before[9].run_km,   # exact op schema
+        force=True,
+    )
+    assert report["status"] == "replanned"
+    after = load_plan_weeks(goal.id)
+    # Verleden (t/m huidige week) blijft ongewijzigd, toekomst wordt herbouwd.
+    assert [w.run_km for w in after[:10]] == [w.run_km for w in before[:10]]
+
+
 def test_recalibration_buiten_band_regenereert_alleen_toekomst():
     goal = _seed_goal_with_plan()
     before = load_plan_weeks(goal.id)

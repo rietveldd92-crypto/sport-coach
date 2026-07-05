@@ -47,9 +47,13 @@ def delete_goal(goal_id: int) -> None:
 
 
 @router.post("/goals/{goal_id}/regenerate")
-def regenerate_goal(goal_id: int) -> dict:
-    """Rolling re-periodisatie (weekly_recalibration, UPGRADE_PLAN §4.2)."""
+def regenerate_goal(goal_id: int, force: bool = False) -> dict:
+    """Rolling re-periodisatie (weekly_recalibration, UPGRADE_PLAN §4.2).
+
+    ``force=true`` negeert de ±10%-uitvoeringsband — nodig om een net
+    toegevoegd B/C-tussendoel (mini-taper) meteen te stansen.
+    """
     try:
-        return views.regenerate_goal(goal_id)
+        return views.regenerate_goal(goal_id, force=force)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc))

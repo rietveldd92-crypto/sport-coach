@@ -41,6 +41,13 @@ def test_annotate_run_fixed():
     assert "5:47/km" in out
 
 
+def test_annotate_run_tempo_komt_na_pace_woord():
+    # Tempo hoort NA het woord "Pace" te staan, niet ervoor.
+    desc = "- 31m 75% Pace"
+    out = annotate_description(desc, "Run", threshold_pace_sec=260)
+    assert out == "- 31m 75% Pace (5:47/km)"
+
+
 def test_annotate_run_ramp():
     desc = "- 5m ramp 55-80% Pace"
     out = annotate_description(desc, "Run", threshold_pace_sec=260)

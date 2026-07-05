@@ -314,15 +314,20 @@ def delete_goal(goal_id: int) -> None:
     goal_engine.delete_goal(goal_id)
 
 
-def regenerate_goal(goal_id: int) -> dict:
-    """POST /api/goals/{id}/regenerate — rolling re-periodisatie (§4.2)."""
+def regenerate_goal(goal_id: int, force: bool = False) -> dict:
+    """POST /api/goals/{id}/regenerate — rolling re-periodisatie (§4.2).
+
+    ``force=True`` negeert de ±10%-uitvoeringsband — nodig om een net
+    toegevoegd B/C-tussendoel (mini-taper) meteen in het macroplan te
+    stansen zonder te wachten tot de uitvoering toevallig afwijkt.
+    """
     from core import goal_engine
     from core.replan_goal import weekly_recalibration
 
     goal = goal_engine.get_goal(goal_id)
     if goal is None:
         raise LookupError(f"Goal {goal_id} bestaat niet")
-    return weekly_recalibration(goal=goal, activities=_recent_activities())
+    return weekly_recalibration(goal=goal, activities=_recent_activities(), force=force)
 
 
 # ── SEASON / TRENDS ───────────────────────────────────────────────────────

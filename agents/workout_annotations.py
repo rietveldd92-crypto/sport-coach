@@ -66,7 +66,8 @@ def annotate_description(
 ) -> str:
     """Voeg absolute waardes toe achter elke step in de beschrijving.
 
-    - Runs: `- 20m 75% Pace` -> `- 20m 75% Pace (5:47/km)`
+    - Runs: `- 20m 75% Pace` -> `- 20m 75% Pace (5:47/km)` — tempo komt ná
+      "Pace", niet ervoor.
     - Bikes: `- 20m 75% 90rpm` -> `- 20m 75% (218W) 90rpm`
 
     Idempotent: als de regel al een `(…W)` of `(…/km)` bevat, laten we hem
@@ -102,7 +103,13 @@ def annotate_description(
                 )
             else:
                 annot = f" ({pct_to_pace_str(avg, threshold_pace_sec)})"
-        new_line = f"{m.group('prefix')}{m.group('target')}{annot}{rest}"
+
+        if _is_run(sport):
+            # "Pace" staat al in de brontekst (rest) — tempo hoort daarNA,
+            # niet ervoor: "...% Pace (5:47/km)", niet "...% (5:47/km) Pace".
+            new_line = f"{m.group('prefix')}{m.group('target')}{rest}{annot}"
+        else:
+            new_line = f"{m.group('prefix')}{m.group('target')}{annot}{rest}"
 
         out_lines.append(new_line)
     return "\n".join(out_lines)

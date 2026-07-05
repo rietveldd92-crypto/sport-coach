@@ -139,12 +139,18 @@ def weekly_recalibration(
     injury_status: Optional[str] = None,
     activities: Optional[list] = None,
     persist: bool = True,
+    force: bool = False,
 ) -> dict:
     """Herijk het macroplan van het actieve A-doel op de werkelijkheid.
 
     Alle werkelijkheids-inputs zijn injecteerbaar (tests/scheduler); zonder
     expliciete waarden worden ze uit de athlete-state en ``activities``
     afgeleid.
+
+    ``force=True`` slaat de ±10%-bandcheck over en regenereert altijd vanaf
+    volgende week — nodig om een nieuw geregistreerd B/C-tussendoel (mini-
+    taper) meteen in het macroplan te stansen i.p.v. te wachten tot de
+    uitvoering toevallig buiten de band valt.
 
     Returns dict met o.a.::
 
@@ -196,7 +202,7 @@ def weekly_recalibration(
         deviations["tss"] = (actual_tss - current.tss_target) / current.tss_target
 
     max_dev = max((abs(v) for v in deviations.values()), default=0.0)
-    within_band = max_dev <= DEVIATION_BAND
+    within_band = max_dev <= DEVIATION_BAND and not force
 
     future = [w for w in plan if w.week_start >= next_monday]
     notes: list[str] = []
