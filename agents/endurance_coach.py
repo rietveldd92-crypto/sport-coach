@@ -391,9 +391,13 @@ def _drempel_run(week_number: int) -> dict:
         "beschrijving": (
             f"Warmup\n"
             f"- 15m ramp 55-78% Pace\n\n"
+            # intervals.icu step-syntax: "- 1km 4:20/km Pace" — mét het
+            # keyword "Pace" en zónder "@", anders wordt de pace-target niet
+            # geparsed en rendert de rep als Z1 (empirisch geverifieerd via
+            # probe-events; tekst tussen haakjes erachter is wel veilig).
             f"Main Set\n"
             f"{reps}x\n"
-            f"- {rep_km:g}km @ {pace} (drempelpace — HARD, niet marathonpace)\n"
+            f"- {rep_km:g}km {pace} Pace (drempelpace — HARD, niet marathonpace)\n"
             f"- {rest_min:g}m rustig 60% Pace\n\n"
             f"Cooldown\n"
             f"- 15m ramp 70-55% Pace\n\n"
