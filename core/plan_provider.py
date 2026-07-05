@@ -104,9 +104,12 @@ def _legacy_run_intensity(phase: str, gate: str) -> str:
     if gate == "race_specifiek":
         return "marathon_tempo"
     if gate == "drempel":
-        # Transformatie-blokken draaiden historisch op marathon_tempo;
-        # drempel in de staart van accumulatie blijft drempel.
-        return "marathon_tempo" if phase.startswith("transformatie") else "drempel"
+        # Gate drempel = drempel, ook in transformatie. Historisch mapten we
+        # transformatie naar marathon_tempo, maar dan bevat het plan na wk 14
+        # géén LT-werk meer — terwijl de doelen (10K 5 sep, marathon 18 okt)
+        # juist een hogere drempel + meer tijd-op-drempel vragen. MP-werk
+        # blijft bestaan via transformatie_II (gate race_specifiek, sep).
+        return "drempel"
     if gate == "tempoduur":
         return "tempoduur_strides" if phase == "accumulatie_III" else "tempoduur"
     return gate  # geen | strides
