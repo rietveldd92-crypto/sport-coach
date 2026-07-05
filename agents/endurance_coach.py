@@ -364,10 +364,58 @@ _DREMPEL_PLAN: dict[int, tuple[int, float, float, int]] = {
 }
 _DREMPEL_DEFAULT = (4, 1.0, 2.0, 255)
 
+# Tweede rennende drempelsessie (vanaf wk 17, expliciete atleet-keuze
+# 2026-07-05 — overschrijft het oude 1×/week-plafond). Vorm: cruise-blokken
+# net onder intervalpace (tijd-op-drempel, geen tweede all-out intervaldag).
+# (reps, blok_min, rust_min, pace_sec_per_km). Deloadweken: geen 2e sessie.
+_CRUISE_PLAN: dict[int, tuple[int, int, float, int]] = {
+    17: (2, 12, 3.0, 270),   # 2×12m @ 4:30 — instap
+    19: (2, 15, 3.0, 270),   # blokken langer
+    20: (2, 15, 3.0, 268),   # 4:28
+    21: (3, 12, 2.5, 265),   # 4:25 — piek vóór taper
+}
+_CRUISE_DEFAULT = (2, 12, 3.0, 270)
+
 
 def _pace_label(sec_per_km: int) -> str:
     mm, ss = divmod(sec_per_km, 60)
     return f"{mm}:{ss:02d}/km"
+
+
+def _drempel_cruise(week_number: int) -> dict:
+    """Tweede drempelsessie van de week — cruise-blokken op tijd i.p.v.
+    kilometer-reps, 5-10 s/km rustiger dan de intervalsessie. Doel: extra
+    tijd-op-drempel met beheersbare weefselbelasting (Norwegian-style
+    dubbele drempel, gecontroleerd — nooit all-out)."""
+    reps, blok_min, rest_min, pace_sec = _CRUISE_PLAN.get(
+        week_number, _CRUISE_DEFAULT)
+    pace = _pace_label(pace_sec)
+    total_min = 12 + reps * blok_min + round(reps * rest_min) + 10
+    return {
+        "type": "drempel_cruise",
+        "naam": f"Drempel cruise – {reps}×{blok_min} min @ {pace}",
+        "beschrijving": (
+            f"Warmup\n"
+            f"- 12m ramp 65-82% Pace\n\n"
+            f"Main Set\n"
+            f"{reps}x\n"
+            f"- {blok_min}m {pace} Pace (cruise — gecontroleerd, NIET all-out)\n"
+            f"- {rest_min:g}m rustig 65% Pace\n\n"
+            f"Cooldown\n"
+            f"- 10m ramp 75-60% Pace\n\n"
+            f"2e drempelsessie van de week: tijd-op-drempel, 5-10 s/km rustiger "
+            f"dan de intervalsessie van woensdag. Ademhaling zwaar maar stabiel; "
+            f"kun je de blokken niet gelijkmatig houden, dan is de pace te hoog.\n"
+            f"Pas DIRECT aan bij knie-/heup-/hamstringongemak."
+            f"{REHAB_REMINDER_SHORT}"
+            f"{DELAHAIJE_COACHING}"
+        ),
+        "duur_min": total_min,
+        "tss_geschat": _tss_estimate(total_min, 0.86),
+        "sport": "Run",
+        "zone": "Z3-Z4",
+        "intensiteit_factor": 0.86,
+    }
 
 
 def _drempel_run(week_number: int) -> dict:
@@ -389,8 +437,10 @@ def _drempel_run(week_number: int) -> dict:
         "type": "drempel",
         "naam": f"Drempel – {reps}×{rep_label} @ {pace}",
         "beschrijving": (
+            # Ramp 65-82% = 6:40 → 5:17/km. De oude 55-78% begon op 7:53/km —
+            # wandeltempo, geen opwarming voor een drempelsessie.
             f"Warmup\n"
-            f"- 15m ramp 55-78% Pace\n\n"
+            f"- 15m ramp 65-82% Pace\n\n"
             # intervals.icu step-syntax: "- 1km 4:20/km Pace" — mét het
             # keyword "Pace" en zónder "@", anders wordt de pace-target niet
             # geparsed en rendert de rep als Z1 (empirisch geverifieerd via
@@ -398,9 +448,9 @@ def _drempel_run(week_number: int) -> dict:
             f"Main Set\n"
             f"{reps}x\n"
             f"- {rep_km:g}km {pace} Pace (drempelpace — HARD, niet marathonpace)\n"
-            f"- {rest_min:g}m rustig 60% Pace\n\n"
+            f"- {rest_min:g}m rustig 65% Pace\n\n"
             f"Cooldown\n"
-            f"- 15m ramp 70-55% Pace\n\n"
+            f"- 10m ramp 75-60% Pace\n\n"
             f"Doel: drempelpace omlaag én langere blokken op drempel — dit is "
             f"de sleutelsessie richting de 10K (5 sep) en de marathon (18 okt).\n"
             f"Je kunt nog net praten maar je wilt het niet. Stabiel tempo per rep.\n"
@@ -493,6 +543,12 @@ def _plan_marathon_sessions(
         # Drempel = vanaf wk 13+, @ 4:20/km startpace (echt hard).
         if intensiteit == "drempel" and tempo_ok and run_intensity_ok and i == 0:
             sessie = _drempel_run(week_number)
+        elif (intensiteit == "drempel" and tempo_ok and run_intensity_ok
+              and i == 1 and week_number >= 17 and not is_deload):
+            # 2e rennende drempelsessie vanaf wk 17 (atleet-keuze 2026-07-05):
+            # cruise-blokken, geen tweede intervaldag. In deloadweken blijft
+            # het bij één drempelsessie.
+            sessie = _drempel_cruise(week_number)
         elif intensiteit == "tempoduur" and i == 0:
             sessie = _tempoduur_progressief(week_number)
         elif intensiteit == "tempoduur_strides" and strides_ok and i == 0:

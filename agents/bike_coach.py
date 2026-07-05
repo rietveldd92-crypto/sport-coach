@@ -426,6 +426,16 @@ def select_bike_sessions_for_week(week_number: int, phase_naam: str, state: dict
         light_thr["naam"] = "Threshold light – " + light_thr["naam"].split("– ")[-1]
         return [light_thr, easy_spin_session(60)]
 
+    # Dubbele rennende drempel (wk 17+, zie endurance_coach._CRUISE_PLAN):
+    # de fiets levert die weken GEEN derde LT-dag — puur aerobe week
+    # (long_slow + fatmax), anders stapelen we 3 harde dagen.
+    try:
+        from agents.endurance_coach import _CRUISE_PLAN
+        if week_number in _CRUISE_PLAN:
+            return [long_slow_session(ftp), fatmax_medium_session(ftp)]
+    except ImportError:
+        pass
+
     # Threshold-anker altijd
     sessies = [_threshold(ftp, t_step)]
 
