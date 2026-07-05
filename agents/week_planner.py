@@ -63,6 +63,13 @@ REHAB_DAILY_NOTE = (
     "Meld het via: python adjust.py"
 )
 
+# Label voor optionele sessies in de kalender (consistentie-laag).
+# Eén regel bovenaan de beschrijving; adherence classificeert op naam/type,
+# dus dit label beïnvloedt de verplicht/optioneel-telling niet.
+OPTIONEEL_MARKER = (
+    "[OPTIONEEL] Schrappen is prima — telt niet als gemiste training.\n\n"
+)
+
 # Dagen waarop krachttraining ingepland kan worden — fallback als de
 # slimme placement (zie _select_strength_days) faalt.
 STRENGTH_DAYS = ["dinsdag", "donderdag", "zaterdag"]
@@ -750,12 +757,19 @@ def build_week(
         if dag_naam in sessions_by_day:
             for sessie in sessions_by_day[dag_naam]:
                 dag_date = _day_label(week_start, dag_naam)
+                beschrijving = annotate_description(
+                    sessie["beschrijving"], sessie["sport"]
+                )
+                # Consistentie-laag: optionele sessies expliciet labelen,
+                # zodat de atleet in de kalender ziet dat schrappen prima is
+                # (80-90%-filosofie — alleen de verplichte sessies dragen
+                # de weekstimulus).
+                if sessie.get("priority") == "optioneel":
+                    beschrijving = OPTIONEEL_MARKER + beschrijving
                 events_to_create.append({
                     "datum": dag_date,
                     "naam": sessie["naam"],
-                    "beschrijving": annotate_description(
-                        sessie["beschrijving"], sessie["sport"]
-                    ),
+                    "beschrijving": beschrijving,
                     "categorie": "WORKOUT",
                     "sport": sessie["sport"],
                     "tss": sessie.get("tss_geschat"),
