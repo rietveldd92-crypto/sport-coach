@@ -267,7 +267,14 @@ def run_adaptive_cycle(
     # Apply modifications naar intervals.icu — per-mod success tracking.
     # Bij failure halverwege NIET de hele batch als applied=True markeren;
     # revert moet exact weten welke mods écht live zijn.
+    #
+    # created_ok_for_event trackt per event_id of een 'create' echt gelukt is.
+    # Een reschedule-'delete' (zie agents/adapt_week.py — verwijdert het
+    # origineel na herplanning, om dagelijkse duplicaat-cascades te
+    # voorkomen) mag ALLEEN uitgevoerd worden als de bijbehorende 'create'
+    # gelukt is — anders raakt de sacred sessie kwijt zonder vervanging.
     all_ok = True
+    created_ok_for_event: dict[str, bool] = {}
     for mod in result.modifications:
         try:
             if mod.action == "modify":
@@ -279,17 +286,29 @@ def run_adaptive_cycle(
             elif mod.action == "create":
                 ev = mod.after
                 ev_date = _date.fromisoformat(ev["start_date_local"][:10])
+                raw_start = ev.get("start_date_local", "")
+                start_time = raw_start.split("T", 1)[1] if "T" in raw_start else None
                 resp = api.create_event(
                     event_date=ev_date,
                     name=ev.get("name", "Herpland"),
                     description=ev.get("description", ""),
                     category="WORKOUT",
+                    sport_type=ev.get("type", "Ride"),
+                    load_target=ev.get("load_target"),
+                    start_time=start_time,
                 )
                 # Persist het nieuwe event-id zodat revert het later kan deleten
                 if isinstance(resp, dict) and resp.get("id"):
                     mod.created_event_id = str(resp["id"])
                 mod.applied = True
+                created_ok_for_event[mod.event_id] = True
             elif mod.action == "delete":
+                is_reschedule_cleanup = "duplicaat-cascade" in (mod.reason or "")
+                if is_reschedule_cleanup and not created_ok_for_event.get(mod.event_id):
+                    mod.applied = False
+                    mod.error = "delete overgeslagen: bijbehorende create niet gelukt"
+                    print(f"    delete {mod.event_id} SKIPPED (create niet gelukt — origineel blijft staan)")
+                    continue
                 api.delete_event(mod.event_id)
                 mod.applied = True
             print(f"    {mod.action} {mod.event_id} OK")

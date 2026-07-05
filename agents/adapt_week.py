@@ -235,6 +235,20 @@ def adapt_week(
                         reason=f"Sacred skipped → verplaatst naar {slot.isoformat()}",
                     )
                 )
+                # Origineel event moet weg — anders blijft het als "gemist"
+                # in de kalender staan en wordt het de volgende dag opnieuw
+                # als deviation gedetecteerd, wat een nieuwe reschedule (dus
+                # een nieuwe kopie) triggert. Zonder deze delete cascadeert
+                # dit dagelijks tot een oplopend aantal duplicaten.
+                modifications.append(
+                    Modification(
+                        event_id=str(planned.get("id", "")),
+                        action="delete",
+                        before=dict(planned),
+                        after={},
+                        reason="Origineel event verwijderd na herplanning (voorkomt duplicaat-cascade)",
+                    )
+                )
                 rescheduled_sacred += 1
                 narrative_parts.append(
                     f"Gemiste sacred '{planned.get('name', '?')}' verplaatst naar {slot.isoformat()}."
@@ -281,6 +295,17 @@ def adapt_week(
                                 after=new_ev,
                                 tss_delta=int(_event_tss(planned)),
                                 reason=f"Sacred lichter vervangen → herplanning {slot.isoformat()}",
+                            )
+                        )
+                        # Zie toelichting bij de "skipped"-tak hierboven: zonder
+                        # delete van het origineel cascadeert dit dagelijks.
+                        modifications.append(
+                            Modification(
+                                event_id=str(planned.get("id", "")),
+                                action="delete",
+                                before=dict(planned),
+                                after={},
+                                reason="Origineel event verwijderd na herplanning (voorkomt duplicaat-cascade)",
                             )
                         )
                         rescheduled_sacred += 1

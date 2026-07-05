@@ -51,6 +51,12 @@ def test_sacred_skipped_wordt_herpland():
     creates = [m for m in result.modifications if m.action == "create"]
     assert len(creates) >= 1
     assert len(result.new_events) >= 1
+    # Het origineel (e_long) moet ook verwijderd worden — anders blijft het
+    # als "gemist" in de kalender staan en wordt het de volgende dag opnieuw
+    # als deviation gedetecteerd (duplicaat-cascade, zie DECISIONS).
+    deletes = [m for m in result.modifications if m.action == "delete"]
+    assert len(deletes) == 1
+    assert deletes[0].event_id == "e_long"
 
 
 def test_soft_skipped_wordt_geabsorbeerd():
