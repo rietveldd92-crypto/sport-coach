@@ -23,7 +23,7 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
 import intervals_client as api
-from agents import injury_guard, load_manager, marathon_periodizer
+from agents import adherence, injury_guard, load_manager, marathon_periodizer
 
 STATE_PATH = Path(__file__).parent / "state.json"
 
@@ -187,13 +187,24 @@ def assess(review: dict, feedback: str = None) -> dict:
         planned_tss = last_log.get("planned_tss") or last_log.get("geschat_tss") or 0
     execution_rate = round(review["week_tss"] / planned_tss * 100) if planned_tss > 0 else 100
 
+    # Consistentie-laag (80-90%-filosofie): sluit de afgelopen week af in de
+    # verplicht/optioneel-telling en beoordeel het rolling venster i.p.v. één
+    # week. Eén gemiste sessie mag de modus niet meer op zichzelf kantelen —
+    # execution_rate<70 in een enkele week deed dat voorheen wel.
+    try:
+        adherence.record_week(review["week_start"])
+    except Exception as _adh_exc:
+        print(f"  Adherence record_week overgeslagen: {_adh_exc}")
+    adherence_result = adherence.analyze(weeks=4)
+
     belasting = {
         "ctl_growth": ctl_growth,
         "ctl_too_fast": ctl_growth > 5,
         "ctl_too_slow": ctl_growth < 1 and review["week_tss"] > 0,
         "tsb_too_negative": tsb < -25,
         "execution_rate": execution_rate,
-        "execution_low": execution_rate < 70,
+        "execution_low": adherence_result["band"] == "onder_streef",
+        "adherence": adherence_result,
     }
 
     # ── As 3: Faseprogressie ──
@@ -244,7 +255,10 @@ def assess(review: dict, feedback: str = None) -> dict:
         if belasting["ctl_too_fast"]:
             reasons.append(f"CTL groeit te snel (+{ctl_growth}/week)")
         if belasting["execution_low"]:
-            reasons.append(f"Uitvoeringsgraad laag ({execution_rate}%)")
+            reasons.append(
+                f"Consistentie onder streefband ({adherence_result.get('required_pct')}% "
+                f"verplicht over laatste {adherence_result.get('weeks_counted')}wk)"
+            )
         if injury_status == "geel":
             reasons.append("Injury Guard GEEL")
         modus_reden = "Consolidatie: " + ", ".join(reasons) + ". Zelfde volume als vorige week."

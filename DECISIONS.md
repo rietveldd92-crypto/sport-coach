@@ -206,4 +206,75 @@ gebeurt automatisch bij swap, niet bij next-click.
 De trigger is **"er is een swap gebeurd terwijl deze workout al gesynced
 was"**, ongeacht of de sync-knop op dat moment zichtbaar is.
 
-Concre
+Concreet scenario: jij syncte gisteravond de workout van vanochtend
+naar Zwift. Vanochtend voel je je slap, opent de app, de sync-knop is
+al weg (want gesynced). Je klikt "Wissel → Makkelijker" en kiest een
+Z2 rit. Omdat de oude al in TP/Zwift staat, moet de propagatie
+automatisch de oude deleten en de nieuwe pushen. Anders staat er in
+Zwift nog de oude threshold waar jij al uren geleden nee tegen zei.
+
+**Implementatie:**
+- `workout_tp_sync` tabel bewaart `synced_event_name` en `last_sync_hash`
+- Bij elke swap in `perform_instant_swap()`: check deze tabel
+- Als event_id erin staat en `synced_event_name != huidige_naam`: trigger
+  `propagate_swap()` die delete+post doet
+- Fout bij delete → log, markeer als stale, toon coach-toelichting
+- Fout bij post na geslaagde delete → idempotente retry met exponential
+  backoff, laat niet de atleet met een lege plek
+
+**Wat we NIET bouwen (out of scope voor deze sessie):**
+- Offline queue met `pending_tp_actions` tabel. Streamlit Cloud is
+  altijd online; de atleet gebruikt de app alleen met WiFi. We
+  registreren fouten in de flash en laten manual retry aan de atleet.
+  Als dit in productie blijkt te vaak misgaan, bouwen we queue-retry
+  alsnog.
+- Conflict-detectie bij handmatige TP-wijziging door atleet. De
+  aanname is: als je lokaal swap, wil je de nieuwe versie in TP.
+  Geen confirm-dialog die de flow breekt. Als dit verkeerd blijkt,
+  hergebruiken we `last_sync_hash` voor een "TP is afwijkend, toch
+  overschrijven?" check.
+
+---
+
+## 2026-04-09 — Fasering: stap voor stap, niet big bang
+
+**Beslissing:** De redesign-prompt beschrijft 21-34 uur werk verspreid
+over 5 fases. Die doe ik **niet** in één Claude-sessie. Elke sessie
+levert een werkend artefact op dat de atleet kan gebruiken.
+
+**Volgorde:**
+1. Sessie 1 (nu): **Fase 0 (foundation) + Fase 3 (TP sync sidequest)**
+   - Fase 0 is klein en fundament voor alles daarna
+   - Fase 3 is geïsoleerd, eigen module, eigen tests, minimaal
+     impact op andere features — kan parallel aan design-werk
+   - Fase 3 lost ook een concrete bug op (sync knop op verkeerde
+     dagen)
+2. Sessie 2: Fase 1 (design system live op homepage)
+3. Sessie 3: Fase 2 (today-first + morning check-in + human language)
+4. Sessie 4: Fase 4 (scheduler + availability + reschedule)
+5. Sessie 5: Fase 5 (polish over de hele app)
+
+**Waarom niet Fase 1 in dezelfde sessie als Fase 0:**
+Design system is diep werk. Ik wil Dennis' feedback op Fase 0 + kleur/
+font-keuzes zien vóór ik de hele visuele taal vastleg. Eerst het plat,
+daarna het mooi.
+
+---
+
+## Nog openstaande beslissingen (te nemen in komende sessies)
+
+- **Exacte kleurkeuze:** ember `#E56A3E` vs terracotta `#C4603C`.
+  Wacht op visuele mock-up in sessie 2.
+- **Serif keuze:** Fraunces vs Söhne vs Inter tight. Hangt af van
+  hoe het voelt op het scherm — eerst Fraunces proberen, die is
+  karaktervol en leesbaar op mobile.
+- **Morning check-in prompt-timing:** altijd bij openen, of alleen
+  's ochtends tussen 6-10 uur? Nadia's voorkeur: alleen 's ochtends,
+  zodat het niet een klus wordt elke keer als je de app opent.
+- **History.db backup-strategie:** Streamlit Cloud filesystem is
+  persistent maar niet gegarandeerd. Optioneel een nightly GitHub
+  Action die de db als artifact uploadt.
+
+---
+
+*Dit bestand is levend. Nieuwe beslissingen komen bovenaan.*

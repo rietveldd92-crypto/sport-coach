@@ -502,6 +502,12 @@ def build_week(
     if not day_planner_ok:
         all_sessions = _validate_no_back_to_back_hard(all_sessions)
 
+    # Consistentie-laag (80-90%-filosofie): tag elke sessie verplicht/optioneel
+    # zodat adherence.analyze() achteraf kan wegen. Ná alle filler/brick-
+    # toevoegingen (slot-solver + legacy day-planner vullen hierboven al aan).
+    from agents.adherence import classify_priorities
+    all_sessions = classify_priorities(all_sessions)
+
     # Groepeer sessies per dag
     sessions_by_day: dict[str, list] = {}
     for s in all_sessions:
@@ -756,6 +762,7 @@ def build_week(
                     # Planner v2: concrete starttijd + solver-uitleg
                     "start_tijd": sessie.get("start_tijd"),
                     "solver_meta": sessie.get("_solver"),
+                    "priority": sessie.get("priority"),
                 })
 
     # ── PRINT OVERZICHT ─────────────────────────────────────────────────────
@@ -837,9 +844,12 @@ def build_week(
                 start_time=event.get("start_tijd"),
             )
             created_events.append(result)
-            # Planner v2: plaatsing vastleggen in de placements-tabel.
-            meta = event.get("solver_meta")
-            if meta and event.get("categorie") == "WORKOUT" and result.get("id"):
+            # Plaatsing + priority vastleggen in de placements-tabel — ook
+            # zonder solver_meta (legacy day-planner-pad), want de
+            # consistentie-laag (agents.adherence) heeft priority nodig voor
+            # élke geplaatste sessie, niet alleen slot-solver-plaatsingen.
+            meta = event.get("solver_meta") or {}
+            if event.get("categorie") == "WORKOUT" and result.get("id"):
                 try:
                     import history_db as _hdb
                     _hdb.upsert_placement(
@@ -849,6 +859,7 @@ def build_week(
                         session_kind=meta.get("kind"),
                         solver_score=meta.get("score"),
                         solver_notes=meta.get("notes"),
+                        priority=event.get("priority"),
                     )
                 except Exception as _pl_exc:
                     print(f"  Placement-log faalde voor '{event['naam']}': {_pl_exc}")

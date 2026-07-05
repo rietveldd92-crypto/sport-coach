@@ -182,11 +182,31 @@ def _migration_003_athlete_state_and_planner_v2(conn: sqlite3.Connection) -> Non
         conn.execute("ALTER TABLE workout_tp_sync ADD COLUMN workout_day TEXT")
 
 
+def _migration_004_adherence(conn: sqlite3.Connection) -> None:
+    """v4: verplicht/optioneel-onderscheid voor de consistentie-laag (80-90%-filosofie).
+
+    ``placements.priority`` volgt de sessie ("verplicht"/"optioneel") vanaf
+    plaatsing. ``weekly_summary`` krijgt de required/optional-telling zodat
+    ``agents.adherence`` een rolling venster kan berekenen i.p.v. een
+    per-week-oordeel.
+    """
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(placements)")}
+    if "priority" not in cols:
+        conn.execute("ALTER TABLE placements ADD COLUMN priority TEXT")
+
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(weekly_summary)")}
+    for col in ("sessions_required", "sessions_required_done",
+                "sessions_optional", "sessions_optional_done"):
+        if col not in cols:
+            conn.execute(f"ALTER TABLE weekly_summary ADD COLUMN {col} INTEGER")
+
+
 # Registreer migraties in volgorde: (version, name, function)
 _MIGRATIONS = [
     (1, "initial_schema", _migration_001_initial_schema),
     (2, "week_reflections", _migration_002_week_reflections),
     (3, "athlete_state_and_planner_v2", _migration_003_athlete_state_and_planner_v2),
+    (4, "adherence", _migration_004_adherence),
 ]
 
 
@@ -542,8 +562,14 @@ def upsert_placement(
     solver_score: Optional[float] = None,
     solver_notes: Optional[str] = None,
     goal_id: Optional[int] = None,
+    priority: Optional[str] = None,
 ) -> None:
-    """Upsert een placement. ``locked=None`` laat de bestaande lock intact."""
+    """Upsert een placement. ``locked=None`` laat de bestaande lock intact.
+
+    ``priority`` ("verplicht"/"optioneel", zie agents.adherence) volgt de
+    sessie vanaf plaatsing zodat de consistentie-laag achteraf kan tellen
+    welke gemiste sessies daadwerkelijk de trainingsstimulus droegen.
+    """
     ensure_migrations()
     lock_val = None if locked is None else (1 if locked else 0)
     with _connect() as conn:
@@ -551,8 +577,8 @@ def upsert_placement(
             """
             INSERT INTO placements
                 (event_id, date, slot_start, session_kind, locked,
-                 solver_score, solver_notes, goal_id)
-            VALUES (?, ?, ?, ?, COALESCE(?, 0), ?, ?, ?)
+                 solver_score, solver_notes, goal_id, priority)
+            VALUES (?, ?, ?, ?, COALESCE(?, 0), ?, ?, ?, ?)
             ON CONFLICT(event_id) DO UPDATE SET
                 date=excluded.date,
                 slot_start=excluded.slot_start,
@@ -560,10 +586,11 @@ def upsert_placement(
                 locked=COALESCE(?, locked),
                 solver_score=excluded.solver_score,
                 solver_notes=excluded.solver_notes,
-                goal_id=COALESCE(excluded.goal_id, goal_id)
+                goal_id=COALESCE(excluded.goal_id, goal_id),
+                priority=COALESCE(excluded.priority, priority)
             """,
             (str(event_id), date, slot_start, session_kind, lock_val,
-             solver_score, solver_notes, goal_id, lock_val),
+             solver_score, solver_notes, goal_id, priority, lock_val),
         )
         conn.commit()
 
@@ -627,28 +654,46 @@ def record_weekly_summary(
     sessions_done: int = 0,
     phase: str = "",
     notes: str = "",
+    sessions_required: int = 0,
+    sessions_required_done: int = 0,
+    sessions_optional: int = 0,
+    sessions_optional_done: int = 0,
 ) -> None:
-    """Upsert een weekly summary."""
+    """Upsert een weekly summary.
+
+    ``sessions_required*``/``sessions_optional*`` splitsen de bestaande
+    ``sessions_planned``/``sessions_done`` op verplicht vs. optioneel (zie
+    agents.adherence) — nodig voor de rolling consistentie-band i.p.v. een
+    per-week-oordeel.
+    """
+    ensure_migrations()
     with _connect() as conn:
         conn.execute(
             """
             INSERT INTO weekly_summary
                 (week_start, planned_tss, actual_tss, sessions_planned,
-                 sessions_done, phase, notes)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+                 sessions_done, phase, notes, sessions_required,
+                 sessions_required_done, sessions_optional, sessions_optional_done)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(week_start) DO UPDATE SET
                 planned_tss=excluded.planned_tss,
                 actual_tss=excluded.actual_tss,
                 sessions_planned=excluded.sessions_planned,
                 sessions_done=excluded.sessions_done,
                 phase=excluded.phase,
-                notes=excluded.notes
+                notes=excluded.notes,
+                sessions_required=excluded.sessions_required,
+                sessions_required_done=excluded.sessions_required_done,
+                sessions_optional=excluded.sessions_optional,
+                sessions_optional_done=excluded.sessions_optional_done
             """,
             (
                 week_start.isoformat(),
                 planned_tss, actual_tss,
                 sessions_planned, sessions_done,
                 phase, notes,
+                sessions_required, sessions_required_done,
+                sessions_optional, sessions_optional_done,
             ),
         )
         conn.commit()
@@ -656,6 +701,7 @@ def record_weekly_summary(
 
 def get_weekly_summaries(weeks: int = 16) -> list[dict]:
     """Laatste N weekly summaries, oudste eerst."""
+    ensure_migrations()
     with _connect() as conn:
         rows = conn.execute(
             """

@@ -20,7 +20,7 @@ import os
 from datetime import date, timedelta
 from typing import Optional
 
-from agents import workout_analysis
+from agents import adherence, workout_analysis
 from agents.workout_feel import get_post_workout_note
 from agents.workout_analysis import classify_workout
 
@@ -146,6 +146,13 @@ def build_state_context(state: dict) -> str:
     load = state.get("load", {})
     if "ctl_estimate" in load and "tsb_estimate" in load:
         bits.append(f"CTL {load['ctl_estimate']:.0f}, TSB {load['tsb_estimate']:+.0f}")
+
+    try:
+        adh = adherence.analyze(weeks=4)
+        if adh.get("band") != "onbekend":
+            bits.append(adh["message"])
+    except Exception:
+        pass  # UI-feature, mag feedback-generatie nooit blokkeren
 
     return " | ".join(bits)
 
@@ -419,6 +426,12 @@ CONTEXT WEEK
 
 INTERNE ANALYSE-FOCUS (niet noemen in output): {prompt_focus}
 
+CONSISTENTIE-REGEL (hoe je omgaat met gemiste sessies — zie LIVE STATE voor de rolling consistentie)
+- Beoordeel consistentie over weken, nooit over één sessie of één week.
+- Een gemiste OPTIONELE sessie is nooit een risico — noem het niet.
+- Een gemiste VERPLICHTE sessie is alleen relevant als de rolling consistentie onder de streefband (80-90%) zit.
+- Stel nooit voor om gemist volume in te halen (geen dubbele sessie, geen extra lange duurloop ter compensatie).
+
 OUTPUT FORMAT
 Geef je feedback in exact deze 4 secties. Gebruik **bold** voor de labels, geen H-headers. Houd het kort en scherp. Maximaal 200 woorden totaal. Geen quote, geen slotzin, geen motivatiepraat.
 
@@ -553,4 +566,18 @@ def generate_feedback(
 
 def rule_feedback(analysis: dict) -> str:
     """Fallback als Gemini niet beschikbaar is. Geen quote, geen motivatiepraat."""
- 
+    insights = analysis.get("insights", [])
+    if not insights:
+        return (
+            "**Wat gaat goed**\nWorkout voltooid, geen bijzonderheden uit auto-analyse.\n\n"
+            "**Wat gaat fout / risico's**\nGeen risico's gedetecteerd.\n\n"
+            "**Concreet advies**\n1. Volg het bestaande weekplan.\n\n"
+            "**Aanpassing in strategie**\nGeen aanpassing nodig."
+        )
+    text = " ".join(insights[:3])
+    return (
+        f"**Wat gaat goed**\n{text}\n\n"
+        "**Wat gaat fout / risico's**\nGeen specifieke risico's uit deze auto-analyse — Gemini AI niet beschikbaar voor diepere check.\n\n"
+        "**Concreet advies**\n1. Volg het bestaande plan tot AI weer werkt.\n\n"
+        "**Aanpassing in strategie**\nGeen aanpassing nodig."
+    )
