@@ -1,11 +1,10 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { isAuthError, isUnavailable } from "../api/client";
 import { useSyncTp, useToday } from "../api/queries";
-import type { EventSummary, TodayView } from "../api/types";
+import type { EventSummary } from "../api/types";
 import { InjuryBadge, SportBadge, ZoneChip } from "../components/Badges";
 import OfflineBanner, { useOnline } from "../components/OfflineBanner";
 import Spinner from "../components/Spinner";
-import CheckinSheet from "../features/CheckinSheet";
 import SwapSheet from "../features/SwapSheet";
 import { longDate, timeOf } from "../lib/dates";
 import {
@@ -21,18 +20,8 @@ import {
 export default function Today() {
   const { data, isLoading, isError, error, refetch } = useToday();
   const online = useOnline();
-  const [checkinOpen, setCheckinOpen] = useState(false);
   const [swapOpen, setSwapOpen] = useState(false);
 
-  // Eerste bezoek van de dag zonder checkin → sheet vanzelf openen.
-  useEffect(() => {
-    if (!data) return;
-    const key = `checkin-prompted-${data.date}`;
-    if (!data.checkin.done && !localStorage.getItem(key)) {
-      localStorage.setItem(key, "1");
-      setCheckinOpen(true);
-    }
-  }, [data]);
 
   if (isLoading) return <Spinner label="Vandaag laden…" />;
 
@@ -76,7 +65,6 @@ export default function Today() {
         </div>
         <div className="flex flex-col items-end gap-2">
           <InjuryBadge guard={data.injury_guard} />
-          <CheckinChip view={data} onOpen={() => setCheckinOpen(true)} />
         </div>
       </header>
 
@@ -91,7 +79,6 @@ export default function Today() {
 
       <TomorrowPreview items={data.tomorrow} />
 
-      <CheckinSheet open={checkinOpen} onClose={() => setCheckinOpen(false)} />
       {workout && (
         <SwapSheet
           open={swapOpen}
@@ -100,39 +87,6 @@ export default function Today() {
         />
       )}
     </div>
-  );
-}
-
-// ── Header-chip: checkin-status / knop ────────────────────────────────────
-
-const RECOVERY_TONE: Record<string, string> = {
-  go: "border-positive/40 text-positive",
-  easy: "border-warning/40 text-warning",
-  rust: "border-alert/40 text-alert",
-};
-
-function CheckinChip({ view, onOpen }: { view: TodayView; onOpen: () => void }) {
-  if (!view.checkin.done) {
-    return (
-      <button
-        data-testid="open-checkin"
-        onClick={onOpen}
-        className="rounded-full bg-accent px-3.5 py-1.5 text-[0.72rem] font-semibold text-white transition-colors hover:bg-accent-hover"
-      >
-        Check-in
-      </button>
-    );
-  }
-  const level = view.checkin.recovery.level;
-  return (
-    <button
-      data-testid="open-checkin"
-      onClick={onOpen}
-      title={view.checkin.recovery.message}
-      className={`rounded-full border px-3 py-1 font-mono text-[0.62rem] uppercase tracking-[0.14em] ${RECOVERY_TONE[level] ?? RECOVERY_TONE.easy}`}
-    >
-      checkin · {level}
-    </button>
   );
 }
 

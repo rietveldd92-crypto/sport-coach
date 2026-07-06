@@ -176,6 +176,7 @@ export default function Week() {
 
   const stale = !online || (isError && isUnavailable(error));
   const hasWorkouts = (data.items ?? []).some((i) => !i.is_note);
+  const planWarnings = planWeek.data?.warnings ?? [];
 
   return (
     <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
@@ -240,6 +241,18 @@ export default function Week() {
             <p className="mx-auto mt-1.5 max-w-[260px] text-sm text-muted">
               Laat de planner deze week vullen op basis van je beschikbaarheid.
             </p>
+            {planWarnings.length > 0 && (
+              <div className="mx-auto mt-3 max-w-[320px] space-y-1.5 text-left">
+                {planWarnings.map((w, i) => (
+                  <p
+                    key={`${w.code ?? "warning"}-${i}`}
+                    className="rounded-xl border border-warning/40 bg-warning/10 px-3 py-2 text-[0.78rem] leading-relaxed text-warning"
+                  >
+                    {w.message}
+                  </p>
+                ))}
+              </div>
+            )}
             <button
               onClick={() => planWeek.mutate()}
               disabled={planWeek.isPending}

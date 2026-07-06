@@ -6,6 +6,7 @@ import type { AvailabilitySlot } from "../api/types";
 const PRESETS: { label: string; slots: AvailabilitySlot[] }[] = [
   { label: "Ochtend", slots: [{ start: "06:00", end: "08:00", context: "any" }] },
   { label: "Avond", slots: [{ start: "18:00", end: "21:00", context: "any" }] },
+  { label: "Hele dag", slots: [{ start: "07:00", end: "21:00", context: "any" }] },
   { label: "Rustdag", slots: [] },
 ];
 

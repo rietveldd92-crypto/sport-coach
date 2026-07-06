@@ -307,6 +307,7 @@ export interface PlanWeekResult {
   week_start: string;
   planned_sessions: number;
   events: unknown[];
+  warnings?: { code?: string; message: string }[];
 }
 
 export interface OverrideResult {
