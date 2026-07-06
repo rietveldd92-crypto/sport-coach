@@ -1684,6 +1684,15 @@ def pick_z2_run(duration_min: int, variety_index: int) -> dict:
     return Z2_RUN_VARIANTS[idx](duration_min)
 
 
+LONG_RUN_VARIANTS = [long_run, long_run_negative_split]
+
+
+def pick_long_run(km: float, variety_index: int) -> dict:
+    """Roteer lange-duurloop-varianten (steady / negative split)."""
+    idx = variety_index % len(LONG_RUN_VARIANTS)
+    return LONG_RUN_VARIANTS[idx](km)
+
+
 def pick_bike_hard(ftp: int, cycle: int, slot: str,
                    t_step: int, ss_step: int, ou_step: int) -> dict:
     """

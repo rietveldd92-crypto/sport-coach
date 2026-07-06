@@ -526,8 +526,10 @@ def _plan_marathon_sessions(
         from shared import load_state as _load_state
         _prog = (_load_state() or {}).get("progression", {})
         _z2_idx = _prog.get("z2_run_variety_index", 0)
+        _long_idx = _prog.get("long_run_variety_index", 0)
     except Exception:
         _z2_idx = 0
+        _long_idx = 0
 
     # ── KORTE SESSIES (Z2 varianten roteren via workout library) ──
     from agents import workout_library as lib
@@ -603,7 +605,10 @@ def _plan_marathon_sessions(
     # ── LANGE DUURLOOP (zondag) ──
     if long_km > 0:
         if "zondag" not in skip_run_days:
-            sessie = lib.long_run(long_km)
+            if intensiteit == "geen":
+                sessie = lib.long_run(long_km)
+            else:
+                sessie = lib.pick_long_run(long_km, _long_idx)
             sessions.append({"dag": "zondag", "sessie": sessie})
 
     # ── AFBOUW/RACE WEEK ──

@@ -8,6 +8,7 @@ Dekt regressies:
 from datetime import date
 
 from agents.load_manager import _apply_weekly_progression
+from agents.workout_library import pick_long_run
 
 
 def _fresh_state(consecutive: int = 0, last_bump: str | None = None,
@@ -78,9 +79,17 @@ def test_variety_index_bumps_once_per_week():
     assert state["progression"]["z2_run_variety_index"] == 1
     assert state["progression"]["long_run_variety_index"] == 1
 
-    # Zelfde week opnieuw → geen dubbele rotatie
     _apply_weekly_progression(state, is_deload_week=False, today=monday)
     assert state["progression"]["z2_run_variety_index"] == 1
+
+
+def test_pick_long_run_roteert_varianten():
+    first = pick_long_run(25, 0)
+    second = pick_long_run(25, 1)
+    wrapped = pick_long_run(25, 2)
+
+    assert first["naam"] != second["naam"]
+    assert wrapped["naam"] == first["naam"]
 
 
 def test_deload_resets_counter_no_step_bump():

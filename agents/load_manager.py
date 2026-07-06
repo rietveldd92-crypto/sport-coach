@@ -219,8 +219,8 @@ def _apply_weekly_progression(state: dict, is_deload_week: bool,
         prog["last_bump_week"] = monday_today
         # Variety-indexes wel roteren zodat de intro-week na deload niet
         # identiek is aan die vóór deload.
-        prog["z2_run_variety_index"] = (prog.get("z2_run_variety_index", 0) + 1) % 4
-        prog["long_run_variety_index"] = (prog.get("long_run_variety_index", 0) + 1) % 3
+        prog["z2_run_variety_index"] = prog.get("z2_run_variety_index", 0) + 1
+        prog["long_run_variety_index"] = prog.get("long_run_variety_index", 0) + 1
         return
 
     # Duurrit + easy spin: 5 min langer per 2 build-weken
@@ -229,8 +229,8 @@ def _apply_weekly_progression(state: dict, is_deload_week: bool,
         prog["long_ride_min"] = min(150, prog.get("long_ride_min", 80) + 5)
 
     # Variatie-index rotert
-    prog["z2_run_variety_index"] = (prog.get("z2_run_variety_index", 0) + 1) % 4
-    prog["long_run_variety_index"] = (prog.get("long_run_variety_index", 0) + 1) % 3
+    prog["z2_run_variety_index"] = prog.get("z2_run_variety_index", 0) + 1
+    prog["long_run_variety_index"] = prog.get("long_run_variety_index", 0) + 1
 
     # Intensiteit-stap incrementeert tot cap (cap matcht len(steps) in workout_library.threshold)
     prog["threshold_step"] = min(13, prog.get("threshold_step", 1) + 1)
