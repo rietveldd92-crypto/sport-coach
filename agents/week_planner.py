@@ -86,6 +86,21 @@ def _fillers_enabled() -> bool:
     except Exception:
         return False
 
+
+def _persist_plan_warnings(week_start: date, warnings: list[dict]) -> None:
+    """Bewaar planner-waarschuwingen voor UI/API zonder de planner te blokkeren."""
+    try:
+        from shared import load_state as _ls, save_state as _ss
+
+        _st = _ls() or {}
+        _st["last_plan_warnings"] = {
+            "week_start": week_start.isoformat(),
+            "warnings": warnings,
+        }
+        _ss(_st)
+    except Exception:
+        pass
+
 # Dagen waarop krachttraining ingepland kan worden — fallback als de
 # slimme placement (zie _select_strength_days) faalt.
 STRENGTH_DAYS = ["dinsdag", "donderdag", "zaterdag"]
@@ -327,6 +342,7 @@ def _plan_with_slot_solver(
     options = slot_solver.SolverOptions(
         runs_back_to_back_ok=bool(_prefs.get("runs_back_to_back_ok", False)),
         no_run_intensity=not bool(injury_guard.get("run_intensity_allowed", True)),
+        max_sessions_per_day=slot_solver.load_max_sessions_per_day({"preferences": _prefs}),
     )
     result = slot_solver.solve_week(all_sessions, slots, options=options)
 
@@ -354,6 +370,14 @@ def _plan_with_slot_solver(
             "dag": None,
             "sessie": dr.naam,
             "message": f"'{dr.naam}' niet geplaatst: {dr.reason}",
+        })
+    for note in result.notes:
+        warnings.append({
+            "tier": 2,
+            "code": "solver_note",
+            "dag": None,
+            "sessie": None,
+            "message": note,
         })
     if result.status == "INFEASIBLE":
         print(f"  Slot-solver: week past niet volledig — "
@@ -416,6 +440,28 @@ def build_week(
     phase = load_manager.get("current_phase", "basis_I")
     status = injury_guard.get("status", "groen")
     strength_ok = injury_guard.get("strength_allowed", True)
+
+    try:
+        from agents import availability as _av_guard
+
+        if not _av_guard.is_week_set(week_start):
+            _av_guard.copy_from_prev_week(week_start)
+        if not _av_guard.is_week_set(week_start):
+            msg = (
+                "Beschikbaarheid niet ingesteld voor deze week - stel je "
+                "week of weekpatroon in via de app. Er is niets gepland."
+            )
+            print(f"  Waarschuwing: {msg}")
+            _persist_plan_warnings(week_start, [{
+                "tier": 1,
+                "code": "no_availability",
+                "dag": None,
+                "sessie": None,
+                "message": msg,
+            }])
+            return []
+    except Exception as _av_exc:
+        print(f"  Beschikbaarheid niet geladen: {_av_exc}")
 
     # ── BESTAANDE EVENTS OPHALEN ─────────────────────────────────────────────
     # Dit doen we altijd, ook in dry_run, zodat je ziet wat er al staat.
@@ -510,17 +556,8 @@ def build_week(
     except Exception as _dp_exc:
         print(f"  Day-planner overgeslagen: {_dp_exc}")
 
-    # Persist warnings + week-context zodat de Streamlit-UI ze kan tonen.
-    try:
-        from shared import load_state as _ls, save_state as _ss
-        _st = _ls() or {}
-        _st["last_plan_warnings"] = {
-            "week_start": week_start.isoformat(),
-            "warnings": day_planner_warnings,
-        }
-        _ss(_st)
-    except Exception:
-        pass  # UI-feature, nooit de planner blokkeren
+    # Persist warnings + week-context zodat UI/API ze kunnen tonen.
+    _persist_plan_warnings(week_start, day_planner_warnings)
 
     if not day_planner_ok:
         all_sessions = _validate_no_back_to_back_hard(all_sessions)

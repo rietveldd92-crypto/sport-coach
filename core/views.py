@@ -187,10 +187,20 @@ def plan_week(week_start: date) -> dict:
         if isinstance(e, dict)
         and (e.get("category") or e.get("categorie")) == "WORKOUT"
     ]
+    warnings = []
+    try:
+        from shared import load_state
+
+        last = (load_state() or {}).get("last_plan_warnings") or {}
+        if last.get("week_start") == week_start.isoformat():
+            warnings = last.get("warnings") or []
+    except Exception:
+        warnings = []
     return {
         "week_start": week_start.isoformat(),
         "planned_sessions": len(workouts),
         "events": events,
+        "warnings": warnings,
     }
 
 

@@ -324,6 +324,50 @@ def test_onoplosbaar_dropt_easy_eerst():
     assert result.notes  # leesbare relaxatie-suggestie
 
 
+def test_max_sessies_per_dag_dropt_vulling_eerst():
+    """Een brede open dag absorbeert niet meer de hele week."""
+    avail = {"vrijdag": 14 * 60}
+    sessies = [
+        _sessie("Long run", 150, type_="lange_duur"),
+        _sessie("Threshold bike", 60, sport="VirtualRide", type_="threshold"),
+        _sessie("Easy bike 1", 45, sport="VirtualRide", type_="endurance_ride"),
+        _sessie("Easy bike 2", 45, sport="VirtualRide", type_="endurance_ride"),
+        _sessie("Easy bike 3", 45, sport="VirtualRide", type_="endurance_ride"),
+    ]
+    result = solve_week(
+        sessies,
+        _slots(avail),
+        weights={},
+        max_sessions_per_day=2,
+    )
+    assert result.status == "INFEASIBLE"
+    assert len(result.placements) <= 2
+    assert {pl.naam for pl in result.placements} == {"Long run", "Threshold bike"}
+    assert {dr.naam for dr in result.dropped} == {
+        "Easy bike 1",
+        "Easy bike 2",
+        "Easy bike 3",
+    }
+    assert result.notes and "max 2 sessies/dag" in result.notes[0]
+
+
+def test_max_sessies_per_dag_is_explicit_te_verhogen():
+    avail = {"vrijdag": 14 * 60}
+    sessies = [
+        _sessie("Long run", 150, type_="lange_duur"),
+        _sessie("Threshold bike", 60, sport="VirtualRide", type_="threshold"),
+        _sessie("Easy bike", 45, sport="VirtualRide", type_="endurance_ride"),
+    ]
+    result = solve_week(
+        sessies,
+        _slots(avail),
+        options=SolverOptions(max_sessions_per_day=3),
+        weights={},
+    )
+    assert result.status == "OPTIMAL"
+    assert len(result.placements) == 3
+
+
 def test_geen_enkel_venster_geeft_infeasible():
     result = solve_week([_sessie("Z2 run", 45)],
                         _slots({d: 0 for d in DAYS_NL}))

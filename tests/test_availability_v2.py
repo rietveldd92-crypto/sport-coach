@@ -114,6 +114,17 @@ def test_compat_set_week_schrijft_overrides():
     assert [(s.start, s.end) for s in slots] == [("07:00", "09:00")]
 
 
+def test_copy_from_prev_week_zonder_historie_schrijft_niets(tmp_path, monkeypatch):
+    from agents import availability
+
+    state_json = tmp_path / "state.json"
+    state_json.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(shared, "STATE_PATH", state_json)
+
+    assert availability.copy_from_prev_week(MONDAY) == {}
+    assert availability.is_week_set(MONDAY) is False
+
+
 def test_set_week_behoudt_rijke_vensters_bij_ongewijzigd_totaal():
     """No-op save mag multi-slot detail niet platslaan naar één venster."""
     from agents import availability

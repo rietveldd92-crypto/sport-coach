@@ -65,6 +65,7 @@ DEFAULT_WEIGHTS: dict[str, int] = {
 # Drop-kosten: ver boven elke realistische som van zachte termen, zodat
 # droppen écht laatste redmiddel is. Easies sneuvelen eerst.
 DROP_COST = {"easy": 1000, "strength": 1200, "hard": 1500, "long": 2000}
+DEFAULT_MAX_SESSIONS_PER_DAY = 2
 
 
 def load_weights(state: Optional[dict] = None) -> dict[str, int]:
@@ -87,6 +88,22 @@ def load_weights(state: Optional[dict] = None) -> dict[str, int]:
     return weights
 
 
+def load_max_sessions_per_day(state: Optional[dict] = None) -> int:
+    """Hard cap op run+bike-sessies per dag."""
+    if state is None:
+        try:
+            from shared import load_state
+
+            state = load_state()
+        except Exception:
+            state = {}
+    raw = ((state or {}).get("preferences") or {}).get("max_sessions_per_day")
+    try:
+        return max(1, int(raw))
+    except (TypeError, ValueError):
+        return DEFAULT_MAX_SESSIONS_PER_DAY
+
+
 def classify_session(session: dict) -> str:
     """'long' | 'hard' | 'easy' | 'strength' — bestaande logica + kracht."""
     sport = (session.get("sport") or "").lower()
@@ -102,6 +119,7 @@ class SolverOptions(BaseModel):
     runs_back_to_back_ok: bool = False
     allow_adjacent_longs: bool = True
     no_run_intensity: bool = False  # injury-gate (YELLOW)
+    max_sessions_per_day: Optional[int] = None
     max_time_s: float = MAX_SOLVE_TIME_S
 
 
@@ -171,6 +189,7 @@ def solve_week(
     *,
     options: Optional[SolverOptions] = None,
     weights: Optional[dict] = None,
+    max_sessions_per_day: Optional[int] = None,
     current_plan: Optional[dict] = None,
     locked: Optional[set] = None,
 ) -> SolveResult:
@@ -191,6 +210,17 @@ def solve_week(
     """
     options = options or SolverOptions()
     weights = {**DEFAULT_WEIGHTS, **(weights if weights is not None else load_weights())}
+    max_per_day = (
+        max_sessions_per_day
+        if max_sessions_per_day is not None
+        else options.max_sessions_per_day
+    )
+    if max_per_day is None:
+        max_per_day = load_max_sessions_per_day()
+    try:
+        max_per_day = max(1, int(max_per_day))
+    except (TypeError, ValueError):
+        max_per_day = DEFAULT_MAX_SESSIONS_PER_DAY
     current_plan = dict(current_plan or {})
     locked = set(locked or [])
 
@@ -325,8 +355,11 @@ def solve_week(
         run_c = _day_count(d, lambda p: p["sport"] == "run")
         bike_c = _day_count(d, lambda p: p["sport"] == "bike")
         str_c = _day_count(d, lambda p: p["kind"] == "strength")
+        total_c = _day_count(d, lambda p: True)
 
         # T1a: nooit 2 longs op één dag. Nooit 2 runs op één dag.
+        if not isinstance(total_c, int):
+            model.Add(total_c <= max_per_day)
         if not isinstance(long_c, int):
             model.Add(long_c <= 1)
         if not isinstance(run_c, int):
@@ -578,9 +611,11 @@ def solve_week(
     result_notes: list[str] = []
     if relax_dropped:
         names = ", ".join(f"'{dr.naam}'" for dr in relax_dropped)
+        open_days = sum(1 for day_slots in slots_by_date.values() if day_slots)
         result_notes.append(
             f"Week past niet volledig — voorstel: laat {names} vervallen "
-            "(volume_compensation pakt het gat op)."
+            f"(max {max_per_day} sessies/dag, {open_days} dag(en) met "
+            "beschikbaarheid deze week; volume_compensation pakt het gat op)."
         )
 
     return SolveResult(

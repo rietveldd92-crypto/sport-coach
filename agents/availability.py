@@ -80,7 +80,8 @@ def copy_from_prev_week(week_start: date) -> dict[str, int]:
     """Als de week nog niks heeft ingesteld, kopieer de waardes van de
     vorige week naar deze week en schrijf weg. Returnt het resultaat.
 
-    Als de vorige week óók leeg is, defaulten we naar alle dagen 60 min.
+    Als de vorige week ook leeg is, schrijven we niets: beschikbaarheid is
+    een expliciet contract, geen verzonnen default.
     """
     if is_week_set(week_start):
         return {k: v for k, v in get_week(week_start).items() if v is not None}
@@ -88,6 +89,8 @@ def copy_from_prev_week(week_start: date) -> dict[str, int]:
     prev_start = week_start - timedelta(days=7)
     prev = get_week(prev_start)
     has_prev = any(v is not None for v in prev.values())
+    if not has_prev:
+        return {}
 
     new_vals: dict[str, int] = {}
     for i, d in enumerate(_week_dates(week_start)):

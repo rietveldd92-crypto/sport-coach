@@ -233,6 +233,9 @@ def run(week_start: date, dry_run: bool = True, skip_run_days: list = None):
 
     # Update weeklog in state — vervang bestaande entry voor deze week-start
     # i.p.v. appenden, anders verzamelt elke replan-run een dubbele log-regel.
+    if not events:
+        return events
+
     state = _load_state()
     workout_tss = sum(
         e.get("tss") or 0
