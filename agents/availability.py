@@ -167,26 +167,53 @@ def rebuild_or_cap(session: dict, target_min: int) -> dict:
 def cap_sessions_for_day(sessions: list[dict], available_min: int) -> list[dict]:
     """Cap geplande sessies voor één dag naar de beschikbare tijd.
 
-    Als de som van duur_min > available_min, schalen we elke sessie
-    proportioneel terug en herberekenen we TSS via dezelfde ratio.
-    Prepends een NOTE aan de beschrijving zodat de atleet weet dat er
-    ingekort is. Laat de workout-naam intact.
+    RUNS WORDEN NOOIT STILLETJES INGEKORT. Een lange duurloop van 2 km of
+    een 30-min snipper omdat de beschikbaarheid krap staat, is precies de
+    junk die het vertrouwen in het plan sloopt (atleet-feedback 2026-07-06).
+    Een run die niet past blijft intact en krijgt een expliciete conflict-
+    note — de atleet beslist zelf (beschikbaarheid verruimen of schrappen).
 
-    Geen ondergrens per sessie — bij extreme caps kan dit triviaal kort
-    worden. Dat is een signaal naar de gebruiker dat de opgegeven tijd
-    te krap is voor wat de periodizer vraagt.
+    Fiets-sessies mogen wél geschaald worden: easy rides worden herbouwd
+    op de kortere duur (rebuild_or_cap), de rest proportioneel.
     """
     if available_min <= 0 or not sessions:
         return sessions
     total = sum(s.get("duur_min") or 0 for s in sessions)
     if total <= available_min:
         return sessions
-    ratio = available_min / total
-    capped: list[dict] = []
-    for s in sessions:
-        target = int(round((s.get("duur_min") or 0) * ratio / 5) * 5)  # 5-min stappen
-        capped.append(rebuild_or_cap(s, max(30, target)))
-    return capped
+
+    runs = [s for s in sessions if (s.get("sport") or "") == "Run"]
+    bikes = [s for s in sessions if (s.get("sport") or "") != "Run"]
+
+    out: list[dict] = []
+    run_min = 0
+    for s in runs:
+        dur = s.get("duur_min") or 0
+        run_min += dur
+        if run_min > available_min:
+            s = {
+                **s,
+                "beschrijving": (
+                    f"[PAST NIET IN BESCHIKBAARHEID ({available_min} min "
+                    f"opgegeven) — bewust NIET ingekort. Verruim je "
+                    f"beschikbaarheid of schrap de sessie zelf.]\n\n"
+                    + (s.get("beschrijving") or "")
+                ),
+            }
+        out.append(s)
+
+    bike_budget = max(0, available_min - run_min)
+    bike_total = sum(s.get("duur_min") or 0 for s in bikes)
+    if bikes and bike_total > bike_budget:
+        ratio = bike_budget / bike_total if bike_total else 0
+        for s in bikes:
+            target = int(round((s.get("duur_min") or 0) * ratio / 5) * 5)
+            if target < 30:
+                continue  # te kort om zinvol te zijn — liever weg dan junk
+            out.append(rebuild_or_cap(s, target))
+    else:
+        out.extend(bikes)
+    return out
 
 
 def check_budget(week_start: date, weekly_tss_target: int) -> dict:

@@ -58,6 +58,28 @@ def _target_values(target: str) -> tuple[float, float | None]:
     return (0.0, None)
 
 
+# Ramp-step in een beschrijving: "- 15m ramp 65-82% Pace"
+_RAMP_RE = re.compile(
+    r"^(?P<prefix>\s*-\s*\d+\s*m(?:in)?\s+)ramp\s+(?P<a>\d+)\s*-\s*(?P<b>\d+)%",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
+def deramp_runs(desc: str) -> str:
+    """Vervang ramp-steps door één vaste rustige stap (midpoint-pace).
+
+    Ramps zijn voor de fiets (ERG-mode) nuttig maar voor runs overdreven
+    precisie: niemand loopt warm met een verschuivend pace-doel. Een
+    warming-up is gewoon "15 min rustig". Alleen voor Run-beschrijvingen
+    aanroepen.
+    """
+    def _sub(m: re.Match) -> str:
+        mid = round((int(m.group("a")) + int(m.group("b"))) / 2)
+        return f"{m.group('prefix')}{mid}%"
+
+    return _RAMP_RE.sub(_sub, desc)
+
+
 def annotate_description(
     desc: str,
     sport: str,
@@ -66,15 +88,19 @@ def annotate_description(
 ) -> str:
     """Voeg absolute waardes toe achter elke step in de beschrijving.
 
-    - Runs: `- 20m 75% Pace` -> `- 20m 75% Pace (5:47/km)` — tempo komt ná
+    - Runs: eerst ramps → één vaste stap (deramp_runs), dan
+      `- 20m 75% Pace` -> `- 20m 75% Pace (5:47/km)` — tempo komt ná
       "Pace", niet ervoor.
-    - Bikes: `- 20m 75% 90rpm` -> `- 20m 75% (218W) 90rpm`
+    - Bikes: `- 20m 75% 90rpm` -> `- 20m 75% (218W) 90rpm` (ramps blijven —
+      ERG-mode kan er wat mee).
 
     Idempotent: als de regel al een `(…W)` of `(…/km)` bevat, laten we hem
     met rust zodat dubbel-annoteren geen garbage oplevert.
     """
     if not desc or not (_is_run(sport) or _is_bike(sport)):
         return desc
+    if _is_run(sport):
+        desc = deramp_runs(desc)
 
     out_lines: list[str] = []
     for line in desc.splitlines():

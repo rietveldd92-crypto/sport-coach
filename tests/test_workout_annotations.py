@@ -48,11 +48,20 @@ def test_annotate_run_tempo_komt_na_pace_woord():
     assert out == "- 31m 75% Pace (5:47/km)"
 
 
-def test_annotate_run_ramp():
+def test_annotate_run_ramp_wordt_vaste_stap():
+    # Runs krijgen geen ramps: verschuivend pace-doel is fiets-precisie.
+    # Ramp wordt één vaste stap op de midpoint-pace.
     desc = "- 5m ramp 55-80% Pace"
     out = annotate_description(desc, "Run", threshold_pace_sec=260)
-    assert "->" in out
-    assert "/km" in out
+    assert "ramp" not in out
+    assert out == "- 5m 68% Pace (6:22/km)"
+
+
+def test_annotate_bike_ramp_blijft():
+    # Fiets houdt ramps — ERG-mode kan er wat mee.
+    desc = "- 8m ramp 45-63% 85rpm"
+    out = annotate_description(desc, "VirtualRide", ftp=290)
+    assert "ramp" in out
 
 
 def test_idempotent():

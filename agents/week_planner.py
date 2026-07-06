@@ -70,6 +70,22 @@ OPTIONEEL_MARKER = (
     "[OPTIONEEL] Schrappen is prima — telt niet als gemiste training.\n\n"
 )
 
+
+def _fillers_enabled() -> bool:
+    """TSS-gap-vullers ("aerobe vulling" op lege dagen) — default UIT.
+
+    Vier-pijler-model: sessies zonder pijler bestaan niet. Vullers waren
+    de grootste bron van junk-sessies (60-min ritjes die de week
+    volplempen om een TSS-getal te halen). Weer aanzetten kan bewust via
+    preferences.tss_fillers_enabled in de athlete state.
+    """
+    try:
+        from shared import load_state
+        prefs = (load_state() or {}).get("preferences") or {}
+        return bool(prefs.get("tss_fillers_enabled", False))
+    except Exception:
+        return False
+
 # Dagen waarop krachttraining ingepland kan worden — fallback als de
 # slimme placement (zie _select_strength_days) faalt.
 STRENGTH_DAYS = ["dinsdag", "donderdag", "zaterdag"]
@@ -348,7 +364,7 @@ def _plan_with_slot_solver(
     # TSS-gap opvullen met easy bikes op lege dagen (zelfde gedrag als legacy).
     planned_tss = sum((s.get("tss_geschat") or 0) for s in placed)
     target_tss = load_manager.get("recommended_weekly_tss") or 0
-    if target_tss and planned_tss < target_tss * 0.85:
+    if target_tss and planned_tss < target_tss * 0.85 and _fillers_enabled():
         from agents.day_planner import fill_empty_days_with_easy_bikes
 
         avail_by_dag = {
@@ -477,7 +493,7 @@ def build_week(
             # Vul lege dagen met easy bikes als er TSS-gap is én avail onbenut
             planned_tss = sum((s.get("tss_geschat") or 0) for s in all_sessions)
             target_tss = load_manager.get("recommended_weekly_tss") or 0
-            if target_tss and planned_tss < target_tss * 0.85:
+            if target_tss and planned_tss < target_tss * 0.85 and _fillers_enabled():
                 before = len(all_sessions)
                 all_sessions = fill_empty_days_with_easy_bikes(
                     all_sessions, _avail_by_dag, week_start,
@@ -752,6 +768,7 @@ def build_week(
             })
 
     # 3. Workoutsessies (run + fiets) — beschrijving verrijkt met pace/watts
+    from agents.pijlers import pijler_header
     from agents.workout_annotations import annotate_description
     for dag_naam in DAYS_NL:
         if dag_naam in sessions_by_day:
@@ -760,6 +777,10 @@ def build_week(
                 beschrijving = annotate_description(
                     sessie["beschrijving"], sessie["sport"]
                 )
+                # Vier-pijler-model: elke workout toont welke pijler hij
+                # dient (lactaatdrempel / economy / fatigue resistance /
+                # VO2max / support). Sessies zonder pijler bestaan niet.
+                beschrijving = pijler_header(sessie) + "\n\n" + beschrijving
                 # Consistentie-laag: optionele sessies expliciet labelen,
                 # zodat de atleet in de kalender ziet dat schrappen prima is
                 # (80-90%-filosofie — alleen de verplichte sessies dragen
