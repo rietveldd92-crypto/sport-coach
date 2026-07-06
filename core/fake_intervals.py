@@ -79,8 +79,9 @@ class MockIntervals:
 
         t = self.today
         nm = self.next_monday
+        done_day = max(t - timedelta(days=1), self.monday)
         self.events: list[dict] = [
-            _event("e_done", t - timedelta(days=1), "Easy run 40 min",
+            _event("e_done", done_day, "Easy run 40 min",
                    "Run", 45),
             _event("e_today", t, "Easy run 40 min", "Run", 45),
             _event("e_tomorrow", t + timedelta(days=1),
@@ -95,7 +96,7 @@ class MockIntervals:
                    "Run", 95, description="- 90m 60-68% Pace"),
         ]
         self.activities: list[dict] = [
-            _activity("a_done", t - timedelta(days=1), "Easy run 40 min"),
+            _activity("a_done", done_day, "Easy run 40 min"),
             # Wat historie voor CTL/trends (3 weken terug, 2/wk).
             *[
                 _activity(f"a_hist_{i}", t - timedelta(days=3 + 3 * i),

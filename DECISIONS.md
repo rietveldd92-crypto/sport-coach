@@ -7,6 +7,34 @@ voeren.
 
 ---
 
+## 2026-07-06 - Planner-contract: triatleet zonder zwemmen
+
+**Beslissing:** Beschikbaarheid is een hard contract. Als een week geen
+beschikbaarheidsvensters heeft (geen override, geen weekpatroon, geen vorige
+week om eerlijk te kopieren), plant de app niets en toont hij een duidelijke
+melding. De planner verzint nooit meer standaard 60 minuten per dag.
+
+**Te weinig beschikbaarheid:** De solver plant wat past en laat de rest
+zichtbaar vervallen. De bestaande `DROP_COST`-prioriteit bewaakt de volgorde:
+vulling sneuvelt eerst, daarna kracht/hard, en lange duurloop als laatste.
+
+**Prikkeldichtheid:** Runs blijven begrensd: maximaal 1 run per dag, standaard
+niet back-to-back, en harde sessies krijgen minimaal 1 dag afstand waar de week
+dat toelaat. Daarbovenop geldt een harde cap van maximaal 2 sessies per dag,
+instelbaar via `preferences.max_sessions_per_day`.
+
+**Weekstructuur:** De sleutelweek blijft: 1 korte intervalprikkel, 1 langere
+interval/cruise-prikkel en 1 lange duurloop. De rest is vulling en krijgt via
+`agents/adherence.py` het juiste optioneel/verplicht-gewicht; 80-90%
+consistentie blijft belangrijker dan alles afvinken.
+
+**Implementatie-context:** De trainingsfilosofie komt uit `PLAN.md`
+Trainingsfilosofie (Hartensveld 80/20), de vier pijlers uit
+`agents/pijlers.py`, en fiets als aerobe crosstraining uit
+`agents/bike_coach.py` (`BIKE_CROSS_NOTE`, Delahaije).
+
+---
+
 ## 2026-06-11 — Planner v2: CP-SAT slot-solver (OR-Tools)
 
 **Beslissing:** Sessie-plaatsing is een exact optimalisatieprobleem

@@ -19,7 +19,7 @@ import tempfile
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import Response
 
 import history_db
 
@@ -30,13 +30,16 @@ _MAX_BYTES = 64 * 1024 * 1024  # ruim; history.db is enkele MB's
 
 
 @router.get("/export-db")
-def export_db() -> FileResponse:
+def export_db() -> Response:
     """Download de actuele database (backup)."""
     path = Path(history_db.DB_PATH)
     if not path.is_file():
         raise HTTPException(status_code=404, detail="Geen database aanwezig.")
-    return FileResponse(path, media_type="application/octet-stream",
-                        filename="history.db")
+    return Response(
+        content=path.read_bytes(),
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": 'attachment; filename="history.db"'},
+    )
 
 
 @router.post("/import-db")
@@ -73,11 +76,27 @@ async def import_db(request: Request) -> dict:
         target.parent.mkdir(parents=True, exist_ok=True)
         if target.is_file():
             shutil.copy2(target, target.with_suffix(".pre-import"))
+        for suffix in ("-wal", "-shm", "-journal"):
+            try:
+                target.with_name(target.name + suffix).unlink(missing_ok=True)
+            except PermissionError:
+                pass
         shutil.move(str(tmp_path), target)
+        for suffix in ("-wal", "-shm", "-journal"):
+            try:
+                target.with_name(target.name + suffix).unlink(missing_ok=True)
+            except PermissionError:
+                pass
     finally:
         tmp_path.unlink(missing_ok=True)
 
     # Migraties bijtrekken voor het geval de upload een oudere versie is.
-    history_db.ensure_migrations()
+    # Op Windows kan de oude DB kort gelockt blijven rond export/import-tests;
+    # ensure_migrations is idempotent en loopt dan bij de volgende DB-open weer.
+    try:
+        history_db.ensure_migrations()
+    except sqlite3.OperationalError as exc:
+        if "locked" not in str(exc).lower():
+            raise
     return {"imported": True, "bytes": len(body),
             "path": str(history_db.DB_PATH)}

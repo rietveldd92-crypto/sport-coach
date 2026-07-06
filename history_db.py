@@ -37,10 +37,17 @@ def _connect() -> sqlite3.Connection:
     # dit crasht sqlite3.connect met "unable to open database file" en faalt
     # de hele startup (502). mkdir is idempotent en goedkoop.
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=10.0)
     conn.row_factory = sqlite3.Row
-    # WAL voor betere concurrent reads (al is het single-user)
-    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=10000")
+    # WAL voor betere concurrent reads (al is het single-user). In pytest op
+    # Windows veroorzaakt WAL sidecar-locks bij admin import/export-tests.
+    journal_mode = "DELETE" if os.environ.get("PYTEST_CURRENT_TEST") else "WAL"
+    try:
+        conn.execute(f"PRAGMA journal_mode={journal_mode}")
+    except sqlite3.OperationalError as exc:
+        if "locked" not in str(exc).lower():
+            raise
     return conn
 
 
