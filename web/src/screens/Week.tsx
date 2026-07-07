@@ -28,6 +28,7 @@ import {
   addDays,
   dayMonth,
   dayShort,
+  hoursLabel,
   isoWeekNumber,
   mondayOf,
   timeOf,
@@ -326,8 +327,11 @@ function fmtPhase(phase: string): string {
 
 // ── Dag ───────────────────────────────────────────────────────────────────
 
-const DAY_START = 6 * 60; // tijdbalk toont 06:00–23:00
-const DAY_SPAN = 17 * 60;
+const FULL_DAY_MINUTES = 360; // 6u = volle vullingsbalk
+
+function slotsMinutes(slots: AvailabilitySlot[]): number {
+  return slots.reduce((sum, s) => sum + (toMinutes(s.end) - toMinutes(s.start)), 0);
+}
 
 function DayRow({
   date,
@@ -346,6 +350,7 @@ function DayRow({
 }) {
   const { isOver, setNodeRef } = useDroppable({ id: date });
   const isToday = date === today;
+  const totalMin = slotsMinutes(slots);
 
   return (
     <section
@@ -379,27 +384,15 @@ function DayRow({
             )}
           </span>
           <span className="font-mono text-[0.62rem] text-dim">
-            {slots.length === 0
-              ? "geen venster"
-              : slots.map((s) => `${s.start}–${s.end}`).join(" · ")}
+            {hoursLabel(totalMin)}
           </span>
         </div>
-        {/* Beschikbaarheid als dunne tijdbalk */}
+        {/* Beschikbaarheid als vullingsbalk (vol = 6u+) */}
         <div className="relative mt-2 h-[3px] overflow-hidden rounded-full bg-elevated">
-          {slots.map((s, i) => {
-            const left = Math.max(0, ((toMinutes(s.start) - DAY_START) / DAY_SPAN) * 100);
-            const width = Math.min(
-              100 - left,
-              ((toMinutes(s.end) - toMinutes(s.start)) / DAY_SPAN) * 100,
-            );
-            return (
-              <span
-                key={i}
-                className="absolute top-0 h-full rounded-full bg-line-strong"
-                style={{ left: `${left}%`, width: `${width}%` }}
-              />
-            );
-          })}
+          <span
+            className="absolute left-0 top-0 h-full rounded-full bg-line-strong"
+            style={{ width: `${Math.min(100, (totalMin / FULL_DAY_MINUTES) * 100)}%` }}
+          />
         </div>
       </button>
 
