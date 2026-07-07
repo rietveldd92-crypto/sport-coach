@@ -60,6 +60,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     }
     throw new ApiError(res.status, detail);
   }
+  if (res.status === 204) {
+    return undefined as T;
+  }
   return res.json() as Promise<T>;
 }
 
@@ -75,6 +78,11 @@ export const put = <T>(path: string, body?: unknown) =>
   request<T>(path, {
     method: "PUT",
     body: body === undefined ? undefined : JSON.stringify(body),
+  });
+
+export const del = <T>(path: string) =>
+  request<T>(path, {
+    method: "DELETE",
   });
 
 /** Niet bereikbaar: echt offline of backend meldt 502 (intervals.icu). */

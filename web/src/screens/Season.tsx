@@ -13,7 +13,12 @@ import {
   YAxis,
 } from "recharts";
 import { isUnavailable } from "../api/client";
-import { useGoals, useRegenerateGoal, useSeason } from "../api/queries";
+import {
+  useDeleteGoal,
+  useGoals,
+  useRegenerateGoal,
+  useSeason,
+} from "../api/queries";
 import type {
   Goal,
   PlanWeekRow,
@@ -35,6 +40,7 @@ export default function Season() {
   const [selectedWeek, setSelectedWeek] = useState<PlanWeekRow | null>(null);
   const [regenResult, setRegenResult] = useState<RegenerateResult | null>(null);
   const regenerate = useRegenerateGoal();
+  const deleteGoal = useDeleteGoal();
 
   if (isLoading) return <Spinner label="Seizoen laden…" />;
 
@@ -61,6 +67,16 @@ export default function Season() {
   const subGoals = (goals.data?.goals ?? []).filter(
     (g) => g.priority !== "A" && g.status === "active",
   );
+  const goalActionBusy = regenerate.isPending || deleteGoal.isPending;
+
+  const confirmDeleteGoal = () => {
+    if (!hasRealGoal) return;
+    const label = GOAL_LABEL[data.goal.type] ?? data.goal.type;
+    const ok = window.confirm(
+      `Verwijder doel "${label}"? Het bijbehorende macroplan wordt ook verwijderd.`,
+    );
+    if (ok) deleteGoal.mutate(data.goal.id);
+  };
 
   return (
     <div>
@@ -92,15 +108,26 @@ export default function Season() {
                 onSuccess: (res) => setRegenResult(res),
               })
             }
-            disabled={regenerate.isPending}
+            disabled={goalActionBusy}
             className="flex-1 rounded-xl border border-line-strong py-3 text-sm font-semibold transition-colors hover:border-accent disabled:opacity-50"
           >
             {regenerate.isPending ? "Herberekenen…" : "Herbereken plan"}
           </button>
         )}
+        {hasRealGoal && (
+          <button
+            data-testid="delete-goal"
+            onClick={confirmDeleteGoal}
+            disabled={goalActionBusy}
+            className="flex-1 rounded-xl border border-alert/50 py-3 text-sm font-semibold text-alert transition-colors hover:bg-alert/10 disabled:opacity-50"
+          >
+            {deleteGoal.isPending ? "Verwijderen..." : "Verwijder doel"}
+          </button>
+        )}
         <button
           data-testid="open-goal-wizard"
           onClick={() => setWizardOpen(true)}
+          disabled={goalActionBusy}
           className={`flex-1 rounded-xl py-3 text-sm font-semibold transition-colors ${
             hasRealGoal
               ? "border border-line-strong hover:border-accent"
@@ -113,6 +140,12 @@ export default function Season() {
       {regenerate.isError && (
         <p className="mt-2.5 text-[0.78rem] text-alert">
           Herberekenen mislukt — probeer het later opnieuw.
+        </p>
+      )}
+
+      {deleteGoal.isError && (
+        <p className="mt-2.5 text-[0.78rem] text-alert">
+          Doel verwijderen mislukt - probeer het later opnieuw.
         </p>
       )}
 

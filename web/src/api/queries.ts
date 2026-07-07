@@ -3,7 +3,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { get, post, put } from "./client";
+import { del, get, post, put } from "./client";
 import type {
   AvailabilitySlot,
   CheckinHistoryView,
@@ -188,6 +188,17 @@ export function useCreateGoal() {
   return useMutation({
     mutationFn: (body: GoalCreate) =>
       post<GoalCreateResult>("/api/goals", body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: keys.season });
+      qc.invalidateQueries({ queryKey: keys.goals });
+    },
+  });
+}
+
+export function useDeleteGoal() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (goalId: number) => del<void>(`/api/goals/${goalId}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: keys.season });
       qc.invalidateQueries({ queryKey: keys.goals });
