@@ -8,19 +8,14 @@ Principe:
   de overshoot af van resterende geplande runs deze week, proportioneel
   over hun duur.
 
-Extra bij `state.injury.return_from_injury = true`: cap resterende runs ook
-hard naar `max(completed_km_this_week)` zodat je geen plotse long run doet
-na een rustig week.
+Dit corrigeert alleen aantoonbare week-overshoot. Blessurestatus mag hier
+geen verborgen harde cap op resterende runs zetten.
 """
 from __future__ import annotations
 
-import json
 import re
 from datetime import date, timedelta
-from pathlib import Path
 from typing import Optional
-
-STATE_PATH = Path(__file__).parent.parent / "state.json"
 
 # Drempel: alleen cappen als overshoot substantieel is.
 MIN_OVERSHOOT_KM = 1.0
@@ -31,11 +26,6 @@ MIN_RUN_KM = 3.0
 
 # Fallback pace voor minutes-naar-km wanneer sessie-km niet bekend is.
 _FALLBACK_PACE_SEC_PER_KM = 330  # 5:30/km easy
-
-
-def _load_state() -> dict:
-    from shared import load_state
-    return load_state()
 
 
 def _is_run(sport: str) -> bool:
@@ -173,13 +163,9 @@ def apply(
     """
     if today is None:
         today = date.today()
-    if state is None:
-        state = _load_state()
-
     info = compute_overshoot(today, week_start, sessions, activities)
     overshoot = info["overshoot_km"]
     remaining = info["remaining_sessions"]
-    max_completed = info["max_completed_km"]
 
     capped_log: list[dict] = []
 
@@ -189,11 +175,7 @@ def apply(
     threshold_rel = planned_today * OVERSHOOT_RATIO if planned_today > 0 else 0
     do_compensate = overshoot >= max(threshold_abs, threshold_rel)
 
-    # Injury-mode cap: geen enkele resterende run boven max_completed
-    injury = state.get("injury") or {}
-    injury_cap_active = bool(injury.get("return_from_injury")) and max_completed > 0
-
-    if not do_compensate and not injury_cap_active:
+    if not do_compensate:
         info["capped"] = []
         return sessions, info
 
@@ -214,16 +196,10 @@ def apply(
             share = cur_km / remaining_km_total
             target_km = cur_km - (reduction_budget * share)
 
-        # Stap 2: injury-cap hard maximum
-        if injury_cap_active and target_km > max_completed:
-            target_km = max_completed
-
         if target_km < cur_km - 0.3:  # alleen cappen bij zinvol verschil
             reason_parts = []
             if reduction_budget > 0:
                 reason_parts.append(f"overshoot {overshoot:.1f}km deze week")
-            if injury_cap_active and target_km == max_completed:
-                reason_parts.append(f"injury-cap {max_completed:.1f}km")
             reason = ", ".join(reason_parts) or "volume-conservatie"
             capped_s = _cap_session(s, target_km, reason)
             new_sessions.append(capped_s)
@@ -279,9 +255,6 @@ def apply_to_events(
     """
     if today is None:
         today = date.today()
-    if state is None:
-        state = _load_state()
-
     week_end = week_start + timedelta(days=6)
 
     # Normaliseer events → session-like dicts voor compute_overshoot
@@ -305,17 +278,13 @@ def apply_to_events(
     info = compute_overshoot(today, week_start, event_sessions, activities)
     overshoot = info["overshoot_km"]
     remaining = info["remaining_sessions"]
-    max_completed = info["max_completed_km"]
-
-    injury = state.get("injury") or {}
-    injury_cap_active = bool(injury.get("return_from_injury")) and max_completed > 0
 
     planned_today = info["planned_km_todate"]
     threshold_abs = MIN_OVERSHOOT_KM
     threshold_rel = planned_today * OVERSHOOT_RATIO if planned_today > 0 else 0
     do_compensate = overshoot >= max(threshold_abs, threshold_rel)
 
-    if not do_compensate and not injury_cap_active:
+    if not do_compensate:
         return []
 
     remaining_km_total = sum(_session_km(s) for s in remaining)
@@ -329,8 +298,6 @@ def apply_to_events(
         target_km = cur_km
         if reduction_budget > 0 and remaining_km_total > 0:
             target_km = cur_km - (reduction_budget * (cur_km / remaining_km_total))
-        if injury_cap_active and target_km > max_completed:
-            target_km = max_completed
         target_km = max(MIN_RUN_KM, round(target_km, 1))
         if target_km >= cur_km - 0.3:
             continue
@@ -348,8 +315,6 @@ def apply_to_events(
         reason_parts = []
         if reduction_budget > 0:
             reason_parts.append(f"overshoot {overshoot:.1f}km deze week")
-        if injury_cap_active and target_km == max_completed:
-            reason_parts.append(f"injury-cap {max_completed:.1f}km")
         reden = ", ".join(reason_parts) or "volume-conservatie"
         note = f"[Auto-ingekort naar {target_km:g}km — {reden}]\n\n"
 
