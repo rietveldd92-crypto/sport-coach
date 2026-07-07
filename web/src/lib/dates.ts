@@ -83,3 +83,20 @@ export function toMinutes(hhmm: string): number {
   const [h, m] = hhmm.split(":").map(Number);
   return h * 60 + m;
 }
+
+/** minuten → "HH:MM" (bv. 420 → "07:00"). */
+export function toHHMM(minutes: number): string {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+/** minuten → compact uren-label: 0 → "rust", 90 → "1,5u", 180 → "3u". */
+export function hoursLabel(minutes: number): string {
+  if (minutes <= 0) return "rust";
+  const hours = minutes / 60;
+  const str = Number.isInteger(hours)
+    ? String(hours)
+    : hours.toFixed(1).replace(".", ",");
+  return `${str}u`;
+}
