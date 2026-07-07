@@ -40,17 +40,23 @@ def _session_km(sessie: dict) -> float:
         v = sessie.get(k)
         if v:
             return float(v)
-    # Parse uit naam ("Long run 10km" of "Z2 8km")
-    for src in (sessie.get("naam"), sessie.get("beschrijving")):
-        if not src:
-            continue
-        m = re.search(r"(\d+(?:[.,]\d+)?)\s*km", src, re.IGNORECASE)
+    # Parse uit naam ("Long run 10km" of "Z2 8km"). Beschrijvingen van
+    # interval-workouts bevatten vaak losse reps zoals "1km"; dat is niet
+    # de totale sessieafstand.
+    name = sessie.get("naam")
+    if name:
+        m = re.search(r"(\d+(?:[.,]\d+)?)\s*km", name, re.IGNORECASE)
         if m:
             return float(m.group(1).replace(",", "."))
     # Fallback: duur × pace
     dur_min = sessie.get("duur_min") or 0
     if dur_min > 0:
         return round(dur_min * 60 / _FALLBACK_PACE_SEC_PER_KM, 1)
+    desc = sessie.get("beschrijving")
+    if desc:
+        m = re.search(r"(\d+(?:[.,]\d+)?)\s*km", desc, re.IGNORECASE)
+        if m:
+            return float(m.group(1).replace(",", "."))
     return 0.0
 
 
@@ -223,17 +229,20 @@ def _event_km(ev: dict) -> float:
     for k in ("distance_km", "km"):
         if ev.get(k):
             return float(ev[k])
-    # Parse uit name/description
-    for src in (ev.get("name"), ev.get("description")):
-        if not src:
-            continue
-        m = re.search(r"(\d+(?:[.,]\d+)?)\s*km", src, re.IGNORECASE)
+    name = ev.get("name")
+    if name:
+        m = re.search(r"(\d+(?:[.,]\d+)?)\s*km", name, re.IGNORECASE)
         if m:
             return float(m.group(1).replace(",", "."))
     # Fallback duration × pace
     dur_min = (ev.get("moving_time") or ev.get("duration") or 0) / 60
     if dur_min > 0:
         return round(dur_min * 60 / _FALLBACK_PACE_SEC_PER_KM, 1)
+    desc = ev.get("description")
+    if desc:
+        m = re.search(r"(\d+(?:[.,]\d+)?)\s*km", desc, re.IGNORECASE)
+        if m:
+            return float(m.group(1).replace(",", "."))
     return 0.0
 
 

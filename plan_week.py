@@ -189,8 +189,7 @@ def run(week_start: date, dry_run: bool = True, skip_run_days: list = None):
 
     # ── 4b. VOLUME-COMPENSATIE ───────────────────────────────────────────────
     # Als je vandaag meer hebt gelopen dan gepland, cap resterende runs deze
-    # week zodat je niet in het totaal-volume overshoot. Bij injury return
-    # ook hard cap op max_completed_km_this_week.
+    # week zodat je niet in het totaal-volume overshoot.
     try:
         from agents import volume_compensation as _vc
         _activities_wk = api.get_activities(

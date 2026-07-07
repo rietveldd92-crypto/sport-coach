@@ -97,3 +97,53 @@ def test_return_from_injury_does_not_cap_event_updates_without_overshoot():
     )
 
     assert updates == []
+
+
+def test_interval_rep_km_in_description_does_not_count_as_total_session_km():
+    week_start = date(2026, 7, 6)
+    today = date(2026, 7, 7)
+    threshold = {
+        "sport": "Run",
+        "datum": "2026-07-07",
+        "naam": "Drempel - 5x1000m @ 4:20/km",
+        "beschrijving": """
+Warmup
+- 15m easy
+
+Main Set
+5x
+- 1km 4:20/km Pace
+- 2m rustig
+
+Cooldown
+- 10m easy
+""",
+        "duur_min": 62,
+    }
+    longrun = {
+        "sport": "Run",
+        "datum": "2026-07-12",
+        "naam": "Lange duurloop negative split - 25km",
+        "beschrijving": "Rustig opbouwen",
+        "duur_min": 148,
+    }
+    activities = [
+        {
+            "type": "Run",
+            "start_date_local": "2026-07-06T07:00:00",
+            "distance": 9200,
+        }
+    ]
+
+    assert volume_compensation._session_km(threshold) == 11.3
+
+    new_sessions, info = volume_compensation.apply(
+        week_start,
+        [threshold, longrun],
+        activities,
+        today=today,
+    )
+
+    assert info["overshoot_km"] == -2.1
+    assert info["capped"] == []
+    assert new_sessions[1]["naam"] == "Lange duurloop negative split - 25km"
