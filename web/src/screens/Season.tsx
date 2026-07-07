@@ -149,7 +149,11 @@ export default function Season() {
         </p>
       )}
 
-      <GoalWizardSheet open={wizardOpen} onClose={() => setWizardOpen(false)} />
+      <GoalWizardSheet
+        open={wizardOpen}
+        activeGoal={hasRealGoal ? data.goal : null}
+        onClose={() => setWizardOpen(false)}
+      />
       <WeekDetailSheet week={selectedWeek} onClose={() => setSelectedWeek(null)} />
       <RegenResultSheet result={regenResult} onClose={() => setRegenResult(null)} />
     </div>

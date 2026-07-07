@@ -206,6 +206,26 @@ export function useDeleteGoal() {
   });
 }
 
+export function useReplaceGoal() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      goalId,
+      body,
+    }: {
+      goalId: number;
+      body: GoalCreate;
+    }) => {
+      await del<void>(`/api/goals/${goalId}`);
+      return post<GoalCreateResult>("/api/goals", body);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: keys.season });
+      qc.invalidateQueries({ queryKey: keys.goals });
+    },
+  });
+}
+
 export function useRegenerateGoal() {
   const qc = useQueryClient();
   return useMutation({

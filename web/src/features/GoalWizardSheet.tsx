@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import BottomSheet from "../components/BottomSheet";
-import { useCreateGoal } from "../api/queries";
-import type { GoalCreateResult, GoalType } from "../api/types";
+import { useCreateGoal, useReplaceGoal } from "../api/queries";
+import type { Goal, GoalCreate, GoalCreateResult, GoalType } from "../api/types";
 import { addDays, longDate, todayISO } from "../lib/dates";
 import {
   GOAL_TYPES,
@@ -14,11 +14,12 @@ import {
 interface Props {
   open: boolean;
   onClose: () => void;
+  activeGoal?: Goal | null;
 }
 
 /** Goal wizard (UPGRADE_PLAN §4.3): type+datum → streeftijd+prioriteit →
  *  blok-preview + haalbaarheid → bevestigen = POST /api/goals. */
-export default function GoalWizardSheet({ open, onClose }: Props) {
+export default function GoalWizardSheet({ open, onClose, activeGoal }: Props) {
   const today = todayISO();
   const [step, setStep] = useState(0);
   const [type, setType] = useState<GoalType>("marathon");
@@ -26,6 +27,7 @@ export default function GoalWizardSheet({ open, onClose }: Props) {
   const [target, setTarget] = useState("");
   const [priority, setPriority] = useState<"A" | "B" | "C">("A");
   const create = useCreateGoal();
+  const replace = useReplaceGoal();
 
   const meta = GOAL_TYPES.find((g) => g.value === type) ?? GOAL_TYPES[0];
   const weeks = weeksUntil(eventDate, today);
@@ -34,6 +36,7 @@ export default function GoalWizardSheet({ open, onClose }: Props) {
   const reset = () => {
     setStep(0);
     create.reset();
+    replace.reset();
   };
 
   const close = () => {
@@ -41,16 +44,32 @@ export default function GoalWizardSheet({ open, onClose }: Props) {
     onClose();
   };
 
-  const confirm = () =>
-    create.mutate({
+  const confirm = () => {
+    const body: GoalCreate = {
       type,
       sport: meta.sport,
       event_date: eventDate,
       target_value: target.trim() || null,
       priority,
-    });
+    };
+    if (priority === "A" && activeGoal?.id && activeGoal.id > 0) {
+      const oldLabel =
+        GOAL_TYPES.find((g) => g.value === activeGoal.type)?.label ??
+        activeGoal.type;
+      const ok = window.confirm(
+        `Er is al een A-doel (${oldLabel}). Wil je dit doel verwijderen en vervangen door je nieuwe doel?`,
+      );
+      if (!ok) return;
+      replace.mutate({ goalId: activeGoal.id, body });
+      return;
+    }
+    create.mutate(body);
+  };
 
-  const result = create.data ?? null;
+  const result = create.data ?? replace.data ?? null;
+  const busy = create.isPending || replace.isPending;
+  const isError = create.isError || replace.isError;
+  const error = create.error ?? replace.error;
 
   return (
     <BottomSheet open={open} onClose={close} title="Nieuw doel">
@@ -96,11 +115,11 @@ export default function GoalWizardSheet({ open, onClose }: Props) {
           priority={priority}
           weeks={weeks}
           blocks={blocks}
-          busy={create.isPending}
+          busy={busy}
           error={
-            create.isError
-              ? (create.error as Error)?.message?.includes("409")
-                ? "Er is al een actief A-doel — verwijder dat eerst, of kies prioriteit B/C."
+            isError
+              ? (error as Error)?.message?.includes("409")
+                ? "Er is al een actief A-doel. Bevestig vervangen, of kies prioriteit B/C."
                 : "Doel aanmaken mislukt — probeer het opnieuw."
               : null
           }
