@@ -138,18 +138,6 @@ input[type="range"]::-moz-range-thumb {
   cursor: pointer;
 }
 
-/* Tijd-inputs (availability editor) */
-input[type="time"] {
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-strong);
-  border-radius: 8px;
-  color: var(--text);
-  font-family: "JetBrains Mono Variable", monospace;
-  font-size: 0.85rem;
-  padding: 6px 8px;
-  color-scheme: dark;
-}
-
 ::selection {
   background: var(--accent-border);
 }

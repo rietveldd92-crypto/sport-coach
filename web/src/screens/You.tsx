@@ -23,7 +23,7 @@ import type {
 import OfflineBanner, { useOnline } from "../components/OfflineBanner";
 import Spinner from "../components/Spinner";
 import PatternDaySheet from "../features/PatternDaySheet";
-import { dayMonth } from "../lib/dates";
+import { dayMonth, hoursLabel, toMinutes } from "../lib/dates";
 
 const APP_VERSION = "v2.0 · fase 5";
 
@@ -479,9 +479,12 @@ function SettingsSection({ trends }: { trends: TrendsView | undefined }) {
                     <span className="font-mono text-[0.66rem] text-muted">
                       {slots.length === 0
                         ? "rustdag"
-                        : slots
-                            .map((s) => `${s.slot_start}–${s.slot_end}`)
-                            .join(" · ")}
+                        : hoursLabel(
+                            slots.reduce(
+                              (sum, s) => sum + (toMinutes(s.slot_end) - toMinutes(s.slot_start)),
+                              0,
+                            ),
+                          )}
                     </span>
                   </button>
                 </li>
