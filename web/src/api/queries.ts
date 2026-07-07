@@ -229,8 +229,16 @@ export function useReplaceGoal() {
 export function useRegenerateGoal() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (goalId: number) =>
-      post<RegenerateResult>(`/api/goals/${goalId}/regenerate`),
+    mutationFn: ({
+      goalId,
+      force = false,
+    }: {
+      goalId: number;
+      force?: boolean;
+    }) =>
+      post<RegenerateResult>(
+        `/api/goals/${goalId}/regenerate${force ? "?force=true" : ""}`,
+      ),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: keys.season });
     },

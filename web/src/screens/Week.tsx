@@ -177,6 +177,14 @@ export default function Week() {
   const stale = !online || (isError && isUnavailable(error));
   const hasWorkouts = (data.items ?? []).some((i) => !i.is_note);
   const planWarnings = planWeek.data?.warnings ?? [];
+  const planResult = planWeek.data;
+  const planButtonLabel = planWeek.isPending
+    ? hasWorkouts
+      ? "Herplannen..."
+      : "Plannen..."
+    : hasWorkouts
+      ? "Herplan week"
+      : "Plan week";
 
   return (
     <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
@@ -235,38 +243,45 @@ export default function Week() {
           </div>
         )}
 
-        {!hasWorkouts && (
-          <div className="rise-in mb-5 rounded-2xl border border-line bg-raised px-5 py-7 text-center">
-            <p className="font-display text-lg font-semibold">Nog niets gepland</p>
-            <p className="mx-auto mt-1.5 max-w-[260px] text-sm text-muted">
-              Laat de planner deze week vullen op basis van je beschikbaarheid.
+        <div className="rise-in mb-5 rounded-2xl border border-line bg-raised px-5 py-5 text-center">
+          <p className="font-display text-lg font-semibold">
+            {hasWorkouts ? "Week opnieuw plannen" : "Nog niets gepland"}
+          </p>
+          <p className="mx-auto mt-1.5 max-w-[300px] text-sm text-muted">
+            {hasWorkouts
+              ? "Laat de planner deze week opnieuw schrijven op basis van je actuele doel en beschikbaarheid."
+              : "Laat de planner deze week vullen op basis van je beschikbaarheid."}
+          </p>
+          {planWarnings.length > 0 && (
+            <div className="mx-auto mt-3 max-w-[320px] space-y-1.5 text-left">
+              {planWarnings.map((w, i) => (
+                <p
+                  key={`${w.code ?? "warning"}-${i}`}
+                  className="rounded-xl border border-warning/40 bg-warning/10 px-3 py-2 text-[0.78rem] leading-relaxed text-warning"
+                >
+                  {w.message}
+                </p>
+              ))}
+            </div>
+          )}
+          <button
+            onClick={() => planWeek.mutate()}
+            disabled={planWeek.isPending}
+            className="mt-4 rounded-xl bg-accent px-6 py-2.5 text-sm font-semibold text-white hover:bg-accent-hover disabled:opacity-50"
+          >
+            {planButtonLabel}
+          </button>
+          {planWeek.isSuccess && planResult && planWarnings.length === 0 && (
+            <p className="mt-2.5 text-[0.78rem] text-positive">
+              Weekplanner klaar: {planResult.planned_sessions} sessies geschreven.
             </p>
-            {planWarnings.length > 0 && (
-              <div className="mx-auto mt-3 max-w-[320px] space-y-1.5 text-left">
-                {planWarnings.map((w, i) => (
-                  <p
-                    key={`${w.code ?? "warning"}-${i}`}
-                    className="rounded-xl border border-warning/40 bg-warning/10 px-3 py-2 text-[0.78rem] leading-relaxed text-warning"
-                  >
-                    {w.message}
-                  </p>
-                ))}
-              </div>
-            )}
-            <button
-              onClick={() => planWeek.mutate()}
-              disabled={planWeek.isPending}
-              className="mt-4 rounded-xl bg-accent px-6 py-2.5 text-sm font-semibold text-white hover:bg-accent-hover disabled:opacity-50"
-            >
-              {planWeek.isPending ? "Plannen…" : "Plan week"}
-            </button>
-            {planWeek.isError && (
-              <p className="mt-2.5 text-[0.78rem] text-alert">
-                Plannen mislukt — staat je beschikbaarheid goed?
-              </p>
-            )}
-          </div>
-        )}
+          )}
+          {planWeek.isError && (
+            <p className="mt-2.5 text-[0.78rem] text-alert">
+              Plannen mislukt - staat je beschikbaarheid goed?
+            </p>
+          )}
+        </div>
 
         <div className="space-y-3 rise-in">
           {days.map((d) => (

@@ -104,7 +104,7 @@ export default function Season() {
           <button
             data-testid="regenerate-plan"
             onClick={() =>
-              regenerate.mutate(data.goal.id, {
+              regenerate.mutate({ goalId: data.goal.id, force: true }, {
                 onSuccess: (res) => setRegenResult(res),
               })
             }
