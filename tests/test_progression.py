@@ -61,6 +61,7 @@ def test_step_progression_bumps_once_per_week():
 
     _apply_weekly_progression(state, is_deload_week=False, today=monday)
     assert state["progression"]["threshold_step"] == 3
+    assert state["progression"]["run_quality_step"] == 3
     assert state["progression"]["sweetspot_step"] == 4
     assert state["progression"]["over_unders_step"] == 2
     assert state["progression"]["cp_step"] == 1
@@ -68,6 +69,7 @@ def test_step_progression_bumps_once_per_week():
     # Zelfde week opnieuw → blijft staan
     _apply_weekly_progression(state, is_deload_week=False, today=monday)
     assert state["progression"]["threshold_step"] == 3
+    assert state["progression"]["run_quality_step"] == 3
     assert state["progression"]["cp_step"] == 1
 
 
@@ -78,9 +80,11 @@ def test_variety_index_bumps_once_per_week():
     _apply_weekly_progression(state, is_deload_week=False, today=monday)
     assert state["progression"]["z2_run_variety_index"] == 1
     assert state["progression"]["long_run_variety_index"] == 1
+    assert state["progression"]["run_quality_variety_index"] == 1
 
     _apply_weekly_progression(state, is_deload_week=False, today=monday)
     assert state["progression"]["z2_run_variety_index"] == 1
+    assert state["progression"]["run_quality_variety_index"] == 1
 
 
 def test_pick_long_run_roteert_varianten():
@@ -115,6 +119,7 @@ def test_step_progression_caps_at_max():
     _apply_weekly_progression(state, is_deload_week=False, today=monday)
 
     assert state["progression"]["threshold_step"] == 13
+    assert state["progression"]["run_quality_step"] == 4
     assert state["progression"]["sweetspot_step"] == 8
     assert state["progression"]["over_unders_step"] == 6
     assert state["progression"]["cp_step"] == 5

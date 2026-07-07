@@ -1355,6 +1355,206 @@ def run_interval_variants() -> list[dict]:
     return [_build_run_intervals(*c) for c in combos]
 
 
+def _pace_label(sec_per_km: int) -> str:
+    mm, ss = divmod(sec_per_km, 60)
+    return f"{mm}:{ss:02d}/km"
+
+
+def _build_run_threshold_short(
+    reps: int,
+    rep_km: float,
+    rest_min: float,
+    pace_sec: int,
+    if_score: float,
+    label: str,
+) -> dict:
+    work_min = round(reps * rep_km * pace_sec / 60)
+    rest_total = round(reps * rest_min)
+    total_min = 16 + work_min + rest_total + 12
+    pace = _pace_label(pace_sec)
+    rep_label = f"{int(rep_km * 1000)}m" if rep_km < 1 else f"{rep_km:g}km"
+    return {
+        "type": "run_threshold_short",
+        "naam": f"Korte drempel - {reps}x{rep_label} @ {pace}",
+        "beschrijving": (
+            "Warmup\n"
+            "- 16m ramp 65-82% Pace\n\n"
+            "Main Set\n"
+            f"{reps}x\n"
+            f"- {rep_km:g}km {pace} Pace (drempel, strak maar controle)\n"
+            f"- {rest_min:g}m 64% Pace\n\n"
+            "Cooldown\n"
+            "- 12m ramp 75-60% Pace\n\n"
+            f"{label}. Korte drempel: veel kwaliteit zonder dat het een "
+            "alles-of-niets workout wordt. Laatste rep moet technisch nog "
+            f"net zo goed zijn als de eerste. {REHAB_PRE_RUN}"
+            f"{DELAHAIJE_RUN}"
+        ),
+        "duur_min": total_min,
+        "tss_geschat": _tss_run(total_min, if_score),
+        "sport": "Run",
+        "zone": "Z4 threshold",
+        "intensiteit_factor": if_score,
+        "fun": 3,
+    }
+
+
+def _build_run_threshold_long(
+    reps: int,
+    block_min: int,
+    rest_min: float,
+    pace_sec: int,
+    if_score: float,
+    label: str,
+) -> dict:
+    total_min = 15 + reps * block_min + round(reps * rest_min) + 12
+    pace = _pace_label(pace_sec)
+    return {
+        "type": "run_threshold_long",
+        "naam": f"Lange drempel - {reps}x{block_min} min @ {pace}",
+        "beschrijving": (
+            "Warmup\n"
+            "- 15m ramp 65-82% Pace\n\n"
+            "Main Set\n"
+            f"{reps}x\n"
+            f"- {block_min}m {pace} Pace (cruise threshold, geen forceren)\n"
+            f"- {rest_min:g}m 64% Pace\n\n"
+            "Cooldown\n"
+            "- 12m ramp 75-60% Pace\n\n"
+            f"{label}. Lange drempel: tijd-op-drempel bouwen. Dit moet "
+            "gelijkmatig en beheerst, niet jagen op piektempo. "
+            f"{REHAB_PRE_RUN}"
+            f"{DELAHAIJE_RUN}"
+        ),
+        "duur_min": total_min,
+        "tss_geschat": _tss_run(total_min, if_score),
+        "sport": "Run",
+        "zone": "Z3/Z4 threshold",
+        "intensiteit_factor": if_score,
+        "fun": 3,
+    }
+
+
+def _build_run_vo2max(
+    reps: int,
+    work_sec: int,
+    rest_sec: int,
+    pace_pct: int,
+    if_score: float,
+    label: str,
+) -> dict:
+    work = _fmt_interval_duration(work_sec)
+    rest = _fmt_interval_duration(rest_sec)
+    total_work_min = reps * work_sec / 60
+    total_min = 18 + round(reps * (work_sec + rest_sec) / 60) + 12
+    return {
+        "type": "run_vo2max",
+        "naam": f"VO2max - {reps}x{work} @ {pace_pct}%",
+        "beschrijving": (
+            "Warmup\n"
+            "- 12m ramp 60-78% Pace\n"
+            "3x\n"
+            "- 20s 95% Pace\n"
+            "- 60s 60% Pace\n\n"
+            "Main Set\n"
+            f"{reps}x\n"
+            f"- {work} {pace_pct}% Pace (VO2max, hard maar technisch)\n"
+            f"- {rest} 58% Pace\n\n"
+            "Cooldown\n"
+            "- 12m ramp 70-55% Pace\n\n"
+            f"{label}. VO2max: plafond optillen met {total_work_min:.0f} min "
+            "kwaliteit. Stop als vorm instort; deze prikkel werkt alleen "
+            f"schoon. {REHAB_PRE_RUN}"
+            f"{DELAHAIJE_RUN}"
+        ),
+        "duur_min": total_min,
+        "tss_geschat": _tss_run(total_min, if_score),
+        "sport": "Run",
+        "zone": "Z4/Z5 VO2max",
+        "intensiteit_factor": if_score,
+        "fun": 4,
+    }
+
+
+RUN_QUALITY_LIBRARY: dict[str, list[list[dict]]] = {
+    "threshold_short": [
+        [
+            _build_run_threshold_short(5, 1.0, 2.0, 260, 0.88, "Instap"),
+            _build_run_threshold_short(4, 1.2, 2.0, 260, 0.88, "Instap variant"),
+        ],
+        [
+            _build_run_threshold_short(6, 1.0, 2.0, 258, 0.89, "Opbouw"),
+            _build_run_threshold_short(5, 1.2, 2.0, 258, 0.89, "Opbouw variant"),
+        ],
+        [
+            _build_run_threshold_short(5, 1.5, 2.5, 256, 0.90, "Zwaarder"),
+            _build_run_threshold_short(8, 1.0, 1.5, 256, 0.90, "Zwaarder variant"),
+        ],
+        [
+            _build_run_threshold_short(6, 1.5, 2.0, 254, 0.91, "Piek"),
+            _build_run_threshold_short(4, 2.0, 2.5, 254, 0.91, "Piek variant"),
+        ],
+    ],
+    "threshold_long": [
+        [
+            _build_run_threshold_long(2, 12, 3.0, 270, 0.86, "Instap"),
+            _build_run_threshold_long(3, 8, 2.5, 270, 0.86, "Instap variant"),
+        ],
+        [
+            _build_run_threshold_long(2, 15, 3.0, 268, 0.89, "Opbouw"),
+            _build_run_threshold_long(3, 10, 2.5, 268, 0.89, "Opbouw variant"),
+        ],
+        [
+            _build_run_threshold_long(3, 12, 2.5, 265, 0.88, "Zwaarder"),
+            _build_run_threshold_long(2, 20, 4.0, 265, 0.88, "Zwaarder variant"),
+        ],
+        [
+            _build_run_threshold_long(3, 15, 3.0, 263, 0.89, "Piek"),
+            _build_run_threshold_long(2, 25, 4.0, 263, 0.89, "Piek variant"),
+        ],
+    ],
+    "vo2max": [
+        [
+            _build_run_vo2max(8, 60, 75, 96, 0.86, "Instap"),
+            _build_run_vo2max(6, 90, 90, 95, 0.86, "Instap variant"),
+        ],
+        [
+            _build_run_vo2max(10, 60, 60, 97, 0.88, "Opbouw"),
+            _build_run_vo2max(7, 90, 75, 96, 0.88, "Opbouw variant"),
+        ],
+        [
+            _build_run_vo2max(8, 120, 90, 97, 0.90, "Zwaarder"),
+            _build_run_vo2max(5, 180, 120, 96, 0.90, "Zwaarder variant"),
+        ],
+        [
+            _build_run_vo2max(6, 240, 120, 98, 0.97, "Piek"),
+            _build_run_vo2max(5, 300, 150, 96, 0.97, "Piek variant"),
+        ],
+    ],
+}
+
+RUN_QUALITY_ROTATION = ("threshold_short", "threshold_long", "vo2max")
+
+
+def pick_run_quality(
+    step: int,
+    variety_index: int,
+    category: str | None = None,
+) -> dict:
+    """Pick a progressive run quality workout.
+
+    The step selects the difficulty rung; variety_index selects the category
+    and variant deterministically, so replanning the same week stays stable.
+    """
+    if category is None:
+        category = RUN_QUALITY_ROTATION[variety_index % len(RUN_QUALITY_ROTATION)]
+    ladders = RUN_QUALITY_LIBRARY[category]
+    rung_idx = min(max(step - 1, 0), len(ladders) - 1)
+    variants = ladders[rung_idx]
+    variant = variants[(variety_index // len(RUN_QUALITY_ROTATION)) % len(variants)]
+    return variant.copy()
+
+
 def _build_run_z2(duration_min: int, avg_pct: int, style: str) -> dict:
     main = duration_min - 8
     if style == "steady":

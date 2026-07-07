@@ -26,6 +26,7 @@ _SACRED_KEYWORDS_RUN = {
     "tempo_duurloop",
     "tempo duurloop",
     "threshold",
+    "vo2",
 }
 
 # Keywords die het expliciet SOFT maken (override).

@@ -71,9 +71,9 @@ def test_dubbele_drempel_vanaf_wk17_niet_in_deload():
                             marathon_volume=vol)
         return [s.get("type") for s in out]
 
-    assert "drempel_cruise" in _types(17)
-    assert "drempel_cruise" not in _types(15, deload=True)  # deloadweek: 1 drempel
-    assert "drempel_cruise" not in _types(14)               # vóór wk 17: 1 drempel
+    assert "run_threshold_long" in _types(17)
+    assert "run_threshold_long" not in _types(15, deload=True)  # deloadweek: 1 drempel
+    assert "run_threshold_long" not in _types(14)               # voor wk 17: 1 drempel
 
 
 def test_bike_week_geen_threshold_bij_dubbele_run_drempel():

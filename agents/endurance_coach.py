@@ -382,6 +382,19 @@ def _pace_label(sec_per_km: int) -> str:
     return f"{mm}:{ss:02d}/km"
 
 
+def _run_quality_step_for_week(week_number: int, is_deload: bool = False) -> int:
+    """Planweek-gedreven run-quality ladder.
+
+    Oude state kan al op een hoge bike-threshold step staan. Run-workouts
+    moeten alsnog zichtbaar oplopen binnen het macroblok.
+    """
+    if week_number < 13:
+        step = 1
+    else:
+        step = min(4, max(1, ((week_number - 13) // 2) + 1))
+    return max(1, step - 1) if is_deload else step
+
+
 def _drempel_cruise(week_number: int) -> dict:
     """Tweede drempelsessie van de week — cruise-blokken op tijd i.p.v.
     kilometer-reps, 5-10 s/km rustiger dan de intervalsessie. Doel: extra
@@ -527,14 +540,16 @@ def _plan_marathon_sessions(
         _prog = (_load_state() or {}).get("progression", {})
         _z2_idx = _prog.get("z2_run_variety_index", 0)
         _long_idx = _prog.get("long_run_variety_index", 0)
+        _quality_idx = _prog.get("run_quality_variety_index", _z2_idx)
     except Exception:
         _z2_idx = 0
         _long_idx = 0
-
+        _quality_idx = 0
     # ── KORTE SESSIES (Z2 varianten roteren via workout library) ──
     from agents import workout_library as lib
-
     korte_dagen = ["dinsdag", "donderdag", "zaterdag"][:korte_sessies]
+    _quality_step = _run_quality_step_for_week(week_number, is_deload)
+    _primary_quality_type = None
     for i, dag in enumerate(korte_dagen):
         if dag in skip_run_days:
             continue
@@ -544,13 +559,26 @@ def _plan_marathon_sessions(
         # Delahaije: tempoduur = Z1 (net onder aerobe drempel, 85% HRmax)
         # Drempel = vanaf wk 13+, @ 4:20/km startpace (echt hard).
         if intensiteit == "drempel" and tempo_ok and run_intensity_ok and i == 0:
-            sessie = _drempel_run(week_number)
+            sessie = lib.pick_run_quality(
+                step=_quality_step,
+                variety_index=_quality_idx + week_number,
+            )
+            _primary_quality_type = sessie.get("type")
         elif (intensiteit == "drempel" and tempo_ok and run_intensity_ok
               and i == 1 and week_number >= 17 and not is_deload):
             # 2e rennende drempelsessie vanaf wk 17 (atleet-keuze 2026-07-05):
             # cruise-blokken, geen tweede intervaldag. In deloadweken blijft
             # het bij één drempelsessie.
-            sessie = _drempel_cruise(week_number)
+            second_category = (
+                "threshold_short"
+                if _primary_quality_type == "run_threshold_long"
+                else "threshold_long"
+            )
+            sessie = lib.pick_run_quality(
+                step=_quality_step,
+                variety_index=_quality_idx + week_number + 1,
+                category=second_category,
+            )
         elif intensiteit == "tempoduur" and i == 0:
             sessie = _tempoduur_progressief(week_number)
         elif intensiteit == "tempoduur_strides" and strides_ok and i == 0:
