@@ -426,12 +426,14 @@ def select_bike_sessions_for_week(week_number: int, phase_naam: str, state: dict
         light_thr["naam"] = "Threshold light – " + light_thr["naam"].split("– ")[-1]
         return [light_thr, easy_spin_session(60)]
 
-    # Dubbele rennende drempel (wk 17+, zie endurance_coach._CRUISE_PLAN):
-    # de fiets levert die weken GEEN derde LT-dag — puur aerobe week
-    # (long_slow + fatmax), anders stapelen we 3 harde dagen.
+    # Dubbele rennende drempel (vanaf DOUBLE_DREMPEL_START_WEEK, zie
+    # endurance_coach): de fiets levert die weken GEEN derde LT-dag — puur
+    # aerobe week (long_slow + fatmax), anders stapelen we 3 harde dagen.
+    # (is_deload is hierboven al afgehandeld en return't eerder, dus deze
+    # check triggert nooit onterecht in een deloadweek.)
     try:
-        from agents.endurance_coach import _CRUISE_PLAN
-        if week_number in _CRUISE_PLAN:
+        from agents.endurance_coach import DOUBLE_DREMPEL_START_WEEK
+        if week_number >= DOUBLE_DREMPEL_START_WEEK:
             return [long_slow_session(ftp), fatmax_medium_session(ftp)]
     except ImportError:
         pass

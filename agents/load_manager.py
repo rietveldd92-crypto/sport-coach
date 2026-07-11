@@ -243,7 +243,7 @@ def _apply_weekly_progression(state: dict, is_deload_week: bool,
 
     # Intensiteit-stap incrementeert tot cap (cap matcht len(steps) in workout_library.threshold)
     prog["threshold_step"] = min(13, prog.get("threshold_step", 1) + 1)
-    prog["run_quality_step"] = min(4, old_run_quality_step + 1)
+    prog["run_quality_step"] = min(6, old_run_quality_step + 1)
     prog["sweetspot_step"] = min(8, prog.get("sweetspot_step", 1) + 1)
     prog["over_unders_step"] = min(6, prog.get("over_unders_step", 1) + 1)
     prog["cp_step"] = min(5, prog.get("cp_step", 0) + 1)
@@ -315,15 +315,23 @@ def _save_state(state: dict) -> None:
     save_state(state)
 
 
-def _weeks_to_race() -> int:
-    return max(0, (RACE_DATE - date.today()).days // 7)
+def _weeks_to_race(today: date | None = None) -> int:
+    return max(0, (RACE_DATE - (today or date.today())).days // 7)
 
 
-def _determine_phase(weeks_to_race: int) -> str:
-    """Bepaal fase via marathon_periodizer als beschikbaar, anders legacy logica."""
+def _determine_phase(weeks_to_race: int, today: date | None = None) -> str:
+    """Bepaal fase via marathon_periodizer als beschikbaar, anders legacy logica.
+
+    ``today`` moet de te plánnen week zijn (week_start), niet de kalenderdatum
+    van vandaag — anders levert dit een andere fase dan de rest van de
+    pipeline (marathon_vol, is_deload_week) gebruikt zodra je een toekomstige
+    week plant die een fase-/deload-grens overschrijdt. Bug gevonden
+    2026-07-11: dit viel stilzwijgend terug op date.today(), waardoor een
+    deload-transformatie-week als "accumulatie_II" werd gepland.
+    """
     try:
         from agents import marathon_periodizer
-        phase_info = marathon_periodizer.get_current_phase()
+        phase_info = marathon_periodizer.get_current_phase(today=today)
         return phase_info["fase_naam"]
     except (ImportError, Exception):
         pass
@@ -415,8 +423,8 @@ def analyze(activities: list = None, injury_guard_output: dict = None, week_star
 
     tsb = round(ctl - atl, 1)
 
-    weeks_to_race = _weeks_to_race()
-    phase = _determine_phase(weeks_to_race)
+    weeks_to_race = _weeks_to_race(week_start)
+    phase = _determine_phase(weeks_to_race, today=week_start)
 
     # Update phase in state — week_number uit marathon_periodizer (28-weken plan,
     # PLAN_START 2026-04-06). Was hardcoded op 13-weeks 10km logica, dat klopt
@@ -424,7 +432,7 @@ def analyze(activities: list = None, injury_guard_output: dict = None, week_star
     state["current_phase"] = phase
     try:
         from agents.marathon_periodizer import get_week_number as _get_wk
-        state["week_number"] = _get_wk()
+        state["week_number"] = _get_wk(today=week_start) if week_start else _get_wk()
     except (ImportError, Exception):
         # Fallback voor het 13-weeks 10km plan (legacy)
         state["week_number"] = max(1, 13 - weeks_to_race + 1)

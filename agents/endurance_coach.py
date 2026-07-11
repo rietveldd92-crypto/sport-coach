@@ -382,16 +382,27 @@ def _pace_label(sec_per_km: int) -> str:
     return f"{mm}:{ss:02d}/km"
 
 
-def _run_quality_step_for_week(week_number: int, is_deload: bool = False) -> int:
-    """Planweek-gedreven run-quality ladder.
+# Eerste week met 2 rennende drempelsessies/week (atleet-keuze 2026-07-11:
+# fiets-primair, maar drempelontwikkeling blijft NU al 2x/week rennend i.p.v.
+# te wachten tot wk 17 — was: alleen richting 10K/marathon-specificiteit).
+# bike_coach.select_bike_sessions_for_week gebruikt dezelfde constante om
+# geen 3e LT-dag toe te voegen (max 2 LT-dagen/week, zie
+# feedback_threshold_burnout_constraint).
+DOUBLE_DREMPEL_START_WEEK = 14
 
-    Oude state kan al op een hoge bike-threshold step staan. Run-workouts
-    moeten alsnog zichtbaar oplopen binnen het macroblok.
+
+def _run_quality_step_for_week(week_number: int, is_deload: bool = False) -> int:
+    """Planweek-gedreven run-quality ladder — fallback zolang de state nog
+    geen ``progression.run_quality_step`` heeft (cold start).
+
+    Normaal gesproken bepaalt load_manager._apply_weekly_progression de
+    step (adherence-gedreven, +1/bouwweek, -1 na deload); dit is enkel de
+    kalender-gebaseerde terugval-formule.
     """
     if week_number < 13:
         step = 1
     else:
-        step = min(4, max(1, ((week_number - 13) // 2) + 1))
+        step = min(6, max(1, ((week_number - 13) // 2) + 1))
     return max(1, step - 1) if is_deload else step
 
 
@@ -548,7 +559,13 @@ def _plan_marathon_sessions(
     # ── KORTE SESSIES (Z2 varianten roteren via workout library) ──
     from agents import workout_library as lib
     korte_dagen = ["dinsdag", "donderdag", "zaterdag"][:korte_sessies]
-    _quality_step = _run_quality_step_for_week(week_number, is_deload)
+    # Adherence-gedreven step (load_manager._apply_weekly_progression bumpt
+    # 'm 1x/bouwweek, -1 na deload); kalenderformule is enkel cold-start fallback.
+    _quality_step = _prog.get(
+        "run_quality_step", _run_quality_step_for_week(week_number, False)
+    )
+    if is_deload:
+        _quality_step = max(1, _quality_step - 1)
     _primary_quality_type = None
     for i, dag in enumerate(korte_dagen):
         if dag in skip_run_days:
@@ -565,10 +582,13 @@ def _plan_marathon_sessions(
             )
             _primary_quality_type = sessie.get("type")
         elif (intensiteit == "drempel" and tempo_ok and run_intensity_ok
-              and i == 1 and week_number >= 17 and not is_deload):
-            # 2e rennende drempelsessie vanaf wk 17 (atleet-keuze 2026-07-05):
-            # cruise-blokken, geen tweede intervaldag. In deloadweken blijft
-            # het bij één drempelsessie.
+              and i == 1 and week_number >= DOUBLE_DREMPEL_START_WEEK
+              and not is_deload):
+            # 2e rennende drempelsessie vanaf DOUBLE_DREMPEL_START_WEEK
+            # (atleet-keuze 2026-07-11, vervroegd t.o.v. de oorspronkelijke
+            # wk 17 van 2026-07-05): andere categorie dan de primaire sessie,
+            # geen tweede identieke intervaldag. In deloadweken blijft het
+            # bij één drempelsessie.
             second_category = (
                 "threshold_short"
                 if _primary_quality_type == "run_threshold_long"

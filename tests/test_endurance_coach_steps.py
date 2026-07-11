@@ -52,16 +52,18 @@ def test_cruise_step_is_parseable_en_rustiger_dan_intervallen():
         assert cruise_pace > interval_pace, f"wk {wk}: cruise niet rustiger dan intervallen"
 
 
-def test_dubbele_drempel_vanaf_wk17_niet_in_deload():
+def test_dubbele_drempel_vanaf_start_week_niet_in_deload():
     from datetime import date, timedelta
 
-    from agents.endurance_coach import plan_sessions
+    from agents.endurance_coach import DOUBLE_DREMPEL_START_WEEK, plan_sessions
 
     ig = {"run_intensity_allowed": True, "strides_allowed": True,
           "tempo_allowed": True, "volume_modifier": 1.0}
     lm = {"recommended_weekly_tss": 650}
 
-    def _types(week_nr, deload=False):
+    _QUALITY_TYPES = {"run_threshold_short", "run_threshold_long", "run_vo2max"}
+
+    def _quality_count(week_nr, deload=False):
         guard = dict(ig, _is_deload_week=deload)
         monday = date(2026, 4, 6) + timedelta(weeks=week_nr - 1)
         from agents import marathon_periodizer as mp
@@ -69,11 +71,13 @@ def test_dubbele_drempel_vanaf_wk17_niet_in_deload():
         out = plan_sessions(phase=vol["fase"], injury_guard=guard,
                             load_manager=lm, week_start=monday,
                             marathon_volume=vol)
-        return [s.get("type") for s in out]
+        return sum(1 for s in out if s.get("type") in _QUALITY_TYPES)
 
-    assert "run_threshold_long" in _types(17)
-    assert "run_threshold_long" not in _types(15, deload=True)  # deloadweek: 1 drempel
-    assert "run_threshold_long" not in _types(14)               # voor wk 17: 1 drempel
+    # atleet-keuze 2026-07-11: 2 rennende drempelsessies vanaf nu (was wk 17)
+    assert DOUBLE_DREMPEL_START_WEEK <= 14
+    assert _quality_count(DOUBLE_DREMPEL_START_WEEK) == 2
+    assert _quality_count(DOUBLE_DREMPEL_START_WEEK + 1, deload=True) == 1
+    assert _quality_count(DOUBLE_DREMPEL_START_WEEK - 1) == 1
 
 
 def test_bike_week_geen_threshold_bij_dubbele_run_drempel():

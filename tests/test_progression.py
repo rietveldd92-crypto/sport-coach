@@ -119,7 +119,7 @@ def test_step_progression_caps_at_max():
     _apply_weekly_progression(state, is_deload_week=False, today=monday)
 
     assert state["progression"]["threshold_step"] == 13
-    assert state["progression"]["run_quality_step"] == 4
+    assert state["progression"]["run_quality_step"] == 6
     assert state["progression"]["sweetspot_step"] == 8
     assert state["progression"]["over_unders_step"] == 6
     assert state["progression"]["cp_step"] == 5
