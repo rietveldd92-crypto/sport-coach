@@ -348,18 +348,20 @@ def solve_week(
         return sum(terms) if terms else 0
 
     long_on, hard_on, run_on, bike_on, strength_on = {}, {}, {}, {}, {}
-    hard_count_by_day = {}
     for d in days:
         long_c = _day_count(d, lambda p: p["kind"] == "long")
         hard_c = _day_count(d, lambda p: p["kind"] == "hard")
+        key_c = _day_count(d, lambda p: p["kind"] in ("long", "hard"))
         run_c = _day_count(d, lambda p: p["sport"] == "run")
         bike_c = _day_count(d, lambda p: p["sport"] == "bike")
         str_c = _day_count(d, lambda p: p["kind"] == "strength")
         total_c = _day_count(d, lambda p: True)
 
-        # T1a: nooit 2 longs op één dag. Nooit 2 runs op één dag.
+        # T1a: nooit 2 key sessions (long/hard) op één dag.
         if not isinstance(total_c, int):
             model.Add(total_c <= max_per_day)
+        if not isinstance(key_c, int):
+            model.Add(key_c <= 1)
         if not isinstance(long_c, int):
             model.Add(long_c <= 1)
         if not isinstance(run_c, int):
@@ -370,8 +372,6 @@ def solve_week(
         run_on[d] = _on_var(model, run_c, f"run_{d}") if not isinstance(run_c, int) else None
         bike_on[d] = _on_var(model, bike_c, f"bike_{d}") if not isinstance(bike_c, int) else None
         strength_on[d] = _on_var(model, str_c, f"str_{d}") if not isinstance(str_c, int) else None
-        hard_count_by_day[d] = hard_c
-
     # T1b: runs niet back-to-back (toggle).
     if not options.runs_back_to_back_ok:
         for d1, d2 in zip(days, days[1:]):
@@ -383,15 +383,6 @@ def solve_week(
     # Zachte (of in strict harde) spacing-termen op dag-niveau.
     for d in days:
         h, lo = hard_on[d], long_on[d]
-        hc = hard_count_by_day[d]
-        if not isinstance(hc, int):
-            if options.strict:
-                model.Add(hc <= 1)
-            else:
-                two_hard = model.NewBoolVar(f"twohard_{d}")
-                model.Add(hc >= 2).OnlyEnforceIf(two_hard)
-                model.Add(hc <= 1).OnlyEnforceIf(two_hard.Not())
-                objective_terms.append(weights["hard_adjacent"] * two_hard)
         if h is not None and lo is not None:
             if options.strict:
                 model.Add(h + lo <= 1)

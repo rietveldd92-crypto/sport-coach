@@ -165,6 +165,29 @@ def test_hard_spacing_best_effort_plaatst_toch():
     assert any("zware dag" in n for n in hard.notes)
 
 
+def test_ruime_legacy_dag_krijgt_niet_twee_zware_sessies():
+    avail = {d: 60 for d in DAYS_NL}
+    avail["woensdag"] = 90
+    avail["vrijdag"] = 18 * 60
+    sessies = [
+        _sessie("Long endurance", 165, sport="VirtualRide",
+                type_="endurance_ride"),
+        _sessie("Sweetspot", 75, sport="VirtualRide", type_="sweetspot"),
+        _sessie("Easy bike", 45, sport="VirtualRide", type_="endurance_ride"),
+    ]
+    result = solve_week(sessies, _slots(avail))
+
+    assert result.status == "OPTIMAL"
+    assert _dag(_by_name(result, "Long endurance")) == "vrijdag"
+    assert _dag(_by_name(result, "Sweetspot")) != "vrijdag"
+
+    key_counts = {}
+    for pl in result.placements:
+        if pl.kind in ("long", "hard"):
+            key_counts[pl.date] = key_counts.get(pl.date, 0) + 1
+    assert all(count <= 1 for count in key_counts.values())
+
+
 def test_strict_hard_spacing_wordt_hard():
     """Strict: zelfde scenario → INFEASIBLE (oude SchedulingConflict)."""
     avail = {"vrijdag": 180, "zaterdag": 180}
@@ -324,8 +347,8 @@ def test_onoplosbaar_dropt_easy_eerst():
     assert result.notes  # leesbare relaxatie-suggestie
 
 
-def test_max_sessies_per_dag_dropt_vulling_eerst():
-    """Een brede open dag absorbeert niet meer de hele week."""
+def test_max_sessies_per_dag_laat_geen_tweede_zware_sessie_toe():
+    """Een brede open dag absorbeert geen tweede key session."""
     avail = {"vrijdag": 14 * 60}
     sessies = [
         _sessie("Long run", 150, type_="lange_duur"),
@@ -342,12 +365,9 @@ def test_max_sessies_per_dag_dropt_vulling_eerst():
     )
     assert result.status == "INFEASIBLE"
     assert len(result.placements) <= 2
-    assert {pl.naam for pl in result.placements} == {"Long run", "Threshold bike"}
-    assert {dr.naam for dr in result.dropped} == {
-        "Easy bike 1",
-        "Easy bike 2",
-        "Easy bike 3",
-    }
+    assert "Long run" in {pl.naam for pl in result.placements}
+    assert "Threshold bike" in {dr.naam for dr in result.dropped}
+    assert sum(1 for pl in result.placements if pl.kind in ("long", "hard")) == 1
     assert result.notes and "max 2 sessies/dag" in result.notes[0]
 
 
@@ -355,8 +375,8 @@ def test_max_sessies_per_dag_is_explicit_te_verhogen():
     avail = {"vrijdag": 14 * 60}
     sessies = [
         _sessie("Long run", 150, type_="lange_duur"),
-        _sessie("Threshold bike", 60, sport="VirtualRide", type_="threshold"),
-        _sessie("Easy bike", 45, sport="VirtualRide", type_="endurance_ride"),
+        _sessie("Easy bike 1", 45, sport="VirtualRide", type_="endurance_ride"),
+        _sessie("Easy bike 2", 45, sport="VirtualRide", type_="endurance_ride"),
     ]
     result = solve_week(
         sessies,
