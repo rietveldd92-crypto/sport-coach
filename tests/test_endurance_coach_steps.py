@@ -52,7 +52,7 @@ def test_cruise_step_is_parseable_en_rustiger_dan_intervallen():
         assert cruise_pace > interval_pace, f"wk {wk}: cruise niet rustiger dan intervallen"
 
 
-def test_dubbele_drempel_vanaf_start_week_niet_in_deload():
+def test_dubbele_drempel_vanaf_start_week_ook_in_deload():
     from datetime import date, timedelta
 
     from agents.endurance_coach import DOUBLE_DREMPEL_START_WEEK, plan_sessions
@@ -76,7 +76,7 @@ def test_dubbele_drempel_vanaf_start_week_niet_in_deload():
     # atleet-keuze 2026-07-11: 2 rennende drempelsessies vanaf nu (was wk 17)
     assert DOUBLE_DREMPEL_START_WEEK <= 14
     assert _quality_count(DOUBLE_DREMPEL_START_WEEK) == 2
-    assert _quality_count(DOUBLE_DREMPEL_START_WEEK + 1, deload=True) == 1
+    assert _quality_count(DOUBLE_DREMPEL_START_WEEK + 1, deload=True) == 2
     assert _quality_count(DOUBLE_DREMPEL_START_WEEK - 1) == 1
 
 

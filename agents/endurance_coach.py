@@ -583,12 +583,13 @@ def _plan_marathon_sessions(
             _primary_quality_type = sessie.get("type")
         elif (intensiteit == "drempel" and tempo_ok and run_intensity_ok
               and i == 1 and week_number >= DOUBLE_DREMPEL_START_WEEK
-              and not is_deload):
+              ):
             # 2e rennende drempelsessie vanaf DOUBLE_DREMPEL_START_WEEK
             # (atleet-keuze 2026-07-11, vervroegd t.o.v. de oorspronkelijke
             # wk 17 van 2026-07-05): andere categorie dan de primaire sessie,
-            # geen tweede identieke intervaldag. In deloadweken blijft het
-            # bij één drempelsessie.
+            # geen tweede identieke intervaldag. Ook in deloadweken blijft
+            # het concrete ritme twee drempelprikkels houden; de step wordt
+            # hierboven al verlaagd.
             second_category = (
                 "threshold_short"
                 if _primary_quality_type == "run_threshold_long"
