@@ -87,6 +87,38 @@ def _fillers_enabled() -> bool:
         return False
 
 
+def _fill_available_empty_days(
+    placed: list[dict],
+    avail_by_dag: dict[str, int],
+    week_start: date,
+    *,
+    slots: dict | None = None,
+) -> list[dict]:
+    """Vul lege dagen met echte beschikbaarheid met optionele easy bikes."""
+    from agents.day_planner import fill_empty_days_with_easy_bikes
+
+    before = len(placed)
+    placed = fill_empty_days_with_easy_bikes(
+        placed,
+        avail_by_dag,
+        week_start,
+        max_fills=None,
+        min_avail=45,
+    )
+    for sessie in placed[before:]:
+        if slots is not None:
+            day_slots = slots.get(date.fromisoformat(sessie["datum"]), [])
+            if day_slots:
+                sessie["start_tijd"] = day_slots[0].start
+        sessie["_solver"] = {
+            "kind": "easy", "score": 0.0,
+            "notes": "Optionele aerobe vulling op lege beschikbare dag",
+        }
+    if len(placed) > before:
+        print(f"  Planner: {len(placed) - before} lege beschikbare dag(en) gevuld.")
+    return placed
+
+
 def _persist_plan_warnings(week_start: date, warnings: list[dict]) -> None:
     """Bewaar planner-waarschuwingen voor UI/API zonder de planner te blokkeren."""
     try:
@@ -385,21 +417,26 @@ def _plan_with_slot_solver(
     print(f"  Slot-solver: {len(placed)} sessies geplaatst "
           f"(status {result.status}, score {result.objective:.0f}).")
 
-    # TSS-gap opvullen met easy bikes op lege dagen (zelfde gedrag als legacy).
+    avail_by_dag = {
+        DAYS_NL[i]: sum(
+            s.duration_min
+            for s in slots.get(week_start + timedelta(days=i), [])
+        )
+        for i in range(7)
+    }
+    placed = _fill_available_empty_days(
+        placed, avail_by_dag, week_start, slots=slots)
+
+    # TSS-gap opvullen met easy bikes op kleinere lege dagen alleen als de
+    # expliciete TSS-filler preference aan staat.
     planned_tss = sum((s.get("tss_geschat") or 0) for s in placed)
     target_tss = load_manager.get("recommended_weekly_tss") or 0
     if target_tss and planned_tss < target_tss * 0.85 and _fillers_enabled():
         from agents.day_planner import fill_empty_days_with_easy_bikes
 
-        avail_by_dag = {
-            DAYS_NL[i]: sum(
-                s.duration_min
-                for s in slots.get(week_start + timedelta(days=i), [])
-            )
-            for i in range(7)
-        }
         before = len(placed)
-        placed = fill_empty_days_with_easy_bikes(placed, avail_by_dag, week_start)
+        placed = fill_empty_days_with_easy_bikes(
+            placed, avail_by_dag, week_start, min_avail=30)
         for sessie in placed[before:]:
             day_slots = slots.get(date.fromisoformat(sessie["datum"]), [])
             if day_slots:
@@ -536,6 +573,8 @@ def build_week(
                 week_start,
                 runs_back_to_back_ok=_b2b_ok,
             )
+            all_sessions = _fill_available_empty_days(
+                all_sessions, _avail_by_dag, week_start)
             # Vul lege dagen met easy bikes als er TSS-gap is én avail onbenut
             planned_tss = sum((s.get("tss_geschat") or 0) for s in all_sessions)
             target_tss = load_manager.get("recommended_weekly_tss") or 0

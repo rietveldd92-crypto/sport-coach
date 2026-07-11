@@ -268,6 +268,33 @@ def test_availability_override_roundtrip(client):
     assert r.json()["slots"] is None
 
 
+def test_availability_override_save_replaces_existing_rows(client):
+    day = (TODAY + timedelta(days=3)).isoformat()
+    r = client.put(f"/api/availability/override/{day}", json={
+        "slots": [
+            {"start": "06:00", "end": "07:00"},
+            {"start": "18:00", "end": "19:00"},
+        ],
+    })
+    assert r.status_code == 200
+
+    r = client.put(f"/api/availability/override/{day}", json={
+        "slots": [{"start": "07:00", "end": "08:00"}],
+    })
+    assert r.status_code == 200
+    assert r.json()["slots"] == [
+        {"start": "07:00", "end": "08:00", "context": "any"}]
+
+    with history_db._connect() as conn:
+        rows = conn.execute(
+            "SELECT slot_start, slot_end FROM availability_override"
+            " WHERE date = ? ORDER BY slot_start",
+            (day,),
+        ).fetchall()
+    assert [(r["slot_start"], r["slot_end"]) for r in rows] == [
+        ("07:00", "08:00")]
+
+
 # ── GOALS + SEASON ────────────────────────────────────────────────────────
 
 def test_goals_create_generates_macroplan(client):

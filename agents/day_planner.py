@@ -420,13 +420,15 @@ def fill_empty_days_with_easy_bikes(
     week_avail_by_dag: dict[str, int],
     week_start: date,
     ftp: int = 290,
-    max_fills: int = 3,
+    max_fills: Optional[int] = 3,
+    min_avail: int = MIN_AVAIL_EASY,
 ) -> list[dict]:
     """Vul lege dagen (met avail ≥ 30) met een easy Z2 bike-sessie.
 
     Runs worden niet gebruikt (back-to-back regel + blessurerisico).
     Easy bike op lege dag = extra aerobe volume zonder spacing-conflicten.
-    Tot `max_fills` extra sessies per week.
+    Tot `max_fills` extra sessies per week. ``max_fills=None`` vult alle
+    lege dagen boven de beschikbaarheidsdrempel.
 
     Returns: placed + eventuele fill-sessies.
     """
@@ -437,7 +439,7 @@ def fill_empty_days_with_easy_bikes(
     # Lege dagen met voldoende avail, gesorteerd op avail desc
     empty = sorted(
         [(d, week_avail_by_dag.get(d, 0)) for d in DAYS_NL
-         if not placements.get(d) and week_avail_by_dag.get(d, 0) >= MIN_AVAIL_EASY],
+         if not placements.get(d) and week_avail_by_dag.get(d, 0) >= min_avail],
         key=lambda x: -x[1],
     )
     if not empty:
@@ -453,7 +455,8 @@ def fill_empty_days_with_easy_bikes(
     week_seed = week_start.toordinal() % 2
 
     additions: list[dict] = []
-    for fill_idx, (dag, avail) in enumerate(empty[:max_fills]):
+    selected = empty if max_fills is None else empty[:max_fills]
+    for fill_idx, (dag, avail) in enumerate(selected):
         # Op high-avail dagen (≥120min) plaats een langere Z2 duurrit (tot 150min)
         # ipv het wegsmijten van 3 uur avail met een 60min filler.
         dur = min(avail, 150) if avail >= 120 else min(avail, 60)
