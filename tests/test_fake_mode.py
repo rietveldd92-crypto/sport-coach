@@ -94,5 +94,14 @@ def test_today_and_week_serve_fixture_data(fake_client):
     week = r.json()
     assert week["week_start"] == MONDAY.isoformat()
     ids = {i["event"]["id"] for i in week["items"]}
-    assert {"e_done", "e_today", "e_tomorrow"} <= ids
+    assert {"e_done", "e_today"} <= ids
+    tomorrow = TODAY + timedelta(days=1)
+    if tomorrow <= MONDAY + timedelta(days=6):
+        assert "e_tomorrow" in ids
+    else:
+        next_monday = tomorrow - timedelta(days=tomorrow.weekday())
+        r_next = client.get(f"/api/week/{next_monday.isoformat()}")
+        assert r_next.status_code == 200
+        next_ids = {i["event"]["id"] for i in r_next.json()["items"]}
+        assert "e_tomorrow" in next_ids
     assert len(week["availability"]) == 7

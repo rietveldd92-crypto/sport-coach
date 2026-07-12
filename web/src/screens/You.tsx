@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Bar,
   BarChart,
@@ -12,10 +12,18 @@ import {
   YAxis,
 } from "recharts";
 import { isUnavailable } from "../api/client";
-import { useCheckinHistory, usePattern, useTrends } from "../api/queries";
+import {
+  useCheckinHistory,
+  useDeleteFixedSession,
+  useFixedSessions,
+  usePattern,
+  usePutFixedSession,
+  useTrends,
+} from "../api/queries";
 import type {
   AvailabilitySlot,
   CheckinHistoryView,
+  FixedSession,
   InjuryGuard,
   PatternSlot,
   TrendsView,
@@ -446,6 +454,7 @@ function toSlots(slots: PatternSlot[] | undefined): AvailabilitySlot[] {
 
 function SettingsSection({ trends }: { trends: TrendsView | undefined }) {
   const pattern = usePattern();
+  const fixed = useFixedSessions();
   const [editDay, setEditDay] = useState<number | null>(null);
 
   return (
@@ -494,6 +503,29 @@ function SettingsSection({ trends }: { trends: TrendsView | undefined }) {
         )}
       </div>
 
+      <div className="mt-3 overflow-hidden rounded-2xl border border-line bg-raised">
+        <p className="border-b border-line px-5 pb-3 pt-4 text-sm font-medium">
+          Vaste sessies
+          <span className="ml-2 font-mono text-[0.64rem] font-normal text-dim">
+            onverplaatsbaar
+          </span>
+        </p>
+        {fixed.isLoading ? (
+          <p className="px-5 py-4 text-sm text-muted">Ladenâ€¦</p>
+        ) : (
+          <ul>
+            {WEEKDAYS.map((label, weekday) => (
+              <FixedSessionRow
+                key={weekday}
+                weekday={weekday}
+                label={label}
+                session={fixed.data?.fixed_sessions.find((s) => s.weekday === weekday)}
+              />
+            ))}
+          </ul>
+        )}
+      </div>
+
       {/* Atleetdata + TP-sync */}
       <div className="mt-3 grid grid-cols-3 gap-3">
         <ReadonlyTile label="ftp" value={trends ? `${trends.athlete.ftp}W` : "—"} />
@@ -514,6 +546,90 @@ function SettingsSection({ trends }: { trends: TrendsView | undefined }) {
         />
       )}
     </section>
+  );
+}
+
+function FixedSessionRow({
+  weekday,
+  label,
+  session,
+}: {
+  weekday: number;
+  label: string;
+  session?: FixedSession;
+}) {
+  const save = usePutFixedSession();
+  const remove = useDeleteFixedSession();
+  const [enabled, setEnabled] = useState(Boolean(session?.enabled));
+  const [name, setName] = useState(session?.name ?? "Forenzen-rit");
+  const [duration, setDuration] = useState(String(session?.duration_min ?? 100));
+
+  useEffect(() => {
+    setEnabled(Boolean(session?.enabled));
+    setName(session?.name ?? "Forenzen-rit");
+    setDuration(String(session?.duration_min ?? 100));
+  }, [session]);
+
+  const busy = save.isPending || remove.isPending;
+  const hasSession = Boolean(session);
+
+  const onSave = () => {
+    const durationMin = Math.max(1, Math.min(600, Number(duration) || 100));
+    save.mutate({
+      weekday,
+      body: {
+        name: name.trim() || "Forenzen-rit",
+        sport: session?.sport ?? "VirtualRide",
+        duration_min: durationMin,
+        if_estimate: session?.if_estimate ?? 0.65,
+        enabled,
+      },
+    });
+  };
+
+  return (
+    <li className="border-b border-line px-5 py-3 last:border-b-0">
+      <div className="grid grid-cols-[1fr_auto] gap-3">
+        <label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={enabled}
+            onChange={(e) => setEnabled(e.target.checked)}
+            className="h-4 w-4 accent-[var(--accent)]"
+          />
+          <span className="text-[0.84rem] capitalize">{label}</span>
+        </label>
+        <button
+          onClick={() => hasSession && remove.mutate(weekday)}
+          disabled={!hasSession || busy}
+          className="font-mono text-[0.62rem] uppercase tracking-[0.14em] text-dim disabled:opacity-30"
+        >
+          wis
+        </button>
+      </div>
+      <div className="mt-2 grid grid-cols-[1fr_5.5rem_auto] gap-2">
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          className="min-w-0 rounded-lg border border-line bg-elevated px-3 py-2 text-[0.78rem] outline-none focus:border-accent"
+        />
+        <input
+          value={duration}
+          type="number"
+          min={1}
+          max={600}
+          onChange={(e) => setDuration(e.target.value)}
+          className="rounded-lg border border-line bg-elevated px-3 py-2 text-[0.78rem] outline-none focus:border-accent"
+        />
+        <button
+          onClick={onSave}
+          disabled={busy}
+          className="rounded-lg bg-accent px-3 py-2 text-[0.76rem] font-semibold text-white disabled:opacity-50"
+        >
+          {busy ? "..." : "OK"}
+        </button>
+      </div>
+    </li>
   );
 }
 

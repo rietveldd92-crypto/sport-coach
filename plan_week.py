@@ -22,6 +22,7 @@ from agents import injury_guard, load_manager, endurance_coach, bike_coach, week
 from agents import marathon_periodizer
 
 STATE_PATH = Path(__file__).parent / "state.json"
+DAYS_NL = ["maandag", "dinsdag", "woensdag", "donderdag", "vrijdag", "zaterdag", "zondag"]
 
 
 def _next_monday(from_date: date = None) -> date:
@@ -37,6 +38,75 @@ def _next_monday(from_date: date = None) -> date:
 def _load_state() -> dict:
     from shared import load_state
     return load_state()
+
+
+def _planner_v3_inputs(week_start: date) -> tuple[dict, list[dict], dict[str, int]]:
+    """Load prefs, fixed sessions and availability for the V3 pure planner."""
+    from core import availability_v2 as av2
+    import history_db
+
+    state = _load_state() or {}
+    prefs = dict(state.get("preferences") or {})
+    prefs.setdefault("progression", state.get("progression") or {})
+    fixed_sessions = history_db.list_fixed_sessions()
+    slots = av2.get_slots_for_week(week_start)
+    availability = {
+        DAYS_NL[i]: sum(
+            slot.duration_min
+            for slot in slots.get(week_start + timedelta(days=i), [])
+        )
+        for i in range(7)
+    }
+    return prefs, fixed_sessions, availability
+
+
+def _planner_v3_warning(warning: dict) -> dict:
+    return {
+        "tier": warning.get("tier", 2),
+        "code": warning.get("code", "planner_v3_warning"),
+        "dag": warning.get("dag"),
+        "sessie": warning.get("sessie"),
+        "message": warning.get("message", ""),
+    }
+
+
+def _record_week_log(
+    events: list[dict],
+    week_start: date,
+    phase: str,
+    lm_result: dict,
+    ig_result: dict,
+) -> list[dict]:
+    if not events:
+        return events
+
+    state = _load_state()
+    workout_tss = sum(
+        e.get("tss") or 0
+        for e in events
+        if isinstance(e, dict) and e.get("categorie") == "WORKOUT"
+    )
+    new_entry = {
+        "week_start": week_start.isoformat(),
+        "fase": phase,
+        "planned_tss": lm_result["recommended_weekly_tss"],
+        "geschat_tss": workout_tss,
+        "actual_tss": None,
+        "injury_status": ig_result["status"],
+        "notes": ig_result["message"],
+    }
+    log = state.setdefault("weekly_log", [])
+    for i, existing in enumerate(log):
+        if existing.get("week_start") == new_entry["week_start"]:
+            if existing.get("actual_tss") is not None:
+                new_entry["actual_tss"] = existing["actual_tss"]
+            log[i] = new_entry
+            break
+    else:
+        log.append(new_entry)
+    from shared import save_state
+    save_state(state)
+    return events
 
 
 def print_status():
@@ -168,6 +238,55 @@ def run(week_start: date, dry_run: bool = True, skip_run_days: list = None):
         print(f"  ** DELOAD WEEK ** — volume -28% op alles")
 
     # ── 4. ENDURANCE COACH ───────────────────────────────────────────────────
+    from core import planner_v3_enabled
+
+    if planner_v3_enabled():
+        from agents.day_assigner import assign_days
+        from agents.week_skeleton import build_skeleton_with_warnings
+
+        prefs, fixed_sessions, availability = _planner_v3_inputs(week_start)
+        skeleton, skeleton_warnings = build_skeleton_with_warnings(
+            phase_info["week_nummer"],
+            marathon_vol,
+            ig_result,
+            lm_result,
+            prefs,
+            fixed_sessions,
+        )
+        placed_sessions, assigner_warnings = assign_days(
+            skeleton,
+            availability,
+            runs_back_to_back_ok=bool(prefs.get("runs_back_to_back_ok", False)),
+            week_start=week_start,
+        )
+        planner_warnings = [
+            _planner_v3_warning(w)
+            for w in [*skeleton_warnings, *assigner_warnings]
+        ]
+        print(
+            f"  Planner V3: {len(placed_sessions)} sessies uit geraamte geplaatst "
+            f"({len(planner_warnings)} waarschuwing(en))."
+        )
+        run_sessions = [
+            s for s in placed_sessions
+            if (s.get("sport") or "").lower() == "run"
+        ]
+        bike_sessions = [
+            s for s in placed_sessions
+            if (s.get("sport") or "").lower() != "run"
+        ]
+        events = week_planner.build_week(
+            week_start=week_start,
+            run_sessions=run_sessions,
+            bike_sessions=bike_sessions,
+            injury_guard=ig_result,
+            load_manager=lm_result,
+            dry_run=dry_run,
+            preplanned=True,
+            planner_warnings=planner_warnings,
+        )
+        return _record_week_log(events, week_start, phase, lm_result, ig_result)
+
     run_sessions = endurance_coach.plan_sessions(
         phase=phase,
         injury_guard=ig_result,

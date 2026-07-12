@@ -458,6 +458,9 @@ def build_week(
     injury_guard: dict,
     load_manager: dict,
     dry_run: bool = True,
+    *,
+    preplanned: bool = False,
+    planner_warnings: list[dict] | None = None,
 ) -> list[dict]:
     """
     Bouw het volledige weekschema en schrijf naar intervals.icu.
@@ -528,10 +531,14 @@ def build_week(
     # straks ook naar de placements-tabel. Bij falen → legacy day_planner.
     day_planner_ok = False
     day_planner_warnings: list[dict] = []
+    if preplanned:
+        day_planner_ok = True
+        day_planner_warnings = list(planner_warnings or [])
+        print(f"  Planner V3: {len(all_sessions)} vooraf geplaatste sessies ontvangen.")
     try:
         from core import planner_v2_enabled
 
-        if planner_v2_enabled():
+        if not preplanned and planner_v2_enabled():
             all_sessions, day_planner_warnings = _plan_with_slot_solver(
                 week_start, all_sessions, load_manager, injury_guard,
             )
@@ -617,7 +624,7 @@ def build_week(
     # Day-planner kan best-effort sessies op krappe dagen geplaatst hebben
     # (bv. long 165min op dag met 60min avail). cap_sessions_for_day rebuiltr
     # of kort proportioneel in zodat het plan eerlijk wordt.
-    if day_planner_ok:
+    if day_planner_ok and not preplanned:
         try:
             from agents import availability as _av_cap
             _wa = _av_cap.get_week(week_start)
@@ -856,7 +863,10 @@ def build_week(
                 # Vier-pijler-model: elke workout toont welke pijler hij
                 # dient (lactaatdrempel / economy / fatigue resistance /
                 # VO2max / support). Sessies zonder pijler bestaan niet.
-                beschrijving = pijler_header(sessie) + "\n\n" + beschrijving
+                header = pijler_header(sessie)
+                if sessie.get("plaatsing_reden"):
+                    header += f"\nPlaatsing: {sessie['plaatsing_reden']}"
+                beschrijving = header + "\n\n" + beschrijving
                 # Consistentie-laag: optionele sessies expliciet labelen,
                 # zodat de atleet in de kalender ziet dat schrappen prima is
                 # (80-90%-filosofie — alleen de verplichte sessies dragen
@@ -874,6 +884,7 @@ def build_week(
                     "start_tijd": sessie.get("start_tijd"),
                     "solver_meta": sessie.get("_solver"),
                     "priority": sessie.get("priority"),
+                    "plaatsing_reden": sessie.get("plaatsing_reden"),
                 })
 
     # ── PRINT OVERZICHT ─────────────────────────────────────────────────────

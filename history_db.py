@@ -208,12 +208,29 @@ def _migration_004_adherence(conn: sqlite3.Connection) -> None:
             conn.execute(f"ALTER TABLE weekly_summary ADD COLUMN {col} INTEGER")
 
 
+def _migration_005_fixed_sessions(conn: sqlite3.Connection) -> None:
+    """v5: vaste terugkerende sessies voor Planner V3."""
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS fixed_sessions (
+            weekday INTEGER PRIMARY KEY,
+            name TEXT,
+            sport TEXT,
+            duration_min INTEGER,
+            if_estimate REAL,
+            enabled INTEGER DEFAULT 1
+        );
+        """
+    )
+
+
 # Registreer migraties in volgorde: (version, name, function)
 _MIGRATIONS = [
     (1, "initial_schema", _migration_001_initial_schema),
     (2, "week_reflections", _migration_002_week_reflections),
     (3, "athlete_state_and_planner_v2", _migration_003_athlete_state_and_planner_v2),
     (4, "adherence", _migration_004_adherence),
+    (5, "fixed_sessions", _migration_005_fixed_sessions),
 ]
 
 
@@ -651,6 +668,72 @@ def set_placement_locked(event_id: str, locked: bool) -> None:
 
 
 # ── WEEKLY SUMMARY API ─────────────────────────────────────────────────────
+
+def list_fixed_sessions() -> list[dict]:
+    ensure_migrations()
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM fixed_sessions ORDER BY weekday"
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_fixed_session(weekday: int) -> Optional[dict]:
+    ensure_migrations()
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM fixed_sessions WHERE weekday = ?",
+            (int(weekday),),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def upsert_fixed_session(
+    weekday: int,
+    *,
+    name: str,
+    sport: str,
+    duration_min: int,
+    if_estimate: float = 0.65,
+    enabled: bool = True,
+) -> None:
+    if not 0 <= int(weekday) <= 6:
+        raise ValueError(f"weekday moet 0..6 zijn, kreeg {weekday}")
+    ensure_migrations()
+    with _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO fixed_sessions
+                (weekday, name, sport, duration_min, if_estimate, enabled)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(weekday) DO UPDATE SET
+                name=excluded.name,
+                sport=excluded.sport,
+                duration_min=excluded.duration_min,
+                if_estimate=excluded.if_estimate,
+                enabled=excluded.enabled
+            """,
+            (
+                int(weekday),
+                name,
+                sport,
+                int(duration_min),
+                float(if_estimate),
+                1 if enabled else 0,
+            ),
+        )
+        conn.commit()
+
+
+def delete_fixed_session(weekday: int) -> None:
+    ensure_migrations()
+    with _connect() as conn:
+        conn.execute(
+            "DELETE FROM fixed_sessions WHERE weekday = ?",
+            (int(weekday),),
+        )
+        conn.commit()
+
 
 def record_weekly_summary(
     week_start: date,

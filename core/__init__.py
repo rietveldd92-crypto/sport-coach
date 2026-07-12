@@ -15,3 +15,14 @@ def planner_v2_enabled() -> bool:
 
     raw = config.get_secret("PLANNER_V2", default="1")
     return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def planner_v3_enabled() -> bool:
+    """Feature flag PLANNER_V3 (default aan).
+
+    Uitzetten: PLANNER_V3=0 in .env / secrets.toml -> V2/legacy-pad.
+    """
+    import config
+
+    raw = config.get_secret("PLANNER_V3", default="1")
+    return str(raw).strip().lower() in {"1", "true", "yes", "on"}

@@ -177,7 +177,7 @@ export default function Week() {
 
   const stale = !online || (isError && isUnavailable(error));
   const hasWorkouts = (data.items ?? []).some((i) => !i.is_note);
-  const planWarnings = planWeek.data?.warnings ?? [];
+  const planWarnings = planWeek.data?.warnings ?? data.warnings ?? [];
   const planResult = planWeek.data;
   const planButtonLabel = planWeek.isPending
     ? hasWorkouts
@@ -474,6 +474,11 @@ function SessionCard({
           {tss != null && ` · ${Math.round(tss)} tss`}
           {t && status === "planned" && ` · ${t}`}
         </p>
+        {item.placement_reason && (
+          <p className="mt-1 line-clamp-2 text-[0.72rem] leading-snug text-dim">
+            {item.placement_reason}
+          </p>
+        )}
       </div>
       <StatusMark status={status} />
       {draggable && !overlay && (

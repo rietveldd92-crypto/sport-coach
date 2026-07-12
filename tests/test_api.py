@@ -295,6 +295,28 @@ def test_availability_override_save_replaces_existing_rows(client):
         ("07:00", "08:00")]
 
 
+def test_fixed_sessions_crud_roundtrip(client):
+    r = client.put("/api/fixed-sessions/1", json={
+        "name": "Forenzen-rit",
+        "sport": "VirtualRide",
+        "duration_min": 100,
+        "if_estimate": 0.65,
+        "enabled": True,
+    })
+    assert r.status_code == 200
+    body = r.json()["fixed_session"]
+    assert body["weekday"] == 1
+    assert body["duration_min"] == 100
+    assert body["enabled"] == 1
+
+    listed = client.get("/api/fixed-sessions").json()["fixed_sessions"]
+    assert [s["weekday"] for s in listed] == [1]
+
+    r = client.delete("/api/fixed-sessions/1")
+    assert r.status_code == 200
+    assert client.get("/api/fixed-sessions").json()["fixed_sessions"] == []
+
+
 # ── GOALS + SEASON ────────────────────────────────────────────────────────
 
 def test_goals_create_generates_macroplan(client):

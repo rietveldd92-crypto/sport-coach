@@ -81,7 +81,17 @@ def _event_summary(item: dict) -> dict:
         "is_note": bool(item.get("is_note")),
         "unplanned": bool(item.get("_unplanned")),
         "placement": placement,
+        "placement_reason": _placement_reason(event),
     }
+
+
+def _placement_reason(event: dict) -> Optional[str]:
+    description = event.get("description") or ""
+    for line in str(description).splitlines():
+        line = line.strip()
+        if line.startswith("Plaatsing:"):
+            return line.removeprefix("Plaatsing:").strip()
+    return None
 
 
 def today_view(today: Optional[date] = None) -> dict:
@@ -165,12 +175,20 @@ def week_view(week_start: date) -> dict:
         ]
         for d, day_slots in slots.items()
     }
+    warnings = []
+    try:
+        last = (shared.load_state() or {}).get("last_plan_warnings") or {}
+        if last.get("week_start") == week_start.isoformat():
+            warnings = last.get("warnings") or []
+    except Exception:
+        warnings = []
 
     return {
         "week_start": week_start.isoformat(),
         "items": [_event_summary(i) for i in matched],
         "placements": placements,
         "availability": availability,
+        "warnings": warnings,
     }
 
 

@@ -42,6 +42,7 @@ export interface EventSummary {
   is_note: boolean;
   unplanned: boolean;
   placement: Placement | null;
+  placement_reason?: string | null;
 }
 
 export interface Recovery {
@@ -92,6 +93,7 @@ export interface WeekView {
   items: EventSummary[];
   placements: Placement[];
   availability: Record<string, AvailabilitySlot[]>;
+  warnings?: { code?: string; dag?: string | null; message: string }[];
 }
 
 export interface MoveDiffEntry {
@@ -300,6 +302,19 @@ export interface PatternSlot {
 
 export interface PatternView {
   pattern: Record<string, PatternSlot[]>;
+}
+
+export interface FixedSession {
+  weekday: number;
+  name: string;
+  sport: "Run" | "Ride" | "VirtualRide" | string;
+  duration_min: number;
+  if_estimate: number;
+  enabled: boolean | number;
+}
+
+export interface FixedSessionsView {
+  fixed_sessions: FixedSession[];
 }
 
 /** POST /api/week/{week_start}/plan */

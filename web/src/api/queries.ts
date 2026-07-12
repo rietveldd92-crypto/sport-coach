@@ -7,6 +7,7 @@ import { del, get, post, put } from "./client";
 import type {
   AvailabilitySlot,
   CheckinHistoryView,
+  FixedSessionsView,
   CheckinResult,
   Goal,
   GoalCreate,
@@ -32,6 +33,7 @@ export const keys = {
   trends: ["trends"] as const,
   checkinHistory: ["checkin-history"] as const,
   pattern: ["pattern"] as const,
+  fixedSessions: ["fixed-sessions"] as const,
 };
 
 export function useToday() {
@@ -277,6 +279,48 @@ export function usePutPattern() {
       put<PatternView>("/api/availability/pattern", { days }),
     onSuccess: (result) => {
       qc.setQueryData<PatternView>(keys.pattern, result);
+      qc.invalidateQueries({ queryKey: ["week"] });
+    },
+  });
+}
+
+export function useFixedSessions() {
+  return useQuery({
+    queryKey: keys.fixedSessions,
+    queryFn: () => get<FixedSessionsView>("/api/fixed-sessions"),
+    staleTime: 10 * 60_000,
+  });
+}
+
+export function usePutFixedSession() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      weekday,
+      body,
+    }: {
+      weekday: number;
+      body: {
+        name: string;
+        sport: string;
+        duration_min: number;
+        if_estimate: number;
+        enabled: boolean;
+      };
+    }) => put<FixedSessionsView>(`/api/fixed-sessions/${weekday}`, body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: keys.fixedSessions });
+      qc.invalidateQueries({ queryKey: ["week"] });
+    },
+  });
+}
+
+export function useDeleteFixedSession() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (weekday: number) => del<void>(`/api/fixed-sessions/${weekday}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: keys.fixedSessions });
       qc.invalidateQueries({ queryKey: ["week"] });
     },
   });
