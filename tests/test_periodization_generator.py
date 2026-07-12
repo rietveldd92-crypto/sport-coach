@@ -340,3 +340,109 @@ def test_build_athlete_profile_uit_activities():
     assert profile.recent_run_sessions == 3
     assert profile.ftp == 305
     assert profile.days_symptom_free == 30
+
+
+# ── Racedatum-anker (bug 2026-07-12) ───────────────────────────────────────
+# Zonder anker herstartte élke (her)generatie — ook de zondagse herijking —
+# de periodisering bij accumulatie_I: basisweken met minivolume en gate
+# "geen" midden in een marathonvoorbereiding.
+
+def test_korte_runway_stapt_halverwege_de_fasenreeks_in():
+    goal = Goal(type="marathon", sport="run", event_date=date(2026, 10, 18),
+                target_value="2:59:00")
+    profile = AthleteProfile(current_ctl=48, recent_run_km_avg=40.0,
+                             recent_run_sessions=3)
+
+    res = generate_plan(goal, profile, plan_start=date(2026, 7, 13))
+
+    first = res.weeks[0]
+    assert not first.phase.startswith("accumulatie_I")
+    assert first.intensity_gate in {"tempoduur", "drempel", "race_specifiek"}
+    assert first.long_run_km >= 12.0  # geen 4km-duurloop 14 wk voor de race
+    assert any("geankerd op de racedatum" in w for w in res.warnings)
+    # Realisatie/taper blijft gewoon aan het einde staan.
+    assert res.weeks[-1].phase == "realisatie"
+
+
+def test_volledige_runway_blijft_ongewijzigd_bij_accumulatie_starten():
+    goal = Goal(type="marathon", sport="run", event_date=date(2026, 10, 18),
+                target_value="2:59:00")
+    profile = AthleteProfile(current_ctl=45, recent_run_km_avg=21.0,
+                             recent_run_sessions=3)
+
+    res = generate_plan(goal, profile, plan_start=PLAN_START)  # 28 wk runway
+
+    assert res.weeks[0].phase == "accumulatie_I"
+    assert not any("geankerd" in w for w in res.warnings)
+
+
+def test_herijking_op_korte_runway_herstart_niet_bij_de_basis():
+    """De zondagse recalibratie regenereert vanaf volgende week; met het
+    racedatum-anker landen die weken mid-sequence i.p.v. in accumulatie_I."""
+    goal = goal_engine.create_goal(Goal(
+        type="marathon", sport="run", event_date=date(2026, 10, 18),
+        target_value="2:59:00", priority="A", status="active",
+    ))
+    profile = AthleteProfile(current_ctl=45, recent_run_km_avg=21.0,
+                             recent_run_sessions=3)
+    res = generate_plan(goal, profile, plan_start=PLAN_START)
+    persist_plan_weeks(goal.id, res.weeks)
+
+    report = weekly_recalibration(
+        today=date(2026, 7, 12),
+        goal=goal,
+        actual_ctl=48.0,
+        actual_run_km=9.0,        # ver buiten de ±10%-band → regeneratie
+        recent_run_sessions=1,
+        force=True,
+    )
+
+    assert report["status"] == "replanned"
+    new_plan = load_plan_weeks(goal.id)
+    future = [w for w in new_plan if w.week_start >= date(2026, 7, 13)]
+    assert future[0].phase != "accumulatie_I"
+    assert future[0].intensity_gate in {"tempoduur", "drempel", "race_specifiek"}
+
+
+def test_profiel_schat_capaciteit_niet_gemiddelde():
+    """Twee herstel-/nulweken mogen de plan-instap niet naar ~4km-longruns
+    slepen: de beste recente week bewijst wat de atleet aankan."""
+    def _run(day: str, km: float) -> dict:
+        return {"type": "Run", "start_date_local": f"{day}T08:00:00",
+                "distance": km * 1000}
+
+    activities = [
+        _run("2026-06-15", 20), _run("2026-06-17", 14), _run("2026-06-20", 24),  # 58 km
+        _run("2026-06-22", 18), _run("2026-06-25", 22),                          # 40 km
+        _run("2026-06-29", 9),                                                   # 9 km
+    ]
+
+    profile = build_athlete_profile(activities=activities, state={})
+
+    # max(gemiddelde 35.7, 0.7 x beste week 58 = 40.6) → herinstap één trede
+    # onder de bewezen capaciteit, niet op het door dips gedrukte gemiddelde.
+    assert profile.recent_run_km_avg == pytest.approx(40.6, abs=0.1)
+
+
+def test_force_herijking_zonder_uitgevoerde_training_geneest_lopende_week():
+    """Wie op maandag zijn plan repareert verwacht dat déze week geneest."""
+    goal = goal_engine.create_goal(Goal(
+        type="marathon", sport="run", event_date=date(2026, 10, 18),
+        target_value="2:59:00", priority="A", status="active",
+    ))
+    profile = AthleteProfile(current_ctl=45, recent_run_km_avg=21.0,
+                             recent_run_sessions=3)
+    persist_plan_weeks(goal.id, generate_plan(goal, profile, PLAN_START).weeks)
+
+    report = weekly_recalibration(
+        today=date(2026, 7, 13),  # maandag zelf
+        goal=goal, actual_ctl=48.0,
+        activities=[],            # nog niets uitgevoerd deze week
+        force=True,
+    )
+
+    assert report["status"] == "replanned"
+    assert report["regenerated_from"] == "2026-07-13"
+    new_plan = load_plan_weeks(goal.id)
+    current = next(w for w in new_plan if w.week_start == date(2026, 7, 13))
+    assert current.intensity_gate in {"tempoduur", "drempel", "race_specifiek"}

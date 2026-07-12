@@ -147,3 +147,30 @@ def test_availability_wordt_begrensd_op_zes_uur():
     assert placed[0]["dag"] == "vrijdag"
     assert any(w["code"] == "availability_clamped" for w in warnings)
     assert "360 min" in placed[0]["plaatsing_reden"]
+
+
+def test_bike_fill_past_duur_op_de_dag():
+    """Een 165-min rit hoort niet op een 60-min dag; een kortere vulling wel."""
+    skeleton = [
+        SkeletonSlot(_bike("Long endurance", minutes=165), "bike_fill", 3),
+        SkeletonSlot(_bike("Duurrit 60", minutes=60), "bike_fill", 3),
+    ]
+    availability = {"maandag": 60, "zaterdag": 180}
+
+    placed, _ = assign_days(skeleton, availability, week_start=WEEK_START)
+
+    by_day = {s["dag"]: s["naam"] for s in placed}
+    assert by_day.get("zaterdag") == "Long endurance"
+    assert by_day.get("maandag") == "Duurrit 60"
+
+
+def test_niet_passende_fill_wordt_overgeslagen_niet_geforceerd():
+    skeleton = [
+        SkeletonSlot(_bike("Long endurance", minutes=165), "bike_fill", 3),
+        SkeletonSlot(_bike("Duurrit 75", minutes=75), "bike_fill", 3),
+    ]
+    availability = {"woensdag": 90}
+
+    placed, _ = assign_days(skeleton, availability, week_start=WEEK_START)
+
+    assert [s["naam"] for s in placed] == ["Duurrit 75"]

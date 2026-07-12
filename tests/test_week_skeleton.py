@@ -188,3 +188,50 @@ def test_fixed_sessions_uit_db_vormen_commute_slots():
     assert len(commutes) == 1
     assert commutes[0].vaste_dag == "dinsdag"
     assert commutes[0].sessie["duur_min"] == 100
+
+
+# ── Epoch-onafhankelijkheid (bug 2026-07-12) ───────────────────────────────
+# Het plan-weeknummer herstart bij elke (her)generatie van het macroplan.
+# Het geraamte mag daar dus nooit ontwikkelingsbeslissingen aan koppelen:
+# na een planherstart verdween de 2e intervalsessie en viel de kwaliteit
+# terug op instap-workouts.
+
+def test_twee_intervallen_ook_bij_laag_plan_weeknummer():
+    slots = build_skeleton(
+        2, _volume(week=2), _guard(), {"is_deload_week": False},
+        _prefs(), [],
+    )
+
+    assert _roles(slots).count("interval_a") == 1
+    assert _roles(slots).count("interval_b") == 1
+
+
+def test_fallback_quality_step_volgt_gate_niet_weeknummer():
+    prefs = _prefs()
+    del prefs["progression"]["run_quality_step"]
+
+    drempel = build_skeleton(
+        2, _volume(week=2), _guard(), {"is_deload_week": False}, prefs, [],
+    )
+    basis = build_skeleton(
+        2, _volume(week=2, run_intensity="geen"), _guard(),
+        {"is_deload_week": False}, prefs, [],
+    )
+
+    # Gate drempel → middentrede (3); gate geen → instap (1). Zonder deze
+    # fallback zakte een marathonatleet na een planherstart terug naar 5x1km.
+    drempel_tss = [s.sessie["tss_geschat"] for s in drempel if s.rol == "interval_a"][0]
+    basis_tss = [s.sessie["tss_geschat"] for s in basis if s.rol == "interval_a"][0]
+    assert drempel_tss > basis_tss
+
+
+def test_bike_fill_genoeg_voor_volle_week():
+    slots = build_skeleton(
+        15, _volume(week=15), _guard(), {"is_deload_week": False},
+        _prefs(), [],
+    )
+
+    fills = [s for s in slots if s.rol == "bike_fill"]
+    # 7 dagen − 3 runs = 4 potentiële fietsdagen; de assigner laat vallen
+    # wat niet past, maar het geraamte mag dagen niet structureel leeg laten.
+    assert len(fills) >= 4

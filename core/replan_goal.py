@@ -204,7 +204,14 @@ def weekly_recalibration(
     max_dev = max((abs(v) for v in deviations.values()), default=0.0)
     within_band = max_dev <= DEVIATION_BAND and not force
 
-    future = [w for w in plan if w.week_start >= next_monday]
+    # Een handmatige force-herberekening zonder al uitgevoerde training in de
+    # lopende week neemt die week mee: wie op maandag zijn plan repareert,
+    # verwacht dat déze week geneest — niet pas de volgende.
+    regen_start = next_monday
+    if force and not (actual_run_km or 0) and not (actual_tss or 0):
+        regen_start = this_monday
+
+    future = [w for w in plan if w.week_start >= regen_start]
     notes: list[str] = []
     warnings: list[str] = []
     advice: Optional[str] = None
@@ -237,7 +244,10 @@ def weekly_recalibration(
     profile = build_athlete_profile(activities=activities)
     profile.current_ctl = actual_ctl
     if actual_run_km is not None:
-        profile.recent_run_km_avg = actual_run_km
+        # De lopende week mag het profiel alleen omhoog duwen. Het meerweekse
+        # capaciteitsprofiel is de vloer: één nul- of herstelweek sleepte
+        # anders de hele hergeneratie naar minivolume (bug 2026-07-12).
+        profile.recent_run_km_avg = max(profile.recent_run_km_avg, actual_run_km)
     if recent_run_sessions is not None:
         profile.recent_run_sessions = recent_run_sessions
     elif current is not None:
@@ -246,18 +256,18 @@ def weekly_recalibration(
     result = generate_plan(
         goal.model_copy(update={"id": goal.id}),
         profile,
-        plan_start=next_monday,
+        plan_start=regen_start,
         intermediate_goals=goal_engine.get_intermediate_goals(goal),
     )
     warnings = result.warnings
     notes = _apply_injury_pressure(result.weeks, injury_status)
 
     if persist:
-        persist_plan_weeks(goal.id, result.weeks, from_week=next_monday)
+        persist_plan_weeks(goal.id, result.weeks, from_week=regen_start)
 
     # ── 3. Haalbaarheidscheck ──
     advice = _feasibility_advice(goal, profile, result.weeks) or (
-        f"Plan herijkt vanaf {next_monday} op werkelijke situatie "
+        f"Plan herijkt vanaf {regen_start} op werkelijke situatie "
         f"(CTL {actual_ctl:.0f}, {profile.recent_run_km_avg:.0f} km/wk)."
     )
 
@@ -268,7 +278,7 @@ def weekly_recalibration(
         "advice": advice,
         "notes": notes,
         "warnings": warnings,
-        "regenerated_from": next_monday.isoformat(),
+        "regenerated_from": regen_start.isoformat(),
         "new_weeks": len(result.weeks),
     }
 

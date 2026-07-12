@@ -121,15 +121,29 @@ def assign_days(
             continue
         place(slot, dag, f"Easy run op {dag}: vrije dag zonder run-buren.")
 
-    for slot in [s for s in skeleton if s.rol == "bike_fill"]:
-        dag = _best_bike_day(availability, occupied)
+    # Grootste ritten eerst, en alleen op dagen waar de duur echt past —
+    # een niet-passende vulling wordt overgeslagen, niet geforceerd.
+    fill_slots = sorted(
+        [s for s in skeleton if s.rol == "bike_fill"],
+        key=lambda s: -(s.sessie.get("duur_min") or 0),
+    )
+    for slot in fill_slots:
+        dag = _best_bike_day(
+            availability, occupied,
+            min_minutes=max(MIN_FILL_MINUTES, int(slot.sessie.get("duur_min") or 0)),
+        )
         if dag is None:
-            warnings.append({
-                "code": "bike_fill_budget_done",
-                "message": "Geen extra fiets-vulling: urenbudget of vrije dagen zijn op.",
-                "dag": None,
-            })
-            break
+            if not any(
+                availability.get(d, 0) >= MIN_FILL_MINUTES and d not in occupied
+                for d in DAYS_NL
+            ):
+                warnings.append({
+                    "code": "bike_fill_budget_done",
+                    "message": "Geen extra fiets-vulling: urenbudget of vrije dagen zijn op.",
+                    "dag": None,
+                })
+                break
+            continue  # deze rit past nergens; probeer een kortere vulling
         place(slot, dag, f"Fiets-vulling op {dag}: resterende dag met >=45 min beschikbaar.")
 
     _warn_empty_available_days(availability, occupied, warnings)
@@ -211,10 +225,11 @@ def _best_easy_run_day(
     return max(candidates, key=lambda d: (availability[d], _min_distance(d, run_days)))
 
 
-def _best_bike_day(availability: dict[str, int], occupied: set[str]) -> str | None:
+def _best_bike_day(availability: dict[str, int], occupied: set[str],
+                   min_minutes: int = MIN_FILL_MINUTES) -> str | None:
     candidates = [
         dag for dag in DAYS_NL
-        if dag not in occupied and availability.get(dag, 0) >= MIN_FILL_MINUTES
+        if dag not in occupied and availability.get(dag, 0) >= min_minutes
     ]
     if not candidates:
         return None

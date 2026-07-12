@@ -10,12 +10,20 @@ from typing import Any
 
 from agents import workout_library as lib
 from agents.bike_coach import _tss_bike, fatmax_medium_session, long_slow_session
-from agents.endurance_coach import DOUBLE_DREMPEL_START_WEEK
 
 
 RUN_KM_CEILING_DEFAULT = 65.0
 MIN_RUN_MIN = 45
 EASY_RUN_KM = 8.0
+
+# Fallback-trede per fase-gate als er (nog) geen progressie-state is. Bewust
+# NIET afgeleid van het plan-weeknummer: dat nummer herstart bij elke
+# (her)generatie van het macroplan en is dus geen maat voor ontwikkeling.
+_FALLBACK_STEP_BY_GATE = {
+    "tempoduur": 2,
+    "drempel": 3,
+    "race_specifiek": 3,
+}
 
 
 @dataclass(frozen=True)
@@ -62,7 +70,9 @@ def build_skeleton_with_warnings(
     fourth_run_gate_open = bool(prefs.get("fourth_run_gate_open", False))
     is_deload = bool(load_manager.get("is_deload_week") or injury_guard.get("_is_deload_week"))
 
-    quality_step = int(progression.get("run_quality_step", _run_quality_step_for_week(week_number)))
+    quality_step = int(progression.get(
+        "run_quality_step", _fallback_quality_step(marathon_volume)
+    ))
     if is_deload:
         quality_step = max(1, quality_step - 1)
     quality_idx = int(progression.get("run_quality_variety_index", 0))
@@ -74,9 +84,10 @@ def build_skeleton_with_warnings(
     intensity_open = run_intensity_ok and tempo_ok
 
     planned_run_km = 0.0
+    # Structureel geraamte: 2 kwaliteitssessies per week, 1 in deload. Niet
+    # gekoppeld aan het plan-weeknummer — dat herstart bij elke regeneratie
+    # van het macroplan en zegt niets over de ontwikkeling van de atleet.
     interval_count = 1 if is_deload else 2
-    if week_number < DOUBLE_DREMPEL_START_WEEK:
-        interval_count = min(interval_count, 1)
     category_a, category_b = _quality_categories(marathon_volume)
 
     interval_a = _quality_or_easy(
@@ -189,11 +200,14 @@ def _commute_slots(fixed_sessions: list[dict]) -> list[SkeletonSlot]:
 
 
 def _bike_fill_slots(*, two_run_intervals: bool) -> list[SkeletonSlot]:
-    builders = [long_slow_session, fatmax_medium_session, lib.endurance_ride]
+    # Genoeg Z2-vulling voor een volle week (7 dagen − 3 runs = 4 fietsdagen);
+    # de day_assigner plaatst alleen wat past en laat de rest vallen. Met
+    # precies 3 builders bleven beschikbare dagen structureel leeg.
     sessions = [
-        builders[0](),
-        builders[1](),
-        builders[2](75),
+        long_slow_session(),
+        fatmax_medium_session(),
+        lib.endurance_ride(75),
+        lib.endurance_ride(60),
     ]
     if two_run_intervals:
         sessions = [
@@ -229,8 +243,13 @@ def _mark_run_km(slots: list[SkeletonSlot], planned_run_km: float, ceiling: floa
             })
 
 
-def _run_quality_step_for_week(week_number: int) -> int:
-    return max(1, min(week_number - 12, 6))
+def _fallback_quality_step(marathon_volume: dict) -> int:
+    gate = (
+        marathon_volume.get("intensity_gate")
+        or marathon_volume.get("run_intensiteit")
+        or ""
+    )
+    return _FALLBACK_STEP_BY_GATE.get(gate, 1)
 
 
 def _day_name(weekday: int) -> str:

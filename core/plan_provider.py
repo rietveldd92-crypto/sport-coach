@@ -253,6 +253,7 @@ def calculate_weekly_run_volume(week_number: int) -> dict:
         "lange_duurloop_km": long_km,
         "fiets_sessies": legacy["fiets_sessies"],
         "run_intensiteit": legacy["run_intensiteit"],
+        "intensity_gate": legacy["intensity_gate"],
         "fiets_intensiteit": legacy["fiets_intensiteit"],
         "run_tss": legacy["run_tss"],
         "fiets_tss": legacy["fiets_tss"],

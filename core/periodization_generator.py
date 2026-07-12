@@ -112,7 +112,14 @@ def build_athlete_profile(activities: Optional[list] = None,
             km_by_week[monday] = km_by_week.get(monday, 0.0) + km
             sessions_by_week[monday] = sessions_by_week.get(monday, 0) + 1
         if km_by_week:
-            run_km_avg = round(sum(km_by_week.values()) / len(km_by_week), 1)
+            # Capaciteit, geen kaal gemiddelde: een herstel- of vakantieweek
+            # halveert het gemiddelde en liet de generator vanaf bijna nul
+            # rampen (long run van 4 km midden in een marathonblok). De beste
+            # recente week bewijst wat de atleet aankan; 0.7x = herinstap
+            # "één trede lager" na een terugvalperiode.
+            mean_km = sum(km_by_week.values()) / len(km_by_week)
+            best_km = max(km_by_week.values())
+            run_km_avg = round(max(mean_km, 0.7 * best_km), 1)
             run_sessions = round(
                 sum(sessions_by_week.values()) / len(sessions_by_week)
             )
@@ -165,6 +172,10 @@ class GoalTypeProfile:
     # CTL-doelpad
     ctl_target: tuple[float, float] = (0.0, 0.0)
     ctl_target_delta: float = 0.0       # FTP-blok: +5–8 punten i.p.v. absolute range
+    # Canonieke aanloop (weken). Fases worden achterwaarts geankerd op de
+    # racedatum over deze horizon: een plan dat korter vóór de race start,
+    # stapt halverwege de fasenreeks in — het herstart nooit bij de basis.
+    canonical_weeks: int = 0            # 0 = geen anker (fases vullen de runway)
 
 
 GOAL_TYPE_PROFILES: dict[str, GoalTypeProfile] = {
@@ -175,6 +186,7 @@ GOAL_TYPE_PROFILES: dict[str, GoalTypeProfile] = {
         long_run_fraction=0.42,        # onderhandeld: long moet écht lang zijn
         peak_sessions=5, acc_sessions_max=4,
         ctl_target=(75.0, 85.0),
+        canonical_weeks=26,
     ),
     "half": GoalTypeProfile(
         sport="run", volume_driver="km",
@@ -182,6 +194,7 @@ GOAL_TYPE_PROFILES: dict[str, GoalTypeProfile] = {
         peak_km_bounds=(38.0, 55.0),
         long_run_fraction=0.35, peak_sessions=5,
         ctl_target=(65.0, 78.0),
+        canonical_weeks=20,
     ),
     "10k": GoalTypeProfile(
         sport="run", volume_driver="km",
@@ -190,6 +203,7 @@ GOAL_TYPE_PROFILES: dict[str, GoalTypeProfile] = {
         long_run_fraction=0.32, peak_sessions=4,
         bike_intro_tss=(220,), bike_build_tss=300.0,
         ctl_target=(60.0, 72.0),
+        canonical_weeks=16,
     ),
     "5k": GoalTypeProfile(
         sport="run", volume_driver="km",
@@ -198,6 +212,7 @@ GOAL_TYPE_PROFILES: dict[str, GoalTypeProfile] = {
         long_run_fraction=0.30, peak_sessions=4,
         bike_intro_tss=(200,), bike_build_tss=270.0,
         ctl_target=(55.0, 68.0),
+        canonical_weeks=14,
     ),
     "gran_fondo": GoalTypeProfile(
         sport="ride", volume_driver="tss",
@@ -207,6 +222,7 @@ GOAL_TYPE_PROFILES: dict[str, GoalTypeProfile] = {
         bike_sessions_acc=4, bike_sessions_specific=3, bike_sessions_real=2,
         deload_tss_factor_early=0.65, early_deloads=0,  # geen injury-return
         ctl_target=(70.0, 80.0),                               # §4.1: 70+
+        canonical_weeks=20,
     ),
     "ftp": GoalTypeProfile(
         sport="ride", volume_driver="tss",
@@ -216,6 +232,7 @@ GOAL_TYPE_PROFILES: dict[str, GoalTypeProfile] = {
         bike_sessions_acc=4, bike_sessions_specific=3, bike_sessions_real=2,
         deload_tss_factor_early=0.65, early_deloads=0,
         ctl_target_delta=6.5,                                  # §4.1: +5–8 punten
+        canonical_weeks=14,
     ),
     "triathlon": GoalTypeProfile(
         sport="multi", volume_driver="km",
@@ -224,6 +241,7 @@ GOAL_TYPE_PROFILES: dict[str, GoalTypeProfile] = {
         bike_sessions_acc=3, bike_sessions_specific=3, bike_sessions_real=1,
         bike_intro_tss=(300,), bike_build_tss=380.0,
         ctl_target=(70.0, 82.0),
+        canonical_weeks=26,
     ),
 }
 GOAL_TYPE_PROFILES["custom"] = GOAL_TYPE_PROFILES["marathon"]
@@ -400,13 +418,31 @@ def generate_plan(
             f"event_date {goal.event_date} ligt vóór plan_start {plan_start}."
         )
 
-    phases, warnings = split_phases(n_weeks)
+    # Fases achterwaarts geankerd op de racedatum: bij een start korter vóór
+    # de race dan de canonieke aanloop stapt het plan halverwege de reeks in.
+    # Zonder dit anker herstart élke (her)generatie — ook de wekelijkse
+    # herijking — de periodisering bij accumulatie_I, wat midden in een
+    # voorbereiding basisweken met minivolume oplevert (bug 2026-07-12).
+    horizon = max(n_weeks, profile.canonical_weeks)
+    phases, warnings = split_phases(horizon)
 
     # Fase-mapping per week + meta
     phase_of_week: list[tuple[str, int, int]] = []   # (phase, wif, phase_len)
     for name, length in phases:
         for wif in range(1, length + 1):
             phase_of_week.append((name, wif, length))
+
+    skipped_phases = phase_of_week[:-n_weeks] if horizon > n_weeks else []
+    phase_of_week = phase_of_week[-n_weeks:]
+    if skipped_phases:
+        warnings.append(
+            f"Instap op week {len(skipped_phases) + 1} van het canonieke "
+            f"{horizon}-weekse pad — fases geankerd op de racedatum."
+        )
+        if n_weeks < 12:
+            warnings.append(
+                f"Korte aanloop ({n_weeks} wk < 12): doel mogelijk niet haalbaar."
+            )
 
     trans_names = [n for n, _ in phases if _block_type(n) == "trans"]
     last_trans = trans_names[-1] if trans_names else None
@@ -433,7 +469,9 @@ def generate_plan(
     else:
         sessions = 2 if start_km > 0 else 0
     fourth_run_pending = False
-    seen_trans = False
+    # Bij een instap halverwege het canonieke pad telt de overgeslagen
+    # aanloop mee voor de fase-logica (gates, sessie-aantallen).
+    seen_trans = any(_block_type(p) == "trans" for p, _, _ in skipped_phases)
     consistency_warnings: set[str] = set()
 
     # TSS-gedreven profielen: CTL-doelpad bepaalt de weekly targets.
