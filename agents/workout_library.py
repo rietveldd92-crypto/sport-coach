@@ -14,6 +14,8 @@ Structuur:
   BIKE_WORKOUTS  — dict per categorie (threshold, sweetspot, endurance, fun, ...)
   RUN_WORKOUTS   — dict per categorie (z2_variants, long_run_variants, speed, ...)
 """
+import re
+
 
 
 # ── DELAHAIJE COACHING ──────────────────────────────────────────────────────
@@ -48,6 +50,50 @@ def _tss_bike(duration_min: int, intensity_factor: float) -> int:
 
 def _km_to_min(km: float, pace: float = 5.8) -> int:
     return round(km * pace)
+
+
+def _hr_hint(pct: float, minutes: float) -> str:
+    """Return a HR target hint for stable bike blocks."""
+    if minutes < 5 or pct > 105:
+        return ""
+    from agents.feedback_engine import (
+        THRESHOLD_HR_MAX,
+        THRESHOLD_HR_MIN,
+        Z2_HR_MAX,
+        Z2_HR_MIN,
+    )
+
+    if pct < 63:
+        return f" (HR <{Z2_HR_MIN})"
+    if pct < 78:
+        return f" (HR {Z2_HR_MIN}-{Z2_HR_MAX})"
+    if pct < 88:
+        return f" (HR {Z2_HR_MAX}-158)"
+    if pct < 95:
+        return " (HR 155-166)"
+    return f" (HR {THRESHOLD_HR_MIN}-{THRESHOLD_HR_MAX})"
+
+
+def _with_hr_hints(description: str) -> str:
+    """Append HR hints to stable percent-based bike step lines."""
+    out = []
+    for line in description.splitlines():
+        if "(HR " in line or "ramp" in line.lower():
+            out.append(line)
+            continue
+        match = re.match(
+            r"^(?P<prefix>\s*-\s*)(?P<duration>\d+(?:\.\d+)?)(?P<unit>m|s)\s+"
+            r"(?P<pct>\d+(?:\.\d+)?)%(?P<rest>.*)$",
+            line,
+        )
+        if not match:
+            out.append(line)
+            continue
+        duration = float(match.group("duration"))
+        minutes = duration if match.group("unit") == "m" else duration / 60
+        pct = float(match.group("pct"))
+        out.append(f"{line}{_hr_hint(pct, minutes)}")
+    return "\n".join(out)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -102,7 +148,7 @@ def threshold(ftp: int, step: int) -> dict:
         "beschrijving": (
             f"Warmup\n- 10m ramp 50-80% 90rpm\n"
             f"3x\n- 30s 105%\n- 1m 55%\n\n"
-            f"Main Set\n{main}\n\n\n"
+            f"Main Set\n{_with_hr_hints(main)}\n\n\n"
             f"Cooldown\n- 10m ramp 75-50%\n\n"
             f"Threshold = 97% FTP ({t_watts}W). {note}"
             f"{DELAHAIJE_BIKE}"
@@ -157,7 +203,7 @@ def sweetspot(ftp: int, step: int) -> dict:
         "beschrijving": (
             f"Warmup\n- 7m ramp 55-80% 90rpm\n"
             f"3x\n- 30s 110%\n- 1m 55%\n\n"
-            f"Main Set\n{main}\n\n\n"
+            f"Main Set\n{_with_hr_hints(main)}\n\n\n"
             f"Cooldown\n- 10m ramp 75-50%\n\n"
             f"Sweetspot = 88-93% FTP ({ss_low}-{ss_high}W). {note}"
             f"{DELAHAIJE_BIKE}"
@@ -194,7 +240,7 @@ def over_unders(ftp: int, step: int) -> dict:
         "beschrijving": (
             f"Warmup\n- 10m ramp 50-80% 90rpm\n"
             f"3x\n- 30s 105%\n- 1m 55%\n\n"
-            f"Main Set\n{main}\n\n\n"
+            f"Main Set\n{_with_hr_hints(main)}\n\n\n"
             f"Cooldown\n- 10m ramp 75-50%\n\n"
             f"Over = 105% FTP ({over_w}W), under = 88% ({under_w}W). {note}"
             f"{DELAHAIJE_BIKE}"
@@ -273,7 +319,7 @@ def tempo_blocks(ftp: int) -> dict:
             "Warmup\n- 10m ramp 50-78% 90rpm\n\n"
             "Main Set\n"
             "3x\n"
-            "- 12m 85% 88rpm\n"
+            f"- 12m 85% 88rpm{_hr_hint(85, 12)}\n"
             "- 4m 55% 95rpm\n\n"
             "Cooldown\n- 10m ramp 75-50%\n\n"
             "Tempo = 83-87% FTP. Net onder sweetspot — comfortabel ongemak.\n"
@@ -320,7 +366,7 @@ def endurance_ride(duration_min: int) -> dict:
         "type": "endurance_ride", "naam": f"Duurrit rolling Z2 – {duration_min} min",
         "beschrijving": (
             f"Warmup\n- 8m ramp 45-63% 85rpm\n\n"
-            f"Main Set\n{blocks}\n\n\n"
+            f"Main Set\n{_with_hr_hints(blocks)}\n\n\n"
             f"Cooldown\n- 7m ramp 63-45%\n\n"
             f"Simuleer een buitenrit: wisselend terrein, heuveltjes, "
             f"dalletjes, kopwind-secties. Alles binnen Z2.\n"
@@ -356,9 +402,9 @@ def endurance_ride_with_tempo(duration_min: int, tempo_min: int = 25) -> dict:
         "beschrijving": (
             f"Warmup\n- {warmup}m ramp 50-65% 88rpm\n\n"
             f"Main Set\n"
-            f"- {pre}m 65% 85rpm\n"
-            f"- {tempo_min}m 77% 82rpm (tempoblok – marathon-pace gevoel)\n"
-            f"- {post}m 65% 90rpm\n\n\n"
+            f"- {pre}m 65% 85rpm{_hr_hint(65, pre)}\n"
+            f"- {tempo_min}m 77% 82rpm{_hr_hint(77, tempo_min)} (tempoblok – marathon-pace gevoel)\n"
+            f"- {post}m 65% 90rpm{_hr_hint(65, post)}\n\n\n"
             f"Cooldown\n- {cooldown}m ramp 60-45%\n\n"
             f"Louis zegt: één tempoblok van {tempo_min} min in een lange Z2-rit "
             f"is goud voor je aerobic durability. Niet harder dan 77% — je moet "
@@ -924,7 +970,7 @@ def _build_bike_threshold(ftp: int, sets: int, work_min: int, rest_min: int,
             f"Warmup\n- 12m ramp 50-75% 85rpm\n\n"
             f"Main Set\n"
             f"{sets}x\n"
-            f"- {work_min}m {pct}% 85rpm\n"
+            f"- {work_min}m {pct}% 85rpm{_hr_hint(pct, work_min)}\n"
             f"- {rest_min}m 55% 95rpm\n\n"
             f"Cooldown\n- 8m ramp 60-45% 90rpm\n\n"
             f"Threshold variant: {total_work} min totaal werk in {sets} sets van {work_min} min.\n"
@@ -999,7 +1045,7 @@ def _build_bike_sweetspot(ftp: int, sets: int, work_min: int, rest_min: int,
             f"Warmup\n- 10m ramp 50-75% 90rpm\n\n"
             f"Main Set\n"
             f"{sets}x\n"
-            f"- {work_min}m {pct}% 88rpm\n"
+            f"- {work_min}m {pct}% 88rpm{_hr_hint(pct, work_min)}\n"
             f"- {rest_min}m 60% 95rpm\n\n"
             f"Cooldown\n- 7m ramp 60-45% 90rpm\n\n"
             f"Sweetspot: 'comfortabel oncomfortabel' (88-93% FTP).\n"

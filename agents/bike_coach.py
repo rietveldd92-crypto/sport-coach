@@ -18,6 +18,8 @@ met beperkte vermoeidheidskosten. Ideaal voor blessure-herstel fase.
 
 from datetime import date, timedelta
 
+from agents.workout_library import _hr_hint
+
 
 def _tss_bike(duration_min: int, intensity_factor: float) -> int:
     """TSS schatting fiets: (duur in uren × IF² × 100)."""
@@ -271,7 +273,7 @@ def fatmax_medium_session(ftp: int = 250) -> dict:
         "naam": "Fatmax – 80 min high Z2",
         "beschrijving": (
             f"Warmup\n- 10m ramp 50-65% 90rpm\n\n"
-            f"Main Set\n- 60m 74% 88rpm (steady, high Z2)\n\n"
+            f"Main Set\n- 60m 74% 88rpm{_hr_hint(74, 60)} (steady, high Z2)\n\n"
             f"Cooldown\n- 10m ramp 65-50%\n\n"
             f"Fatmax = 70-78% FTP ({watts_low}-{watts_high}W). High Z2 — net onder "
             f"sweetspot. Praten in korte zinnen mogelijk maar je voelt het.\n"
@@ -318,9 +320,9 @@ def long_slow_session(ftp: int = 250) -> dict:
         "beschrijving": (
             f"Warmup\n- 10m ramp 50-60% 90rpm\n\n"
             f"Main Set\n3x\n"
-            f"- 30m 62% 88rpm (steady Z1)\n"
-            f"- 8m 68% high-cadans 100rpm\n"
-            f"- 5m 65% low-cadans 70rpm sterkte-uithouding\n"
+            f"- 30m 62% 88rpm{_hr_hint(62, 30)} (steady Z1)\n"
+            f"- 8m 68% high-cadans 100rpm{_hr_hint(68, 8)}\n"
+            f"- 5m 65% low-cadans 70rpm{_hr_hint(65, 5)} sterkte-uithouding\n"
             f"- 2m 55% spin-out\n\n"
             f"Cooldown\n- 10m ramp 60-50%\n\n"
             f"Z1-dominant ({watts_low}-{watts_high}W) maar mét cadansvariatie en "

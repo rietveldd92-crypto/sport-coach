@@ -19,9 +19,11 @@ import {
   useWeek,
 } from "../api/queries";
 import type { AvailabilitySlot, EventSummary } from "../api/types";
+import { SportIcon } from "../components/Badges";
 import OfflineBanner, { useOnline } from "../components/OfflineBanner";
 import RpeAsk, { asksRpe } from "../components/RpeAsk";
 import Spinner from "../components/Spinner";
+import WorkoutProfile from "../components/WorkoutProfile";
 import AvailabilitySheet from "../features/AvailabilitySheet";
 import MoveDiffSheet from "../features/MoveDiffSheet";
 import type { PendingMove } from "../features/MoveDiffSheet";
@@ -41,6 +43,7 @@ import {
   durationMin,
   fmtDuration,
   sessionStatus,
+  sportKind,
   zoneOf,
 } from "../lib/workout";
 import { useQueryClient } from "@tanstack/react-query";
@@ -452,6 +455,7 @@ function SessionCard({
   const tss = item.done && item.activity
     ? item.activity.icu_training_load
     : e.load_target;
+  const showProfile = !item.done && (item.profile?.length ?? 0) >= 2;
 
   return (
     <div
@@ -468,14 +472,24 @@ function SessionCard({
           style={{ background: ZONE_VAR[zone] }}
         />
         <div className="min-w-0 flex-1">
-          <p className="truncate text-[0.86rem] font-medium leading-snug">
-            {e.name ?? "Workout"}
-          </p>
+          <div className="flex min-w-0 items-center gap-1.5 text-dim">
+            <span className="shrink-0">
+              <SportIcon kind={sportKind(e)} />
+            </span>
+            <p className="truncate text-[0.86rem] font-medium leading-snug text-ink">
+              {e.name ?? "Workout"}
+            </p>
+          </div>
           <p className="mt-0.5 font-mono text-[0.68rem] text-muted">
             {fmtDuration(dur)}
             {tss != null && ` · ${Math.round(tss)} tss`}
             {t && status === "planned" && ` · ${t}`}
           </p>
+          {showProfile && (
+            <div className="mt-2">
+              <WorkoutProfile profile={item.profile!} height={22} />
+            </div>
+          )}
           {item.placement_reason && (
             <p className="mt-1 line-clamp-2 text-[0.72rem] leading-snug text-dim">
               {item.placement_reason}

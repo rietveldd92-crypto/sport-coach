@@ -34,6 +34,11 @@ export interface Placement {
   goal_id?: number | null;
 }
 
+export interface WorkoutProfileStep {
+  sec: number;
+  pct: number;
+}
+
 /** core.views._event_summary() */
 export interface EventSummary {
   event: IcuEvent;
@@ -43,6 +48,7 @@ export interface EventSummary {
   unplanned: boolean;
   placement: Placement | null;
   placement_reason?: string | null;
+  profile?: WorkoutProfileStep[];
 }
 
 export interface Recovery {

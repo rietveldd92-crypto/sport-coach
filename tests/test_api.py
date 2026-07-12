@@ -154,6 +154,8 @@ def test_week_view(client):
     assert body["week_start"] == NEXT_MONDAY.isoformat()
     ids = {i["event"]["id"] for i in body["items"]}
     assert {"e_nw_run", "e_nw_bike", "e_nw_long"} <= ids
+    bike = next(i for i in body["items"] if i["event"]["id"] == "e_nw_bike")
+    assert len(bike["profile"]) >= 2
     # Availability-slots per dag (7 dagen, uit het patroon)
     assert len(body["availability"]) == 7
     first_day = body["availability"][NEXT_MONDAY.isoformat()]

@@ -82,6 +82,7 @@ def _event_summary(item: dict) -> dict:
         "unplanned": bool(item.get("_unplanned")),
         "placement": placement,
         "placement_reason": _placement_reason(event),
+        "profile": _workout_profile(event),
     }
 
 
@@ -92,6 +93,19 @@ def _placement_reason(event: dict) -> Optional[str]:
         if line.startswith("Plaatsing:"):
             return line.removeprefix("Plaatsing:").strip()
     return None
+
+
+def _workout_profile(event: dict) -> list[dict]:
+    try:
+        from agents.threshold_model import get_threshold_pace
+        from core.workout_profile import parse_profile
+
+        return parse_profile(
+            event.get("description") or "",
+            threshold_pace_sec=get_threshold_pace(),
+        )[:40]
+    except Exception:
+        return []
 
 
 def today_view(today: Optional[date] = None) -> dict:

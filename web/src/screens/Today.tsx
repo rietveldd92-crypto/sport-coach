@@ -11,6 +11,7 @@ import { InjuryBadge, SportBadge, ZoneChip } from "../components/Badges";
 import OfflineBanner, { useOnline } from "../components/OfflineBanner";
 import RpeAsk, { asksRpe } from "../components/RpeAsk";
 import Spinner from "../components/Spinner";
+import WorkoutProfile from "../components/WorkoutProfile";
 import SwapSheet from "../features/SwapSheet";
 import { longDate, timeOf } from "../lib/dates";
 import {
@@ -223,6 +224,12 @@ function HeroCard({
             {" · "}
             {Math.round(workout.activity.icu_training_load ?? 0)} tss
           </p>
+        )}
+
+        {!done && (workout.profile?.length ?? 0) >= 2 && (
+          <div className="mt-5">
+            <WorkoutProfile profile={workout.profile!} height={36} />
+          </div>
         )}
 
         <Description text={event.description} />
