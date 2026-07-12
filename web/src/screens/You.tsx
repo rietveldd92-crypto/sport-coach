@@ -3,10 +3,12 @@ import {
   Bar,
   BarChart,
   Cell,
+  ComposedChart,
   Line,
   LineChart,
   ReferenceLine,
   ResponsiveContainer,
+  Scatter,
   Tooltip,
   XAxis,
   YAxis,
@@ -29,6 +31,7 @@ import type {
   FixedSession,
   InjuryGuard,
   PatternSlot,
+  ThresholdDossier,
   ThresholdPaceView,
   TrendsView,
 } from "../api/types";
@@ -66,6 +69,7 @@ export default function You() {
           <FitnessChart view={trends.data} />
           <VolumeChart view={trends.data} />
           <HrvChart view={trends.data} />
+          <ThresholdDossierChart view={trends.data} />
         </>
       ) : (
         <p className="rise-in mb-7 rounded-2xl border border-line bg-raised px-5 py-6 text-sm text-muted">
@@ -333,6 +337,168 @@ const GUARD_BIG: Record<
   geel: { label: "YELLOW", cls: "text-warning", bar: "bg-warning" },
   rood: { label: "RED", cls: "text-alert", bar: "bg-alert" },
 };
+
+function ThresholdDossierChart({ view }: { view: TrendsView }) {
+  const dossier = view.threshold;
+  const data = useMemo(() => thresholdChartData(dossier), [dossier]);
+  const recent = dossier.observations.slice(-4).reverse();
+  const current = dossier.threshold_pace_sec_per_km;
+
+  return (
+    <section className="rise-in mb-7">
+      <h3 className="mb-3 font-mono text-[0.66rem] uppercase tracking-[0.2em] text-dim">
+        drempeldossier
+      </h3>
+      <div className="overflow-hidden rounded-2xl border border-line bg-raised">
+        <div className="px-5 pb-2 pt-4">
+          <div className="flex items-baseline justify-between gap-4">
+            <p className="font-mono text-[1.55rem] font-medium">
+              {paceLabel(current)}/km
+            </p>
+            <p className="font-mono text-[0.62rem] uppercase tracking-[0.16em] text-dim">
+              {dossier.context.window_days}d venster
+            </p>
+          </div>
+          <p className="mt-1.5 text-[0.8rem] leading-relaxed text-muted">
+            {dossier.context.sentence}
+          </p>
+        </div>
+
+        {data.length > 0 && (
+          <div className="px-2 pb-1 pt-1">
+            <ResponsiveContainer width="100%" height={165}>
+              <ComposedChart data={data} margin={{ left: -18, right: 12, top: 8 }}>
+                <XAxis
+                  dataKey="date"
+                  tickFormatter={dayMonth}
+                  tick={AXIS_TICK}
+                  tickLine={false}
+                  axisLine={{ stroke: "var(--border)" }}
+                  interval={Math.max(0, Math.ceil(data.length / 5) - 1)}
+                />
+                <YAxis
+                  tick={AXIS_TICK}
+                  tickLine={false}
+                  axisLine={false}
+                  width={50}
+                  tickFormatter={(sec) => paceLabel(Number(sec))}
+                  domain={["dataMin - 4", "dataMax + 4"]}
+                />
+                <Tooltip content={<ThresholdTip />} />
+                <ReferenceLine y={current} stroke="var(--border-strong)" strokeDasharray="4 4" />
+                <Line
+                  dataKey="threshold_sec"
+                  name="drempel"
+                  type="monotone"
+                  stroke="var(--text)"
+                  strokeWidth={2}
+                  connectNulls
+                  dot={{ r: 3, fill: "var(--text)" }}
+                />
+                <Scatter
+                  dataKey="observed_sec"
+                  name="sessie"
+                  fill="var(--zone-drempel)"
+                  line={false}
+                />
+              </ComposedChart>
+            </ResponsiveContainer>
+            <div className="flex justify-center gap-5 pb-3 font-mono text-[0.62rem] text-muted">
+              <LegendSwatch color="var(--text)" label="drempel" />
+              <LegendSwatch color="var(--zone-drempel)" label="sessie" />
+            </div>
+          </div>
+        )}
+
+        <div className="border-t border-line px-5 py-4">
+          <p className="mb-2.5 font-mono text-[0.6rem] uppercase tracking-[0.18em] text-dim">
+            laatste observaties
+          </p>
+          {recent.length === 0 ? (
+            <p className="text-sm text-muted">Nog geen drempelsessies gelogd.</p>
+          ) : (
+            <ul className="space-y-2">
+              {recent.map((obs) => (
+                <li key={obs.id} className="grid grid-cols-[3.5rem_1fr_auto] items-center gap-3">
+                  <span className="font-mono text-[0.7rem] text-dim">{dayMonth(obs.date)}</span>
+                  <span className="text-[0.8rem] text-muted">
+                    {obs.hr_vs_band ? `HR ${obs.hr_vs_band}` : "HR onbekend"}
+                    {obs.rpe != null ? ` · RPE ${obs.rpe}` : ""}
+                  </span>
+                  <span className={deltaClass(obs.pace_delta_sec)}>
+                    {deltaLabel(obs.pace_delta_sec)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function thresholdChartData(dossier: ThresholdDossier) {
+  const rows = new Map<string, { date: string; threshold_sec?: number; observed_sec?: number }>();
+  for (const row of dossier.log) {
+    rows.set(row.date, {
+      ...(rows.get(row.date) ?? { date: row.date }),
+      threshold_sec: row.new_sec,
+    });
+  }
+  if (dossier.log.length === 0) {
+    const first = dossier.observations[0]?.date ?? new Date().toISOString().slice(0, 10);
+    rows.set(first, {
+      ...(rows.get(first) ?? { date: first }),
+      threshold_sec: dossier.threshold_pace_sec_per_km,
+    });
+  }
+  for (const obs of dossier.observations) {
+    if (obs.pace_delta_sec == null) continue;
+    rows.set(obs.date, {
+      ...(rows.get(obs.date) ?? { date: obs.date }),
+      observed_sec: dossier.threshold_pace_sec_per_km + obs.pace_delta_sec,
+    });
+  }
+  return [...rows.values()].sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function ThresholdTip({
+  active,
+  payload,
+  label,
+}: {
+  active?: boolean;
+  payload?: { name?: string; value?: number | string }[];
+  label?: string | number;
+}) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="rounded-lg border border-line-strong bg-elevated px-3 py-2 font-mono text-[0.7rem]">
+      <p className="text-dim">{label ? dayMonth(String(label)) : ""}</p>
+      {payload.map((p, i) => (
+        <p key={i} className="text-ink">
+          {p.name}: {typeof p.value === "number" ? `${paceLabel(p.value)}/km` : p.value}
+        </p>
+      ))}
+    </div>
+  );
+}
+
+function deltaLabel(delta?: number | null): string {
+  if (delta == null) return "n/a";
+  const rounded = Math.round(delta);
+  if (rounded === 0) return "target";
+  return `${rounded > 0 ? "+" : ""}${rounded}s/km`;
+}
+
+function deltaClass(delta?: number | null): string {
+  const base = "font-mono text-[0.72rem]";
+  if (delta == null) return `${base} text-dim`;
+  if (delta <= -3) return `${base} text-positive`;
+  if (delta >= 5) return `${base} text-warning`;
+  return `${base} text-muted`;
+}
 
 function InjurySection({
   history,

@@ -7,7 +7,7 @@ from agents import endurance_coach, workout_library
 
 
 def test_run_quality_ladders_are_tss_progressive():
-    for category, rungs in workout_library.RUN_QUALITY_LIBRARY.items():
+    for category, rungs in workout_library.run_quality_library(255, mp_sec=256).items():
         rung_tss = [
             min(workout["tss_geschat"] for workout in variants)
             for variants in rungs

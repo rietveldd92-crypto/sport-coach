@@ -485,9 +485,34 @@ def trends_view(today: Optional[date] = None) -> dict:
         "ctl_series": trend,
         "weekly_volume": weekly_volume,
         "hrv": hrv,
+        "threshold": _threshold_dossier(),
         "athlete": {"ftp": profile.ftp, "hrmax": profile.hrmax},
         "tp_sync_enabled": config.get_bool("TP_SYNC_ENABLED", default=False),
     }
+
+
+def _threshold_dossier() -> dict:
+    try:
+        from agents import threshold_model
+
+        return threshold_model.threshold_dossier()
+    except Exception:
+        return {
+            "threshold_pace_sec_per_km": 255,
+            "default_sec_per_km": 255,
+            "log": [],
+            "observations": [],
+            "suggestion": None,
+            "context": {
+                "sentence": "Drempeldossier is nu niet beschikbaar.",
+                "recent_observations": [],
+                "faster_count": 0,
+                "slower_count": 0,
+                "required_count": 3,
+                "window_size": 4,
+                "window_days": 28,
+            },
+        }
 
 
 # ── CHECKIN ───────────────────────────────────────────────────────────────
@@ -627,12 +652,17 @@ def prepare_coach_feedback(event_id: str) -> dict:
     except Exception:
         recent_28d = []
 
+    from agents import workout_analysis
+
+    analysis = workout_analysis.analyze(event, activity)
+    _record_threshold_observation_if_needed(event, activity, analysis)
+
     prompt, model_name, analysis = feedback_engine.build_prompt(
         event, activity,
         state=state, wellness_records=wellness,
         week_events=matched, recent_28d=recent_28d,
+        analysis=analysis,
     )
-    _record_threshold_observation_if_needed(event, activity, analysis)
 
     if feedback_engine.gemini_available():
         return {"stream": True, "prompt": prompt, "model": model_name,

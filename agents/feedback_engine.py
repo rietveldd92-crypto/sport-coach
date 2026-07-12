@@ -328,12 +328,13 @@ def build_prompt(
     wellness_records: list,
     week_events: Optional[list] = None,
     recent_28d: Optional[list] = None,
+    analysis: Optional[dict] = None,
 ) -> tuple[str, str, dict]:
     """Bouw de complete Gemini prompt + return (prompt, model_name, analysis).
 
     `model_name` is GEMINI_PRO_MODEL voor key sessies, anders Flash.
     """
-    analysis = workout_analysis.analyze(event, activity)
+    analysis = analysis or workout_analysis.analyze(event, activity)
     metrics = analysis["metrics"]
     insights = list(analysis["insights"])  # copy
     wtype = analysis["workout_type"]
@@ -404,6 +405,8 @@ def build_prompt(
     desc = (event.get("description") or "").strip()[:300]
     threshold_pace_sec = get_athlete_threshold_pace_sec()
     threshold_pace = f"{threshold_pace_sec // 60}:{threshold_pace_sec % 60:02d}/km"
+    threshold_ctx = _threshold_context()
+    analysis["threshold_context"] = threshold_ctx
 
     prompt = f"""{COACH_SYSTEM_PROMPT}
 
@@ -433,6 +436,9 @@ DIEPE METRIEKEN
 
 AUTO-ANALYSE BEVINDINGEN
 {insights_str}
+
+DREMPEL-TREND (deterministisch berekend; verwoord dit alleen, verzin geen drempelwaarde)
+{threshold_ctx["sentence"]}
 
 WELLNESS / HERSTEL
 {wellness_ctx or '(geen wellness data beschikbaar)'}
@@ -585,17 +591,30 @@ def generate_feedback(
 def rule_feedback(analysis: dict) -> str:
     """Fallback als Gemini niet beschikbaar is. Geen quote, geen motivatiepraat."""
     insights = analysis.get("insights", [])
+    threshold_sentence = (
+        (analysis.get("threshold_context") or {}).get("sentence")
+        or "Geen drempeltrend-context beschikbaar."
+    )
     if not insights:
         return (
             "**Wat gaat goed**\nWorkout voltooid, geen bijzonderheden uit auto-analyse.\n\n"
             "**Wat gaat fout / risico's**\nGeen risico's gedetecteerd.\n\n"
             "**Concreet advies**\n1. Volg het bestaande weekplan.\n\n"
-            "**Aanpassing in strategie**\nGeen aanpassing nodig."
+            f"**Aanpassing in strategie**\n{threshold_sentence}"
         )
     text = " ".join(insights[:3])
     return (
         f"**Wat gaat goed**\n{text}\n\n"
         "**Wat gaat fout / risico's**\nGeen specifieke risico's uit deze auto-analyse — Gemini AI niet beschikbaar voor diepere check.\n\n"
         "**Concreet advies**\n1. Volg het bestaande plan tot AI weer werkt.\n\n"
-        "**Aanpassing in strategie**\nGeen aanpassing nodig."
+        f"**Aanpassing in strategie**\n{threshold_sentence}"
     )
+
+
+def _threshold_context() -> dict:
+    try:
+        from agents import threshold_model
+
+        return threshold_model.threshold_context()
+    except Exception:
+        return {"sentence": "Geen drempeltrend-context beschikbaar."}

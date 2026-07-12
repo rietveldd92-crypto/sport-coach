@@ -18,7 +18,7 @@ import config
 import history_db
 import shared
 from core import availability_v2 as av2
-from tests.mock_intervals import MockIntervals, install
+from tests.mock_intervals import MockIntervals, _activity, _event, install
 
 TODAY = date.today()
 MONDAY = TODAY - timedelta(days=TODAY.weekday())
@@ -485,6 +485,29 @@ def test_trends_view(client):
     assert body["tp_sync_enabled"] is False
 
 
+def test_trends_view_exposes_threshold_dossier(client):
+    from agents import threshold_model
+
+    shared.save_state({"threshold_pace_sec_per_km": 255, "load": {}})
+    threshold_model.set_threshold_pace(252, "handmatige kalibratie", "manual")
+    threshold_model.record_observation({
+        "activity_id": "thr-1",
+        "date": TODAY.isoformat(),
+        "pace_delta_sec": -4,
+        "hr_vs_band": "in",
+        "completed": True,
+    }, rpe=6)
+
+    r = client.get("/api/trends")
+
+    assert r.status_code == 200
+    dossier = r.json()["threshold"]
+    assert dossier["threshold_pace_sec_per_km"] == 252
+    assert dossier["log"][-1]["reason"] == "handmatige kalibratie"
+    assert dossier["observations"][-1]["activity_id"] == "thr-1"
+    assert dossier["context"]["required_count"] == 3
+
+
 # ── SPA-FALLBACK (Fase 5 deploy) ─────────────────────────────────────────
 
 def test_spa_fallback_serves_index_and_files(mock_api, env, tmp_path):
@@ -563,6 +586,38 @@ def test_coach_feedback_sse_rule_based_fallback(client):
     assert body.startswith("data: ")
     assert '"fallback": true' in body
     assert "data: [DONE]" in body
+
+
+def test_coach_feedback_records_threshold_observation_once(client, mock_api):
+    done_day = max(TODAY - timedelta(days=1), MONDAY)
+    mock_api.events.append(_event(
+        "e_threshold_done",
+        done_day,
+        "Drempel 3x8 min",
+        "Run",
+        70,
+        description="3x\n- 8m 4:15/km Pace\n- 2m jog",
+    ))
+    mock_api.activities.append(_activity(
+        "a_threshold_done",
+        done_day,
+        "Drempel 3x8 min",
+        "Run",
+        tss=72,
+        minutes=52,
+        km=11.0,
+    ))
+
+    r = client.get("/api/coach/feedback?event_id=e_threshold_done")
+
+    assert r.status_code == 200
+    assert "Drempelpace staat" in r.text
+    observations = history_db.list_threshold_observations()
+    assert len(observations) == 1
+    assert observations[0]["activity_id"] == "a_threshold_done"
+
+    client.get("/api/coach/feedback?event_id=e_threshold_done")
+    assert len(history_db.list_threshold_observations()) == 1
 
 
 def test_coach_feedback_unknown_event_404(client):

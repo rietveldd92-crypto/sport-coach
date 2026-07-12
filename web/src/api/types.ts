@@ -266,6 +266,36 @@ export interface HrvPoint {
   resting_hr?: number | null;
 }
 
+export interface ThresholdObservation {
+  id: number;
+  date: string;
+  activity_id: string;
+  pace_delta_sec?: number | null;
+  hr_reps_avg?: number | null;
+  hr_vs_band?: "onder" | "in" | "boven" | string | null;
+  rpe?: number | null;
+  completed: number | boolean;
+}
+
+export interface ThresholdTrendContext {
+  sentence: string;
+  recent_observations: ThresholdObservation[];
+  faster_count: number;
+  slower_count: number;
+  required_count: number;
+  window_size: number;
+  window_days: number;
+}
+
+export interface ThresholdDossier {
+  threshold_pace_sec_per_km: number;
+  default_sec_per_km: number;
+  log: ThresholdPaceLog[];
+  observations: ThresholdObservation[];
+  suggestion: ThresholdSuggestion | null;
+  context: ThresholdTrendContext;
+}
+
 export interface TrendsView {
   source: string;
   load: {
@@ -278,6 +308,7 @@ export interface TrendsView {
   ctl_series: TrendPoint[];
   weekly_volume: WeeklyVolumeRow[];
   hrv: HrvPoint[];
+  threshold: ThresholdDossier;
   athlete: { ftp: number; hrmax: number };
   tp_sync_enabled: boolean;
 }

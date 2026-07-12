@@ -1244,7 +1244,12 @@ def _build_run_tempo(sets: int, work_min: int, rest_min: int, pct: int,
 
 
 def run_tempo_variants() -> list[dict]:
-    """Run tempo/threshold menu. ~25 combinaties. Allemaal hele minuten."""
+    """Legacy swap-only menu.
+
+    Planner-v3 gebruikt run_quality_library()/pick_run_quality() voor alle
+    kwaliteitssessies. Deze absolute pct-workouts blijven alleen beschikbaar
+    als handmatige vervangopties in het swap-menu.
+    """
     combos = [
         # (sets, work_min, rest_min, pct, flavor)
         # Cruise intervals (kort, 3-5 min)
@@ -1322,7 +1327,7 @@ def _build_run_intervals(count: int, work_sec: int, rest_sec: int, pct: int,
 
 
 def run_interval_variants() -> list[dict]:
-    """Run intervals menu. ~20 combinaties. Werkt in SECONDEN."""
+    """Legacy swap-only menu voor handmatige vervangopties."""
     # (count, work_sec, rest_sec, pct, flavor)
     combos = [
         # 10km pace intervals (3-5 min blokken)
@@ -1600,108 +1605,6 @@ def _build_run_marathon(
         workout["warnings"] = [{"code": "mp_vs_threshold", "message": warning}]
     return workout
 
-
-# 6 rungs i.p.v. 4, 3 varianten per rung i.p.v. 2 (atleet-keuze 2026-07-11:
-# 2 rennende LT-sessies/week vanaf nu, progressie moet langer doorlopen
-# vóór de piek en de rotatie mag niet binnen een blok herhalen).
-RUN_QUALITY_LIBRARY: dict[str, list[list[dict]]] = {
-    "threshold_short": [
-        [
-            _build_run_threshold_short(5, 1.0, 2.0, 260, 0.88, "Instap"),
-            _build_run_threshold_short(4, 1.2, 2.0, 260, 0.88, "Instap variant"),
-            _build_run_threshold_short(6, 0.8, 1.5, 260, 0.88, "Instap variant 2"),
-        ],
-        [
-            _build_run_threshold_short(6, 1.0, 2.0, 258, 0.89, "Opbouw"),
-            _build_run_threshold_short(5, 1.2, 2.0, 258, 0.89, "Opbouw variant"),
-            _build_run_threshold_short(4, 1.5, 2.5, 258, 0.89, "Opbouw variant 2"),
-        ],
-        [
-            _build_run_threshold_short(5, 1.5, 2.5, 256, 0.90, "Zwaarder"),
-            _build_run_threshold_short(8, 1.0, 1.5, 256, 0.90, "Zwaarder variant"),
-            _build_run_threshold_short(6, 1.2, 2.0, 256, 0.90, "Zwaarder variant 2"),
-        ],
-        [
-            _build_run_threshold_short(6, 1.5, 2.0, 254, 0.91, "Piek"),
-            _build_run_threshold_short(4, 2.0, 2.5, 254, 0.91, "Piek variant"),
-            _build_run_threshold_short(8, 1.0, 1.5, 254, 0.91, "Piek variant 2"),
-        ],
-        [
-            _build_run_threshold_short(6, 1.5, 2.0, 252, 0.92, "Scherper"),
-            _build_run_threshold_short(5, 1.8, 2.5, 252, 0.92, "Scherper variant"),
-            _build_run_threshold_short(8, 1.2, 2.0, 252, 0.92, "Scherper variant 2"),
-        ],
-        [
-            _build_run_threshold_short(6, 2.0, 2.5, 250, 0.93, "Piek+"),
-            _build_run_threshold_short(5, 2.2, 3.0, 250, 0.93, "Piek+ variant"),
-            _build_run_threshold_short(8, 1.5, 2.0, 250, 0.93, "Piek+ variant 2"),
-        ],
-    ],
-    "threshold_long": [
-        [
-            _build_run_threshold_long(2, 12, 3.0, 270, 0.86, "Instap"),
-            _build_run_threshold_long(3, 8, 2.5, 270, 0.86, "Instap variant"),
-            _build_run_threshold_long(4, 6, 2.0, 270, 0.86, "Instap variant 2"),
-        ],
-        [
-            _build_run_threshold_long(2, 15, 3.0, 268, 0.89, "Opbouw"),
-            _build_run_threshold_long(3, 10, 2.5, 268, 0.89, "Opbouw variant"),
-            _build_run_threshold_long(4, 8, 2.0, 268, 0.89, "Opbouw variant 2"),
-        ],
-        [
-            _build_run_threshold_long(3, 12, 2.5, 265, 0.88, "Zwaarder"),
-            _build_run_threshold_long(2, 20, 4.0, 265, 0.88, "Zwaarder variant"),
-            _build_run_threshold_long(4, 10, 2.5, 265, 0.88, "Zwaarder variant 2"),
-        ],
-        [
-            _build_run_threshold_long(3, 15, 3.0, 263, 0.89, "Piek"),
-            _build_run_threshold_long(2, 25, 4.0, 263, 0.89, "Piek variant"),
-            _build_run_threshold_long(4, 12, 2.5, 263, 0.89, "Piek variant 2"),
-        ],
-        [
-            _build_run_threshold_long(3, 18, 3.0, 261, 0.90, "Scherper"),
-            _build_run_threshold_long(2, 28, 4.0, 261, 0.90, "Scherper variant"),
-            _build_run_threshold_long(4, 14, 3.0, 261, 0.90, "Scherper variant 2"),
-        ],
-        [
-            _build_run_threshold_long(3, 20, 3.0, 259, 0.91, "Piek+"),
-            _build_run_threshold_long(2, 30, 4.5, 259, 0.91, "Piek+ variant"),
-            _build_run_threshold_long(4, 15, 3.0, 259, 0.91, "Piek+ variant 2"),
-        ],
-    ],
-    "vo2max": [
-        [
-            _build_run_vo2max(8, 60, 75, 96, 0.86, "Instap"),
-            _build_run_vo2max(6, 90, 90, 95, 0.86, "Instap variant"),
-            _build_run_vo2max(12, 45, 60, 95, 0.86, "Instap variant 2 (microburst)"),
-        ],
-        [
-            _build_run_vo2max(10, 60, 60, 97, 0.88, "Opbouw"),
-            _build_run_vo2max(7, 90, 75, 96, 0.88, "Opbouw variant"),
-            _build_run_vo2max(10, 75, 75, 96, 0.88, "Opbouw variant 2"),
-        ],
-        [
-            _build_run_vo2max(8, 120, 90, 97, 0.90, "Zwaarder"),
-            _build_run_vo2max(5, 180, 120, 96, 0.90, "Zwaarder variant"),
-            _build_run_vo2max(10, 90, 90, 97, 0.90, "Zwaarder variant 2"),
-        ],
-        [
-            _build_run_vo2max(6, 240, 120, 98, 0.97, "Piek"),
-            _build_run_vo2max(5, 300, 150, 96, 0.97, "Piek variant"),
-            _build_run_vo2max(8, 180, 120, 97, 0.95, "Piek variant 2"),
-        ],
-        [
-            _build_run_vo2max(10, 180, 120, 96, 0.94, "Scherper"),
-            _build_run_vo2max(6, 300, 150, 97, 0.94, "Scherper variant"),
-            _build_run_vo2max(12, 120, 90, 96, 0.94, "Scherper variant 2"),
-        ],
-        [
-            _build_run_vo2max(10, 210, 120, 97, 0.95, "Piek+"),
-            _build_run_vo2max(6, 330, 150, 97, 0.95, "Piek+ variant"),
-            _build_run_vo2max(14, 120, 90, 96, 0.95, "Piek+ variant 2"),
-        ],
-    ],
-}
 
 QUALITY_TOOLKIT_BY_GATE = {
     "tempoduur": ("threshold", "speed"),

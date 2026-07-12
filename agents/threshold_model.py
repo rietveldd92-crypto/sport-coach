@@ -192,6 +192,65 @@ def threshold_summary() -> dict:
     }
 
 
+def threshold_dossier(limit: int = 24) -> dict:
+    observations = list(reversed(history_db.list_threshold_observations(limit=limit)))
+    logs = history_db.list_threshold_pace_log()
+    return {
+        **threshold_summary(),
+        "log": logs,
+        "observations": observations,
+        "context": threshold_context(),
+    }
+
+
+def threshold_context() -> dict:
+    observations = history_db.list_threshold_observations(limit=TREND_WINDOW_SIZE)
+    faster = [o for o in observations if _is_faster_signal(o)]
+    slower = [o for o in observations if _is_slower_signal(o)]
+    suggestion = pending_suggestion()
+    pace = _pace_label(get_threshold_pace())
+
+    if suggestion:
+        sentence = (
+            f"Open drempelvoorstel: {_pace_label(suggestion['old_sec'])}/km "
+            f"naar {_pace_label(suggestion['proposed_sec'])}/km. "
+            f"Reden: {suggestion['reason']}"
+        )
+    elif len(observations) < TREND_MIN_OBSERVATIONS:
+        sentence = (
+            f"Drempelpace staat op {pace}/km. "
+            f"{len(observations)} recente observatie(s); minimaal "
+            f"{TREND_MIN_OBSERVATIONS} nodig voor een voorstel."
+        )
+    elif len(faster) >= TREND_MIN_OBSERVATIONS:
+        sentence = (
+            f"{len(faster)} van laatste {len(observations)} drempelsessies "
+            "zijn sneller-signalen, maar er is nu geen open voorstel "
+            "(cooldown of eerdere beslissing kan gelden)."
+        )
+    elif len(slower) >= TREND_MIN_OBSERVATIONS:
+        sentence = (
+            f"{len(slower)} van laatste {len(observations)} drempelsessies "
+            "zijn trager/HR-boven signalen, maar er is nu geen open voorstel "
+            "(cooldown of eerdere beslissing kan gelden)."
+        )
+    else:
+        sentence = (
+            f"Drempelpace staat op {pace}/km. Laatste "
+            f"{len(observations)} observaties zijn gemengd; geen voorstel."
+        )
+
+    return {
+        "sentence": sentence,
+        "recent_observations": list(reversed(observations)),
+        "faster_count": len(faster),
+        "slower_count": len(slower),
+        "required_count": TREND_MIN_OBSERVATIONS,
+        "window_size": TREND_WINDOW_SIZE,
+        "window_days": TREND_WINDOW_DAYS,
+    }
+
+
 def record_rpe(activity_id: str, rpe: int, obs_date: str | None = None) -> dict:
     clean = _clean_rpe(rpe)
     if clean is None:
