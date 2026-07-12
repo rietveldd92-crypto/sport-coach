@@ -32,6 +32,8 @@ import intervals_client as api
 import shared
 from agents import feedback_engine
 from agents import adjustments_log
+from agents import threshold_model
+from agents import workout_analysis
 from agents.deviation_classifier import detect_deviations
 from agents.adapt_week import adapt_week
 
@@ -145,12 +147,19 @@ def generate_feedback(event: dict, activity: dict, week_matched: list = None) ->
     except Exception:
         recent_28d = []
 
+    # Drempeldossier voeden: dit is het pad dat 's nachts draait, dus zonder
+    # deze hook zou een drempelsessie alleen een observatie opleveren als je
+    # de feedback later handmatig in de app opent.
+    analysis = workout_analysis.analyze(event, activity)
+    threshold_model.observe_from_workout(event, activity, analysis)
+
     return feedback_engine.generate_feedback(
         event, activity,
         state=state,
         wellness_records=wellness,
         week_events=week_matched,
         recent_28d=recent_28d,
+        analysis=analysis,
     )
 
 

@@ -20,6 +20,7 @@ import {
 } from "../api/queries";
 import type { AvailabilitySlot, EventSummary } from "../api/types";
 import OfflineBanner, { useOnline } from "../components/OfflineBanner";
+import RpeAsk, { asksRpe } from "../components/RpeAsk";
 import Spinner from "../components/Spinner";
 import AvailabilitySheet from "../features/AvailabilitySheet";
 import MoveDiffSheet from "../features/MoveDiffSheet";
@@ -455,39 +456,42 @@ function SessionCard({
   return (
     <div
       data-session={String(e.id)}
-      className={`flex items-center gap-3 rounded-xl border bg-elevated px-3.5 py-2.5 ${
+      className={`rounded-xl border bg-elevated px-3.5 py-2.5 ${
         overlay
           ? "border-accent shadow-[0_8px_30px_rgba(0,0,0,0.55)]"
           : "border-line"
       } ${status === "done" ? "opacity-75" : ""} ${status === "missed" ? "opacity-55" : ""}`}
     >
-      <span
-        className="h-9 w-1 shrink-0 rounded-full"
-        style={{ background: ZONE_VAR[zone] }}
-      />
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-[0.86rem] font-medium leading-snug">
-          {e.name ?? "Workout"}
-        </p>
-        <p className="mt-0.5 font-mono text-[0.68rem] text-muted">
-          {fmtDuration(dur)}
-          {tss != null && ` · ${Math.round(tss)} tss`}
-          {t && status === "planned" && ` · ${t}`}
-        </p>
-        {item.placement_reason && (
-          <p className="mt-1 line-clamp-2 text-[0.72rem] leading-snug text-dim">
-            {item.placement_reason}
+      <div className="flex items-center gap-3">
+        <span
+          className="h-9 w-1 shrink-0 rounded-full"
+          style={{ background: ZONE_VAR[zone] }}
+        />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[0.86rem] font-medium leading-snug">
+            {e.name ?? "Workout"}
           </p>
+          <p className="mt-0.5 font-mono text-[0.68rem] text-muted">
+            {fmtDuration(dur)}
+            {tss != null && ` · ${Math.round(tss)} tss`}
+            {t && status === "planned" && ` · ${t}`}
+          </p>
+          {item.placement_reason && (
+            <p className="mt-1 line-clamp-2 text-[0.72rem] leading-snug text-dim">
+              {item.placement_reason}
+            </p>
+          )}
+        </div>
+        <StatusMark status={status} />
+        {draggable && !overlay && (
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" className="shrink-0 text-dim">
+            <circle cx="9" cy="6" r="1.6" /><circle cx="15" cy="6" r="1.6" />
+            <circle cx="9" cy="12" r="1.6" /><circle cx="15" cy="12" r="1.6" />
+            <circle cx="9" cy="18" r="1.6" /><circle cx="15" cy="18" r="1.6" />
+          </svg>
         )}
       </div>
-      <StatusMark status={status} />
-      {draggable && !overlay && (
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" className="shrink-0 text-dim">
-          <circle cx="9" cy="6" r="1.6" /><circle cx="15" cy="6" r="1.6" />
-          <circle cx="9" cy="12" r="1.6" /><circle cx="15" cy="12" r="1.6" />
-          <circle cx="9" cy="18" r="1.6" /><circle cx="15" cy="18" r="1.6" />
-        </svg>
-      )}
+      {!overlay && asksRpe(item) && <RpeAsk item={item} compact />}
     </div>
   );
 }

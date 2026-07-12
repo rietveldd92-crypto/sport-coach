@@ -20,7 +20,9 @@ import type {
   SeasonView,
   SwapCategory,
   SwapResult,
+  ThresholdMutationResult,
   ThresholdPaceView,
+  ThresholdSuggestion,
   TodayView,
   TrendsView,
   WeekView,
@@ -340,12 +342,8 @@ export function usePutThresholdPace() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (body: { sec_per_km: number; reason: string }) =>
-      put<{ threshold_pace_sec_per_km: number }>("/api/athlete/threshold-pace", body),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: keys.thresholdPace });
-      qc.invalidateQueries({ queryKey: ["week"] });
-      qc.invalidateQueries({ queryKey: keys.today });
-    },
+      put<ThresholdMutationResult>("/api/athlete/threshold-pace", body),
+    onSuccess: () => invalidateThreshold(qc),
   });
 }
 
@@ -359,19 +357,28 @@ export function useResolveThresholdSuggestion() {
       id: number;
       accepted: boolean;
     }) =>
-      post<ThresholdPaceView>(
+      post<ThresholdMutationResult>(
         `/api/athlete/threshold-pace/suggestion/${id}`,
         { accepted },
       ),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: keys.thresholdPace });
-      qc.invalidateQueries({ queryKey: ["week"] });
-      qc.invalidateQueries({ queryKey: keys.today });
-    },
+    onSuccess: () => invalidateThreshold(qc),
+  });
+}
+
+export function usePostRaceResult() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { distance_m: number; time_sec: number }) =>
+      post<{ suggestion: ThresholdSuggestion | null }>(
+        "/api/athlete/race-result",
+        body,
+      ),
+    onSuccess: () => invalidateThreshold(qc),
   });
 }
 
 export function usePostWorkoutRpe() {
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: ({
       activityId,
@@ -382,5 +389,15 @@ export function usePostWorkoutRpe() {
       rpe: number;
       date?: string;
     }) => post<{ rpe: { rpe: number } }>(`/api/workout/${activityId}/rpe`, { rpe, date }),
+    // Een RPE vult de bijbehorende observatie aan en kan daarmee net de
+    // drempeltrend laten omslaan — dossier en voorstel dus opnieuw ophalen.
+    onSuccess: () => invalidateThreshold(qc),
   });
+}
+
+function invalidateThreshold(qc: ReturnType<typeof useQueryClient>) {
+  qc.invalidateQueries({ queryKey: keys.thresholdPace });
+  qc.invalidateQueries({ queryKey: keys.trends });
+  qc.invalidateQueries({ queryKey: ["week"] });
+  qc.invalidateQueries({ queryKey: keys.today });
 }

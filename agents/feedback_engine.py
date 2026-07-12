@@ -553,11 +553,13 @@ def generate_feedback(
     week_events: Optional[list] = None,
     recent_28d: Optional[list] = None,
     call_fn=None,
+    analysis: Optional[dict] = None,
 ) -> str:
     """Genereer AI feedback. Caller geeft alle data mee — geen HTTP fetches hier.
 
     `call_fn(model_name, prompt) -> str` kan worden gegeven door de caller voor
     custom caching (bijv. Streamlit's @st.cache_data). Default = directe gemini_call.
+    `analysis` kan worden hergebruikt als de caller die al berekend heeft.
     """
     if not activity:
         return "Geen activiteit om feedback op te geven."
@@ -568,6 +570,7 @@ def generate_feedback(
         wellness_records=wellness_records,
         week_events=week_events,
         recent_28d=recent_28d,
+        analysis=analysis,
     )
 
     if not _ensure_gemini():

@@ -272,6 +272,19 @@ def _migration_006_threshold_pace(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migration_007_observation_paces(conn: sqlite3.Connection) -> None:
+    """v7: bewaar de gerealiseerde en voorgeschreven pace per observatie.
+
+    Zonder deze kolommen kan het drempeldossier de gelopen pace alleen
+    reconstrueren uit de huidige drempel + delta, wat scheef is zodra de
+    workout op iets anders dan 100% drempel stond.
+    """
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(threshold_observations)")}
+    for col in ("target_pace_sec", "observed_pace_sec"):
+        if col not in cols:
+            conn.execute(f"ALTER TABLE threshold_observations ADD COLUMN {col} INTEGER")
+
+
 # Registreer migraties in volgorde: (version, name, function)
 _MIGRATIONS = [
     (1, "initial_schema", _migration_001_initial_schema),
@@ -280,6 +293,7 @@ _MIGRATIONS = [
     (4, "adherence", _migration_004_adherence),
     (5, "fixed_sessions", _migration_005_fixed_sessions),
     (6, "threshold_pace", _migration_006_threshold_pace),
+    (7, "observation_paces", _migration_007_observation_paces),
 ]
 
 
@@ -795,14 +809,30 @@ def insert_threshold_observation(
     hr_vs_band: str | None,
     rpe: int | None,
     completed: bool = True,
+    target_pace_sec: int | None = None,
+    observed_pace_sec: int | None = None,
 ) -> dict:
+    """Schrijf één observatie weg. Idempotent op activity_id.
+
+    Bestaat de rij al, dan worden alleen nog-lege velden aangevuld — de RPE
+    komt vaak pas ná de eerste feedback-run binnen.
+    """
     ensure_migrations()
     with _connect() as conn:
         conn.execute(
             """
-            INSERT OR IGNORE INTO threshold_observations
-                (date, activity_id, pace_delta_sec, hr_reps_avg, hr_vs_band, rpe, completed)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO threshold_observations
+                (date, activity_id, pace_delta_sec, hr_reps_avg, hr_vs_band, rpe,
+                 completed, target_pace_sec, observed_pace_sec)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(activity_id) DO UPDATE SET
+                pace_delta_sec = COALESCE(excluded.pace_delta_sec, pace_delta_sec),
+                hr_reps_avg = COALESCE(excluded.hr_reps_avg, hr_reps_avg),
+                hr_vs_band = COALESCE(excluded.hr_vs_band, hr_vs_band),
+                rpe = COALESCE(excluded.rpe, rpe),
+                completed = excluded.completed,
+                target_pace_sec = COALESCE(excluded.target_pace_sec, target_pace_sec),
+                observed_pace_sec = COALESCE(excluded.observed_pace_sec, observed_pace_sec)
             """,
             (
                 date,
@@ -812,6 +842,8 @@ def insert_threshold_observation(
                 hr_vs_band,
                 rpe,
                 1 if completed else 0,
+                target_pace_sec,
+                observed_pace_sec,
             ),
         )
         conn.commit()
@@ -820,6 +852,18 @@ def insert_threshold_observation(
             (str(activity_id),),
         ).fetchone()
     return dict(row) if row else {}
+
+
+def set_observation_rpe(activity_id: str, rpe: int) -> bool:
+    """Vul de RPE aan op een bestaande observatie. True als er een rij was."""
+    ensure_migrations()
+    with _connect() as conn:
+        cur = conn.execute(
+            "UPDATE threshold_observations SET rpe = ? WHERE activity_id = ?",
+            (rpe, str(activity_id)),
+        )
+        conn.commit()
+        return cur.rowcount > 0
 
 
 def list_threshold_observations(

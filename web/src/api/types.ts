@@ -275,6 +275,8 @@ export interface ThresholdObservation {
   hr_vs_band?: "onder" | "in" | "boven" | string | null;
   rpe?: number | null;
   completed: number | boolean;
+  target_pace_sec?: number | null;
+  observed_pace_sec?: number | null;
 }
 
 export interface ThresholdTrendContext {
@@ -372,6 +374,14 @@ export interface ThresholdPaceView {
   default_sec_per_km: number;
   log: ThresholdPaceLog[];
   suggestion: ThresholdSuggestion | null;
+}
+
+/** Antwoord na een drempelmutatie: het weekplan draagt absolute paces, dus
+ *  een gewijzigde drempel vraagt om een herplan. */
+export interface ThresholdMutationResult {
+  threshold_pace_sec_per_km: number;
+  replan_needed: boolean;
+  replan_week_start: string | null;
 }
 
 /** POST /api/week/{week_start}/plan */

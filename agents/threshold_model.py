@@ -72,6 +72,8 @@ def record_observation(analysis: dict[str, Any], rpe: int | None = None) -> dict
     hr_vs_band = analysis.get("hr_vs_band") or _hr_vs_band(hr)
     completed = bool(analysis.get("completed", True))
     clean_rpe = _clean_rpe(rpe if rpe is not None else analysis.get("rpe"))
+    target = analysis.get("target_pace_sec", metrics.get("target_pace_sec"))
+    observed = analysis.get("observed_pace_sec", metrics.get("observed_pace_sec"))
 
     return history_db.insert_threshold_observation(
         date=obs_date,
@@ -81,7 +83,50 @@ def record_observation(analysis: dict[str, Any], rpe: int | None = None) -> dict
         hr_vs_band=hr_vs_band,
         rpe=clean_rpe,
         completed=completed,
+        target_pace_sec=int(target) if target is not None else None,
+        observed_pace_sec=int(observed) if observed is not None else None,
     )
+
+
+def is_threshold_workout(event: dict, analysis: dict) -> bool:
+    """Alleen echte drempelsessies voeden het dossier — geen VO2max of MP."""
+    if event.get("type") != "Run":
+        return False
+    name = (event.get("name") or "").lower()
+    return analysis.get("workout_type") == "run_tempo" or "drempel" in name
+
+
+def observe_from_workout(event: dict, activity: dict, analysis: dict) -> dict | None:
+    """Gedeelde ingang voor élk feedback-pad (API én nachtelijke auto_feedback).
+
+    Legt de observatie vast en toetst daarna de trend. Faalt stil: feedback
+    geven mag nooit stuklopen op het drempeldossier.
+    """
+    try:
+        if not is_threshold_workout(event, analysis):
+            return None
+        activity_id = str(activity.get("id") or "")
+        if not activity_id:
+            return None
+
+        metrics = analysis.get("metrics") or {}
+        rpe_row = get_rpe(activity_id)
+        observation = record_observation(
+            {
+                "activity_id": activity_id,
+                "date": (activity.get("start_date_local") or "")[:10],
+                "pace_delta_sec": metrics.get("pace_delta_sec"),
+                "hr_reps_avg": metrics.get("interval_hr_avg") or metrics.get("hr_avg"),
+                "target_pace_sec": metrics.get("target_pace_sec"),
+                "observed_pace_sec": metrics.get("observed_pace_sec"),
+                "completed": True,
+            },
+            rpe=(rpe_row or {}).get("rpe"),
+        )
+        evaluate_trend()
+        return observation
+    except Exception:
+        return None
 
 
 def evaluate_trend(today: date | None = None) -> dict | None:
@@ -167,6 +212,7 @@ def resolve_suggestion(suggestion_id: int, accepted: bool) -> dict:
         return suggestion
 
     status = "accepted" if accepted else "dismissed"
+    changed = accepted and int(suggestion["proposed_sec"]) != get_threshold_pace()
     if accepted:
         set_threshold_pace(
             int(suggestion["proposed_sec"]),
@@ -176,6 +222,9 @@ def resolve_suggestion(suggestion_id: int, accepted: bool) -> dict:
     history_db.resolve_threshold_suggestion(suggestion_id, status)
     history_db.clear_threshold_observations()
     resolved = history_db.get_threshold_suggestion(suggestion_id) or suggestion
+    # Workouts dragen absolute paces die op plan-moment zijn berekend, dus na
+    # een geaccepteerde wijziging staat het huidige plan op de oude drempel.
+    resolved["replan_needed"] = bool(changed)
     return resolved
 
 
@@ -252,14 +301,23 @@ def threshold_context() -> dict:
 
 
 def record_rpe(activity_id: str, rpe: int, obs_date: str | None = None) -> dict:
+    """Sla de RPE op en vul een reeds bestaande observatie aan.
+
+    De observatie wordt bij de feedback-run vastgelegd, meestal vóórdat de
+    atleet zijn RPE invult. Zonder deze backfill blijft die rij RPE-loos en
+    kan de sneller-trend (die RPE <= 7 eist) nooit vuren.
+    """
     clean = _clean_rpe(rpe)
     if clean is None:
         raise ValueError("rpe moet 1..10 zijn")
-    return history_db.upsert_workout_rpe(
+    row = history_db.upsert_workout_rpe(
         str(activity_id),
         clean,
         obs_date or date.today().isoformat(),
     )
+    if history_db.set_observation_rpe(str(activity_id), clean):
+        evaluate_trend()
+    return row
 
 
 def get_rpe(activity_id: str) -> dict | None:

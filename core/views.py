@@ -652,10 +652,10 @@ def prepare_coach_feedback(event_id: str) -> dict:
     except Exception:
         recent_28d = []
 
-    from agents import workout_analysis
+    from agents import threshold_model, workout_analysis
 
     analysis = workout_analysis.analyze(event, activity)
-    _record_threshold_observation_if_needed(event, activity, analysis)
+    threshold_model.observe_from_workout(event, activity, analysis)
 
     prompt, model_name, analysis = feedback_engine.build_prompt(
         event, activity,
@@ -671,31 +671,6 @@ def prepare_coach_feedback(event_id: str) -> dict:
     return {"stream": False, "fallback": True,
             "text": feedback_engine.rule_feedback(analysis),
             "analysis": analysis}
-
-
-def _record_threshold_observation_if_needed(event: dict, activity: dict, analysis: dict) -> None:
-    name = (event.get("name") or "").lower()
-    wtype = analysis.get("workout_type")
-    if event.get("type") != "Run":
-        return
-    if not ("drempel" in name or "threshold" in name or wtype == "run_tempo"):
-        return
-    try:
-        from agents import threshold_model
-
-        activity_id = str(activity.get("id") or "")
-        rpe_row = threshold_model.get_rpe(activity_id) if activity_id else None
-        metrics = analysis.get("metrics") or {}
-        threshold_model.record_observation({
-            "activity_id": activity_id,
-            "date": (activity.get("start_date_local") or "")[:10],
-            "pace_delta_sec": metrics.get("pace_delta_sec"),
-            "hr_reps_avg": metrics.get("interval_hr_avg") or metrics.get("hr_avg"),
-            "completed": True,
-        }, rpe=(rpe_row or {}).get("rpe"))
-        threshold_model.evaluate_trend()
-    except Exception:
-        pass
 
 
 def coach_feedback_sse(data: dict) -> Iterator[str]:

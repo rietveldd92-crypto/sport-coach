@@ -19,6 +19,8 @@ import {
   useDeleteFixedSession,
   useFixedSessions,
   usePattern,
+  usePlanWeek,
+  usePostRaceResult,
   usePutFixedSession,
   usePutThresholdPace,
   useResolveThresholdSuggestion,
@@ -32,6 +34,8 @@ import type {
   InjuryGuard,
   PatternSlot,
   ThresholdDossier,
+  ThresholdMutationResult,
+  ThresholdObservation,
   ThresholdPaceView,
   TrendsView,
 } from "../api/types";
@@ -454,13 +458,23 @@ function thresholdChartData(dossier: ThresholdDossier) {
     });
   }
   for (const obs of dossier.observations) {
-    if (obs.pace_delta_sec == null) continue;
+    const observed = observedPaceSec(obs, dossier.threshold_pace_sec_per_km);
+    if (observed == null) continue;
     rows.set(obs.date, {
       ...(rows.get(obs.date) ?? { date: obs.date }),
-      observed_sec: dossier.threshold_pace_sec_per_km + obs.pace_delta_sec,
+      observed_sec: observed,
     });
   }
   return [...rows.values()].sort((a, b) => a.date.localeCompare(b.date));
+}
+
+/** De gelopen pace zoals hij toen was. De delta is gemeten t.o.v. de target van
+ *  díé sessie (95–103% drempel), niet t.o.v. de drempel van vandaag — hem bij de
+ *  huidige drempel optellen zou de punten verschuiven. */
+function observedPaceSec(obs: ThresholdObservation, currentSec: number) {
+  if (obs.observed_pace_sec != null) return obs.observed_pace_sec;
+  if (obs.pace_delta_sec == null) return null;
+  return (obs.target_pace_sec ?? currentSec) + obs.pace_delta_sec;
 }
 
 function ThresholdTip({
@@ -727,6 +741,7 @@ function ThresholdPaceCard() {
   const resolve = useResolveThresholdSuggestion();
   const view = threshold.data;
   const [value, setValue] = useState("");
+  const [replanWeek, setReplanWeek] = useState<string | null>(null);
 
   useEffect(() => {
     if (view?.threshold_pace_sec_per_km)
@@ -736,10 +751,15 @@ function ThresholdPaceCard() {
   const latest = view?.log?.[view.log.length - 1];
   const busy = save.isPending || resolve.isPending;
 
+  const onMutated = (res: ThresholdMutationResult) => {
+    if (res.replan_needed && res.replan_week_start)
+      setReplanWeek(res.replan_week_start);
+  };
+
   const onSave = () => {
     const sec = parsePace(value);
     if (!sec) return;
-    save.mutate({ sec_per_km: sec, reason: "handmatig" });
+    save.mutate({ sec_per_km: sec, reason: "handmatig" }, { onSuccess: onMutated });
   };
 
   return (
@@ -779,12 +799,153 @@ function ThresholdPaceCard() {
           view={view}
           busy={busy}
           onResolve={(accepted) =>
-            resolve.mutate({ id: view.suggestion!.id, accepted })
+            resolve.mutate(
+              { id: view.suggestion!.id, accepted },
+              { onSuccess: onMutated },
+            )
           }
         />
       )}
+
+      {replanWeek && (
+        <ReplanPrompt weekStart={replanWeek} onDone={() => setReplanWeek(null)} />
+      )}
+
+      <RaceAnchorForm busy={busy} />
     </div>
   );
+}
+
+/** De workouts in het plan dragen absolute paces van het plan-moment. Na een
+ *  drempelwijziging staan ze dus op de oude waarde tot je opnieuw plant. */
+function ReplanPrompt({
+  weekStart,
+  onDone,
+}: {
+  weekStart: string;
+  onDone: () => void;
+}) {
+  const plan = usePlanWeek(weekStart);
+
+  if (plan.isSuccess) {
+    return (
+      <div className="mt-4 rounded-xl border border-positive/40 bg-positive/10 px-3.5 py-3">
+        <p className="text-[0.78rem] text-muted">
+          Week opnieuw gepland op de nieuwe drempelpace ({plan.data.planned_sessions}{" "}
+          sessies).
+        </p>
+        <button
+          onClick={onDone}
+          className="mt-2 text-[0.76rem] font-semibold text-accent"
+        >
+          Sluiten
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-4 rounded-xl border border-line-strong bg-elevated px-3.5 py-3">
+      <p className="text-[0.78rem] leading-relaxed text-muted">
+        Je ingeplande workouts staan nog op de oude drempelpace. Herplan deze week
+        om de nieuwe paces door te voeren.
+      </p>
+      <div className="mt-3 flex gap-2">
+        <button
+          onClick={() => plan.mutate()}
+          disabled={plan.isPending}
+          className="rounded-lg bg-accent px-3 py-2 text-[0.76rem] font-semibold text-white disabled:opacity-50"
+        >
+          {plan.isPending ? "Bezig…" : "Herplan deze week"}
+        </button>
+        <button
+          onClick={onDone}
+          disabled={plan.isPending}
+          className="rounded-lg border border-line-strong px-3 py-2 text-[0.76rem] font-semibold disabled:opacity-50"
+        >
+          Later
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** Race-anker: een maximale test is geen ruis, dus die mag direct een voorstel
+ *  opleveren zonder de trend van 3-uit-4 af te wachten. */
+function RaceAnchorForm({ busy }: { busy: boolean }) {
+  const postRace = usePostRaceResult();
+  const [distance, setDistance] = useState(5000);
+  const [time, setTime] = useState("");
+
+  const seconds = parseDuration(time);
+  const onSubmit = () => {
+    if (!seconds) return;
+    postRace.mutate(
+      { distance_m: distance, time_sec: seconds },
+      { onSuccess: () => setTime("") },
+    );
+  };
+
+  return (
+    <div className="mt-4 border-t border-line pt-4">
+      <p className="font-mono text-[0.6rem] uppercase tracking-[0.18em] text-dim">
+        race-resultaat
+      </p>
+      <p className="mt-1 text-[0.76rem] leading-relaxed text-muted">
+        Wedstrijd of maximale test gelopen? Dat is een hard anker voor je drempel.
+      </p>
+      <div className="mt-3 flex gap-2">
+        <select
+          value={distance}
+          onChange={(e) => setDistance(Number(e.target.value))}
+          className="rounded-lg border border-line bg-elevated px-2 py-2 font-mono text-[0.78rem] outline-none focus:border-accent"
+        >
+          {RACE_DISTANCES.map((d) => (
+            <option key={d.meters} value={d.meters}>
+              {d.label}
+            </option>
+          ))}
+        </select>
+        <input
+          value={time}
+          onChange={(e) => setTime(e.target.value)}
+          placeholder="19:30"
+          className="w-24 rounded-lg border border-line bg-elevated px-3 py-2 text-center font-mono text-[0.78rem] outline-none focus:border-accent"
+        />
+        <button
+          onClick={onSubmit}
+          disabled={busy || postRace.isPending || !seconds}
+          className="flex-1 rounded-lg border border-line-strong px-3 py-2 text-[0.76rem] font-semibold disabled:opacity-50"
+        >
+          Voorstel
+        </button>
+      </div>
+      {postRace.isSuccess && !postRace.data.suggestion && (
+        <p className="mt-2 text-[0.76rem] text-muted">
+          Geen voorstel — er staat al een open voorstel.
+        </p>
+      )}
+    </div>
+  );
+}
+
+const RACE_DISTANCES = [
+  { meters: 5000, label: "5 km" },
+  { meters: 10000, label: "10 km" },
+  { meters: 21097, label: "halve" },
+];
+
+/** "19:30" of "1:23:45" -> seconden. */
+function parseDuration(raw: string): number | null {
+  const parts = raw.trim().split(":");
+  if (parts.length < 2 || parts.length > 3) return null;
+  if (parts.some((p) => p === "" || !/^\d+$/.test(p))) return null;
+  const nums = parts.map(Number);
+  const seconds =
+    nums.length === 3
+      ? nums[0] * 3600 + nums[1] * 60 + nums[2]
+      : nums[0] * 60 + nums[1];
+  return seconds > 0 ? seconds : null;
 }
 
 function ThresholdSuggestionCard({

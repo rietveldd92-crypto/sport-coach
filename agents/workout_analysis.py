@@ -9,6 +9,8 @@ Elke workout-type krijgt z'n eigen analyse die kijkt naar wat er echt toe doet:
 """
 
 from datetime import date
+import re
+
 import intervals_client as api
 
 FTP = 290
@@ -46,6 +48,13 @@ def classify_workout(event: dict) -> str:
             return "run_fartlek"
         if "progressie" in name or "progression" in name:
             return "run_progression"
+        # Library-v2 categorieën: eigen namen, vóór de generieke checks.
+        if "vo2max" in name or "vo2 max" in name:
+            return "run_vo2max"
+        if "speed economy" in name:
+            return "run_speed"
+        if "marathon-specifiek" in name or "marathon specifiek" in name:
+            return "run_marathon"
         if "pickup" in name or "versnelling" in name:
             return "run_pickups"
         if "trail" in name or "bos" in name:
@@ -111,9 +120,9 @@ def analyze(event: dict, activity: dict) -> dict:
         return _analyze_run_long(wtype, event, activity, act_id, base)
     elif wtype == "run_z2" or wtype == "run_recovery" or wtype == "run_trail":
         return _analyze_run_easy(wtype, event, activity, act_id, base)
-    elif wtype == "run_fartlek" or wtype == "run_pickups" or wtype == "run_progression":
+    elif wtype in ("run_fartlek", "run_pickups", "run_progression", "run_speed"):
         return _analyze_run_varied(wtype, event, activity, act_id, base)
-    elif wtype == "run_tempo" or wtype == "run_intervals":
+    elif wtype in ("run_tempo", "run_intervals", "run_vo2max", "run_marathon"):
         return _analyze_run_hard(wtype, event, activity, act_id, base)
     elif wtype == "strength":
         return _analyze_strength(wtype, event, activity, act_id, base)
@@ -396,6 +405,30 @@ def _analyze_run_varied(wtype, event, activity, act_id, base):
 
 # ── RUN HARD (tempo, intervals) ───────────────────────────────────────────
 
+_PACE_RE = re.compile(r"(\d{1,2}):(\d{2})\s*/\s*km")
+
+
+def target_pace_sec(event: dict) -> int | None:
+    """Voorgeschreven target-pace (sec/km) uit een workout.
+
+    De workout-naam draagt de absolute target ("Korte drempel - 5x1km @ 4:15/km").
+    Valt terug op de beschrijving, maar negeert de "Drempelpace:"-header daar —
+    dat is de referentiewaarde van de atleet, niet de target van deze sessie.
+    """
+    match = _PACE_RE.search(event.get("name") or "")
+    if not match:
+        for line in str(event.get("description") or "").splitlines():
+            line = line.strip()
+            if not line or line.lower().startswith("drempelpace:"):
+                continue
+            match = _PACE_RE.search(line)
+            if match:
+                break
+    if not match:
+        return None
+    return int(match.group(1)) * 60 + int(match.group(2))
+
+
 def _analyze_run_hard(wtype, event, activity, act_id, base):
     insights = []
     intervals_data = []
@@ -450,6 +483,19 @@ def _analyze_run_hard(wtype, event, activity, act_id, base):
                 insights.append(f"HR steeg {hr_rise} bpm van eerste naar laatste interval — accumulerende vermoeidheid.")
             elif hr_rise < 3:
                 insights.append(f"HR stabiel over intervals ({hr_rise} bpm verschil) — goed herstelvermogen.")
+
+        if hrs:
+            base["interval_hr_avg"] = round(sum(hrs) / len(hrs), 1)
+
+        # Drempel-observatie: gerealiseerde intervalpace vs. de voorgeschreven
+        # target uit de workout-naam. Negatief = sneller gelopen dan target.
+        if paces:
+            observed_sec = round(sum(paces) / len(paces) * 60)
+            target_sec = target_pace_sec(event)
+            base["observed_pace_sec"] = observed_sec
+            if target_sec:
+                base["target_pace_sec"] = target_sec
+                base["pace_delta_sec"] = observed_sec - target_sec
 
     focus = ("Focus op: pace consistency per interval (Delahaije: 'de laatste moet net zo snel zijn als de eerste'), "
              "HR response per interval, en of het volume en intensiteit past bij de fase. "

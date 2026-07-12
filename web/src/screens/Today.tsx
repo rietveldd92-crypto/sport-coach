@@ -2,7 +2,6 @@ import { useState } from "react";
 import { isAuthError, isUnavailable } from "../api/client";
 import {
   useResolveThresholdSuggestion,
-  usePostWorkoutRpe,
   useSyncTp,
   useThresholdPace,
   useToday,
@@ -10,6 +9,7 @@ import {
 import type { EventSummary, ThresholdSuggestion } from "../api/types";
 import { InjuryBadge, SportBadge, ZoneChip } from "../components/Badges";
 import OfflineBanner, { useOnline } from "../components/OfflineBanner";
+import RpeAsk, { asksRpe } from "../components/RpeAsk";
 import Spinner from "../components/Spinner";
 import SwapSheet from "../features/SwapSheet";
 import { longDate, timeOf } from "../lib/dates";
@@ -178,13 +178,6 @@ function HeroCard({
   );
   const done = workout.done || localDone;
   const sync = useSyncTp();
-  const rpeMutation = usePostWorkoutRpe();
-  const [rpeValue, setRpeValue] = useState<number | null>(null);
-  const asksRpe =
-    done &&
-    workout.activity &&
-    event.type === "Run" &&
-    /drempel|threshold/i.test(event.name ?? "");
 
   const toggleDone = () => {
     if (workout.done) return; // echte activity wint altijd
@@ -236,20 +229,7 @@ function HeroCard({
 
         {workout.coach_note && <CoachNote note={workout.coach_note} />}
 
-        {asksRpe && (
-          <RpeChips
-            value={rpeValue}
-            busy={rpeMutation.isPending}
-            onPick={(rpe) => {
-              setRpeValue(rpe);
-              rpeMutation.mutate({
-                activityId: workout.activity!.id,
-                rpe,
-                date: (workout.activity!.start_date_local ?? "").slice(0, 10),
-              });
-            }}
-          />
-        )}
+        {asksRpe(workout) && <RpeAsk item={workout} />}
 
         <div className="mt-6 flex gap-2.5">
           <button
@@ -368,40 +348,6 @@ function CoachNote({ note }: { note: string }) {
 }
 
 // ── Rustdag ───────────────────────────────────────────────────────────────
-
-function RpeChips({
-  value,
-  busy,
-  onPick,
-}: {
-  value: number | null;
-  busy: boolean;
-  onPick: (rpe: number) => void;
-}) {
-  return (
-    <div className="mt-5 rounded-xl border border-line bg-elevated px-3.5 py-3">
-      <p className="font-mono text-[0.62rem] uppercase tracking-[0.16em] text-dim">
-        Hoe zwaar voelde dit?
-      </p>
-      <div className="mt-2 grid grid-cols-10 gap-1">
-        {Array.from({ length: 10 }, (_, i) => i + 1).map((rpe) => (
-          <button
-            key={rpe}
-            onClick={() => onPick(rpe)}
-            disabled={busy}
-            className={`h-8 rounded-md border text-[0.72rem] font-semibold ${
-              value === rpe
-                ? "border-accent bg-accent text-white"
-                : "border-line-strong text-muted"
-            } disabled:opacity-60`}
-          >
-            {rpe}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 function RestCard() {
   return (

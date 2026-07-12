@@ -135,3 +135,96 @@ def test_rpe_roundtrip():
 
     assert row["rpe"] == 7
     assert threshold_model.get_rpe("act-1")["date"] == "2026-07-20"
+
+
+# ── observatie-keten: activiteit -> metrics -> observatie -> trend ─────────
+
+def _threshold_event(name="Korte drempel - 5x1km @ 4:15/km"):
+    return {"type": "Run", "name": name, "description": "Drempelpace: 4:15/km"}
+
+
+def _analysis(delta: int, hr: int, wtype="run_tempo"):
+    """Wat workout_analysis oplevert voor een drempelsessie."""
+    return {
+        "workout_type": wtype,
+        "metrics": {
+            "pace_delta_sec": delta,
+            "interval_hr_avg": hr,
+            "target_pace_sec": 255,
+            "observed_pace_sec": 255 + delta,
+            "hr_avg": 130,
+        },
+    }
+
+
+def test_observe_from_workout_legt_pace_en_hr_band_vast():
+    _seed_state(255)
+
+    obs = threshold_model.observe_from_workout(
+        _threshold_event(), {"id": 900, "start_date_local": "2026-07-20T07:00:00"},
+        _analysis(-5, 170),
+    )
+
+    assert obs["pace_delta_sec"] == -5
+    assert obs["observed_pace_sec"] == 250
+    assert obs["target_pace_sec"] == 255
+    # HR uit de reps, niet het activiteitsgemiddelde (130) — anders zou elke
+    # intervalsessie als "onder de band" gelden.
+    assert obs["hr_reps_avg"] == 170
+    assert obs["hr_vs_band"] == "in"
+
+
+def test_observe_from_workout_negeert_niet_drempelsessies():
+    _seed_state(255)
+
+    vo2 = threshold_model.observe_from_workout(
+        {"type": "Run", "name": "VO2max - 10x60s @ 106%"},
+        {"id": 901}, _analysis(-8, 180, wtype="run_vo2max"),
+    )
+    bike = threshold_model.observe_from_workout(
+        {"type": "Ride", "name": "Threshold 3x10 min @ 100%"},
+        {"id": 902}, _analysis(-8, 180, wtype="bike_threshold"),
+    )
+
+    assert vo2 is None
+    assert bike is None
+    assert history_db.list_threshold_observations() == []
+
+
+def test_rpe_backfill_vult_bestaande_observatie_en_deblokkeert_trend():
+    _seed_state(255)
+    # Observaties komen binnen via de nachtelijke feedback-run, dus zonder RPE.
+    for i in range(3):
+        threshold_model.observe_from_workout(
+            _threshold_event(), {"id": 910 + i,
+                                 "start_date_local": f"2026-07-1{7 + i}T07:00:00"},
+            _analysis(-5, 170),
+        )
+    assert threshold_model.evaluate_trend(today=TODAY) is None
+
+    for i in range(3):
+        threshold_model.record_rpe(str(910 + i), 6)
+
+    observations = history_db.list_threshold_observations()
+    assert all(o["rpe"] == 6 for o in observations)
+    suggestion = history_db.get_pending_threshold_suggestion()
+    assert suggestion is not None
+    assert suggestion["proposed_sec"] == 252
+
+
+def test_accept_vraagt_om_herplan_want_paces_staan_in_het_plan():
+    _seed_state(255)
+    suggestion = threshold_model.suggest_from_race(5000, 19 * 60, today=TODAY)
+
+    resolved = threshold_model.resolve_suggestion(suggestion["id"], accepted=True)
+
+    assert resolved["replan_needed"] is True
+
+
+def test_dismiss_vraagt_niet_om_herplan():
+    _seed_state(255)
+    suggestion = threshold_model.suggest_from_race(5000, 19 * 60, today=TODAY)
+
+    resolved = threshold_model.resolve_suggestion(suggestion["id"], accepted=False)
+
+    assert resolved["replan_needed"] is False
