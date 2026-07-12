@@ -77,9 +77,10 @@ def build_skeleton_with_warnings(
     interval_count = 1 if is_deload else 2
     if week_number < DOUBLE_DREMPEL_START_WEEK:
         interval_count = min(interval_count, 1)
+    category_a, category_b = _quality_categories(marathon_volume)
 
     interval_a = _quality_or_easy(
-        category="threshold_short",
+        category=category_a,
         step=quality_step,
         variety_index=quality_idx + week_number,
         intensity_open=intensity_open,
@@ -91,7 +92,7 @@ def build_skeleton_with_warnings(
 
     if interval_count >= 2:
         interval_b = _quality_or_easy(
-            category="threshold_long",
+            category=category_b,
             step=quality_step,
             variety_index=quality_idx + week_number + 1,
             intensity_open=intensity_open,
@@ -154,6 +155,12 @@ def _quality_or_easy(
     if intensity_open:
         return lib.pick_run_quality(step=step, variety_index=variety_index, category=category)
     return lib.pick_z2_run(max(MIN_RUN_MIN, fallback_duration), z2_index)
+
+
+def _quality_categories(marathon_volume: dict) -> tuple[str, str]:
+    gate = marathon_volume.get("intensity_gate") or marathon_volume.get("run_intensiteit")
+    toolkit = getattr(lib, "QUALITY_TOOLKIT_BY_GATE", {})
+    return toolkit.get(gate, ("threshold_short", "threshold_long"))
 
 
 def _commute_slots(fixed_sessions: list[dict]) -> list[SkeletonSlot]:

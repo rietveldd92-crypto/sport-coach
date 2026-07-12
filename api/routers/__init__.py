@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from api.routers import (
     admin,
+    athlete,
     availability,
     checkin,
     coach,
@@ -18,6 +19,7 @@ from api.routers import (
 
 ALL_ROUTERS = [
     admin.router,
+    athlete.router,
     today.router,
     week.router,
     placements.router,

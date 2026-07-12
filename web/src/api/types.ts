@@ -317,6 +317,32 @@ export interface FixedSessionsView {
   fixed_sessions: FixedSession[];
 }
 
+export interface ThresholdSuggestion {
+  id: number;
+  date: string;
+  old_sec: number;
+  proposed_sec: number;
+  reason: string;
+  source: string;
+  status: "pending" | "accepted" | "dismissed" | string;
+}
+
+export interface ThresholdPaceLog {
+  id: number;
+  date: string;
+  old_sec: number;
+  new_sec: number;
+  reason: string;
+  source: string;
+}
+
+export interface ThresholdPaceView {
+  threshold_pace_sec_per_km: number;
+  default_sec_per_km: number;
+  log: ThresholdPaceLog[];
+  suggestion: ThresholdSuggestion | null;
+}
+
 /** POST /api/week/{week_start}/plan */
 export interface PlanWeekResult {
   week_start: string;

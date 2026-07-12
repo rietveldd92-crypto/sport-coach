@@ -224,6 +224,54 @@ def _migration_005_fixed_sessions(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migration_006_threshold_pace(conn: sqlite3.Connection) -> None:
+    """v6: drempelpace-dossier, suggesties en RPE."""
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS threshold_observations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT,
+            activity_id TEXT UNIQUE,
+            pace_delta_sec REAL,
+            hr_reps_avg REAL,
+            hr_vs_band TEXT,
+            rpe INTEGER,
+            completed INTEGER DEFAULT 1,
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS threshold_pace_suggestions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT,
+            old_sec INTEGER,
+            proposed_sec INTEGER,
+            reason TEXT,
+            source TEXT,
+            status TEXT DEFAULT 'pending',
+            created_at TEXT DEFAULT (datetime('now')),
+            resolved_at TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS threshold_pace_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT,
+            old_sec INTEGER,
+            new_sec INTEGER,
+            reason TEXT,
+            source TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS workout_rpe (
+            activity_id TEXT PRIMARY KEY,
+            rpe INTEGER,
+            date TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+        """
+    )
+
+
 # Registreer migraties in volgorde: (version, name, function)
 _MIGRATIONS = [
     (1, "initial_schema", _migration_001_initial_schema),
@@ -231,6 +279,7 @@ _MIGRATIONS = [
     (3, "athlete_state_and_planner_v2", _migration_003_athlete_state_and_planner_v2),
     (4, "adherence", _migration_004_adherence),
     (5, "fixed_sessions", _migration_005_fixed_sessions),
+    (6, "threshold_pace", _migration_006_threshold_pace),
 ]
 
 
@@ -733,6 +782,212 @@ def delete_fixed_session(weekday: int) -> None:
             (int(weekday),),
         )
         conn.commit()
+
+
+# ── THRESHOLD PACE API ─────────────────────────────────────────────────────
+
+def insert_threshold_observation(
+    *,
+    date: str,
+    activity_id: str,
+    pace_delta_sec: float | None,
+    hr_reps_avg: float | None,
+    hr_vs_band: str | None,
+    rpe: int | None,
+    completed: bool = True,
+) -> dict:
+    ensure_migrations()
+    with _connect() as conn:
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO threshold_observations
+                (date, activity_id, pace_delta_sec, hr_reps_avg, hr_vs_band, rpe, completed)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                date,
+                str(activity_id),
+                pace_delta_sec,
+                hr_reps_avg,
+                hr_vs_band,
+                rpe,
+                1 if completed else 0,
+            ),
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT * FROM threshold_observations WHERE activity_id = ?",
+            (str(activity_id),),
+        ).fetchone()
+    return dict(row) if row else {}
+
+
+def list_threshold_observations(
+    *,
+    since: str | None = None,
+    limit: int | None = None,
+) -> list[dict]:
+    ensure_migrations()
+    query = "SELECT * FROM threshold_observations"
+    params: list = []
+    if since:
+        query += " WHERE date >= ?"
+        params.append(since)
+    query += " ORDER BY date DESC, id DESC"
+    if limit is not None:
+        query += " LIMIT ?"
+        params.append(int(limit))
+    with _connect() as conn:
+        rows = conn.execute(query, params).fetchall()
+    return [dict(row) for row in rows]
+
+
+def clear_threshold_observations() -> None:
+    ensure_migrations()
+    with _connect() as conn:
+        conn.execute("DELETE FROM threshold_observations")
+        conn.commit()
+
+
+def insert_threshold_suggestion(
+    *,
+    date: str,
+    old_sec: int,
+    proposed_sec: int,
+    reason: str,
+    source: str,
+) -> dict:
+    ensure_migrations()
+    with _connect() as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO threshold_pace_suggestions
+                (date, old_sec, proposed_sec, reason, source, status)
+            VALUES (?, ?, ?, ?, ?, 'pending')
+            """,
+            (date, int(old_sec), int(proposed_sec), reason, source),
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT * FROM threshold_pace_suggestions WHERE id = ?",
+            (cur.lastrowid,),
+        ).fetchone()
+    return dict(row)
+
+
+def get_pending_threshold_suggestion() -> Optional[dict]:
+    ensure_migrations()
+    with _connect() as conn:
+        row = conn.execute(
+            """
+            SELECT * FROM threshold_pace_suggestions
+            WHERE status = 'pending'
+            ORDER BY id DESC LIMIT 1
+            """
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def get_threshold_suggestion(suggestion_id: int) -> Optional[dict]:
+    ensure_migrations()
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM threshold_pace_suggestions WHERE id = ?",
+            (int(suggestion_id),),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def resolve_threshold_suggestion(suggestion_id: int, status: str) -> None:
+    ensure_migrations()
+    with _connect() as conn:
+        conn.execute(
+            """
+            UPDATE threshold_pace_suggestions
+            SET status = ?, resolved_at = ?
+            WHERE id = ?
+            """,
+            (status, datetime.now().isoformat(), int(suggestion_id)),
+        )
+        conn.commit()
+
+
+def latest_threshold_resolution() -> Optional[dict]:
+    ensure_migrations()
+    with _connect() as conn:
+        row = conn.execute(
+            """
+            SELECT * FROM threshold_pace_suggestions
+            WHERE status IN ('accepted', 'dismissed')
+            ORDER BY resolved_at DESC, id DESC LIMIT 1
+            """
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def insert_threshold_pace_log(
+    *,
+    date: str,
+    old_sec: int,
+    new_sec: int,
+    reason: str,
+    source: str,
+) -> dict:
+    ensure_migrations()
+    with _connect() as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO threshold_pace_log (date, old_sec, new_sec, reason, source)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (date, int(old_sec), int(new_sec), reason, source),
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT * FROM threshold_pace_log WHERE id = ?",
+            (cur.lastrowid,),
+        ).fetchone()
+    return dict(row)
+
+
+def list_threshold_pace_log() -> list[dict]:
+    ensure_migrations()
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM threshold_pace_log ORDER BY date, id"
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def upsert_workout_rpe(activity_id: str, rpe: int, date: str) -> dict:
+    ensure_migrations()
+    with _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO workout_rpe (activity_id, rpe, date)
+            VALUES (?, ?, ?)
+            ON CONFLICT(activity_id) DO UPDATE SET
+                rpe=excluded.rpe,
+                date=excluded.date
+            """,
+            (str(activity_id), int(rpe), date),
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT * FROM workout_rpe WHERE activity_id = ?",
+            (str(activity_id),),
+        ).fetchone()
+    return dict(row)
+
+
+def get_workout_rpe(activity_id: str) -> Optional[dict]:
+    ensure_migrations()
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM workout_rpe WHERE activity_id = ?",
+            (str(activity_id),),
+        ).fetchone()
+    return dict(row) if row else None
 
 
 def record_weekly_summary(

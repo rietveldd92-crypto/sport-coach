@@ -20,6 +20,7 @@ import type {
   SeasonView,
   SwapCategory,
   SwapResult,
+  ThresholdPaceView,
   TodayView,
   TrendsView,
   WeekView,
@@ -34,6 +35,7 @@ export const keys = {
   checkinHistory: ["checkin-history"] as const,
   pattern: ["pattern"] as const,
   fixedSessions: ["fixed-sessions"] as const,
+  thresholdPace: ["threshold-pace"] as const,
 };
 
 export function useToday() {
@@ -323,5 +325,62 @@ export function useDeleteFixedSession() {
       qc.invalidateQueries({ queryKey: keys.fixedSessions });
       qc.invalidateQueries({ queryKey: ["week"] });
     },
+  });
+}
+
+export function useThresholdPace() {
+  return useQuery({
+    queryKey: keys.thresholdPace,
+    queryFn: () => get<ThresholdPaceView>("/api/athlete/threshold-pace"),
+    staleTime: 5 * 60_000,
+  });
+}
+
+export function usePutThresholdPace() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { sec_per_km: number; reason: string }) =>
+      put<{ threshold_pace_sec_per_km: number }>("/api/athlete/threshold-pace", body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: keys.thresholdPace });
+      qc.invalidateQueries({ queryKey: ["week"] });
+      qc.invalidateQueries({ queryKey: keys.today });
+    },
+  });
+}
+
+export function useResolveThresholdSuggestion() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      accepted,
+    }: {
+      id: number;
+      accepted: boolean;
+    }) =>
+      post<ThresholdPaceView>(
+        `/api/athlete/threshold-pace/suggestion/${id}`,
+        { accepted },
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: keys.thresholdPace });
+      qc.invalidateQueries({ queryKey: ["week"] });
+      qc.invalidateQueries({ queryKey: keys.today });
+    },
+  });
+}
+
+export function usePostWorkoutRpe() {
+  return useMutation({
+    mutationFn: ({
+      activityId,
+      rpe,
+      date,
+    }: {
+      activityId: string | number;
+      rpe: number;
+      date?: string;
+    }) => post<{ rpe: { rpe: number } }>(`/api/workout/${activityId}/rpe`, { rpe, date }),
   });
 }

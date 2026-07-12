@@ -1360,6 +1360,29 @@ def _pace_label(sec_per_km: int) -> str:
     return f"{mm}:{ss:02d}/km"
 
 
+def pace_from_pct(threshold_sec: int, pct: float) -> int:
+    """100% = threshold pace. Higher pct means faster pace."""
+    return int(round(threshold_sec / (pct / 100)))
+
+
+def _threshold_header(threshold_sec: int | None) -> str:
+    return f"Drempelpace: {_pace_label(threshold_sec)}\n\n" if threshold_sec else ""
+
+
+def _resolve_run_pace(pace_or_pct: float, threshold_sec: int | None) -> tuple[int, float | None]:
+    if threshold_sec is not None or pace_or_pct <= 130:
+        threshold = threshold_sec or _default_threshold_pace()
+        pct = float(pace_or_pct)
+        return pace_from_pct(threshold, pct), pct
+    return int(round(pace_or_pct)), None
+
+
+def _default_threshold_pace() -> int:
+    from agents.threshold_model import get_threshold_pace
+
+    return get_threshold_pace()
+
+
 def _build_run_threshold_short(
     reps: int,
     rep_km: float,
@@ -1367,21 +1390,25 @@ def _build_run_threshold_short(
     pace_sec: int,
     if_score: float,
     label: str,
+    threshold_sec: int | None = None,
 ) -> dict:
+    pace_sec, pct = _resolve_run_pace(pace_sec, threshold_sec)
     work_min = round(reps * rep_km * pace_sec / 60)
     rest_total = round(reps * rest_min)
     total_min = 16 + work_min + rest_total + 12
     pace = _pace_label(pace_sec)
+    pct_note = f" ({pct:g}% drempel - intervalpace)" if pct is not None else " (drempel, strak maar controle)"
     rep_label = f"{int(rep_km * 1000)}m" if rep_km < 1 else f"{rep_km:g}km"
     return {
         "type": "run_threshold_short",
         "naam": f"Korte drempel - {reps}x{rep_label} @ {pace}",
         "beschrijving": (
+            _threshold_header(threshold_sec) +
             "Warmup\n"
             "- 16m ramp 65-82% Pace\n\n"
             "Main Set\n"
             f"{reps}x\n"
-            f"- {rep_km:g}km {pace} Pace (drempel, strak maar controle)\n"
+            f"- {rep_km:g}km {pace} Pace{pct_note}\n"
             f"- {rest_min:g}m 64% Pace\n\n"
             "Cooldown\n"
             "- 12m ramp 75-60% Pace\n\n"
@@ -1406,18 +1433,22 @@ def _build_run_threshold_long(
     pace_sec: int,
     if_score: float,
     label: str,
+    threshold_sec: int | None = None,
 ) -> dict:
+    pace_sec, pct = _resolve_run_pace(pace_sec, threshold_sec)
     total_min = 15 + reps * block_min + round(reps * rest_min) + 12
     pace = _pace_label(pace_sec)
+    pct_note = f" ({pct:g}% drempel - cruise threshold)" if pct is not None else " (cruise threshold, geen forceren)"
     return {
         "type": "run_threshold_long",
         "naam": f"Lange drempel - {reps}x{block_min} min @ {pace}",
         "beschrijving": (
+            _threshold_header(threshold_sec) +
             "Warmup\n"
             "- 15m ramp 65-82% Pace\n\n"
             "Main Set\n"
             f"{reps}x\n"
-            f"- {block_min}m {pace} Pace (cruise threshold, geen forceren)\n"
+            f"- {block_min}m {pace} Pace{pct_note}\n"
             f"- {rest_min:g}m 64% Pace\n\n"
             "Cooldown\n"
             "- 12m ramp 75-60% Pace\n\n"
@@ -1442,15 +1473,22 @@ def _build_run_vo2max(
     pace_pct: int,
     if_score: float,
     label: str,
+    threshold_sec: int | None = None,
 ) -> dict:
     work = _fmt_interval_duration(work_sec)
     rest = _fmt_interval_duration(rest_sec)
     total_work_min = reps * work_sec / 60
     total_min = 18 + round(reps * (work_sec + rest_sec) / 60) + 12
+    if threshold_sec is not None:
+        pace = _pace_label(pace_from_pct(threshold_sec, pace_pct))
+        work_target = f"{pace} Pace ({pace_pct}% drempel - VO2max)"
+    else:
+        work_target = f"{pace_pct}% Pace (VO2max, hard maar technisch)"
     return {
         "type": "run_vo2max",
         "naam": f"VO2max - {reps}x{work} @ {pace_pct}%",
         "beschrijving": (
+            _threshold_header(threshold_sec) +
             "Warmup\n"
             "- 12m ramp 60-78% Pace\n"
             "3x\n"
@@ -1458,7 +1496,7 @@ def _build_run_vo2max(
             "- 60s 60% Pace\n\n"
             "Main Set\n"
             f"{reps}x\n"
-            f"- {work} {pace_pct}% Pace (VO2max, hard maar technisch)\n"
+            f"- {work} {work_target}\n"
             f"- {rest} 58% Pace\n\n"
             "Cooldown\n"
             "- 12m ramp 70-55% Pace\n\n"
@@ -1474,6 +1512,93 @@ def _build_run_vo2max(
         "intensiteit_factor": if_score,
         "fun": 4,
     }
+
+
+def _build_run_speed(
+    basis_min: int,
+    count: int,
+    burst_sec: int,
+    pct: int,
+    if_score: float,
+    label: str,
+    threshold_sec: int,
+) -> dict:
+    burst = _fmt_interval_duration(burst_sec)
+    pace = _pace_label(pace_from_pct(threshold_sec, pct))
+    easy_min = max(20, basis_min - round(count * burst_sec / 60) - count)
+    total_min = basis_min
+    return {
+        "type": "run_speed",
+        "naam": f"Speed economy - {count}x{burst} @ {pct}%",
+        "beschrijving": (
+            _threshold_header(threshold_sec) +
+            "Warmup\n"
+            "- 12m 70% Pace\n\n"
+            "Main Set\n"
+            f"- {easy_min}m 73% Pace\n"
+            f"{count}x\n"
+            f"- {burst} {pace} Pace ({pct}% drempel - relaxed snel)\n"
+            "- 60s 68% Pace\n\n"
+            "Cooldown\n"
+            "- 8m 68% Pace\n\n"
+            f"{label}. Speed is neuromusculair: snel, soepel, niet verzuren. "
+            f"{REHAB_PRE_RUN}"
+            f"{DELAHAIJE_RUN}"
+        ),
+        "duur_min": total_min,
+        "tss_geschat": _tss_run(total_min, if_score),
+        "sport": "Run",
+        "zone": "Z2 + speed",
+        "intensiteit_factor": if_score,
+        "fun": 4,
+    }
+
+
+def _build_run_marathon(
+    mp_sec: int,
+    blocks: int,
+    block_min: int,
+    embed_min: int,
+    if_score: float,
+    label: str,
+    threshold_sec: int,
+) -> dict:
+    total_min = 15 + embed_min + blocks * block_min + max(0, blocks - 1) * 4 + 10
+    pace = _pace_label(mp_sec)
+    warning = None
+    if mp_sec < pace_from_pct(threshold_sec, 97):
+        warning = (
+            f"Doel-MP {pace}/km vraagt drempel sneller dan "
+            f"{_pace_label(pace_from_pct(threshold_sec, 97))}/km."
+        )
+    workout = {
+        "type": "run_marathon",
+        "naam": f"Marathon-specifiek - {blocks}x{block_min} min @ {pace}",
+        "beschrijving": (
+            _threshold_header(threshold_sec) +
+            "Warmup\n"
+            "- 15m 70% Pace\n\n"
+            "Main Set\n"
+            f"- {embed_min}m 72% Pace\n"
+            f"{blocks}x\n"
+            f"- {block_min}m {pace} Pace (marathonpace - doeltempo)\n"
+            "- 4m 70% Pace\n\n"
+            "Cooldown\n"
+            "- 10m 66% Pace\n\n"
+            f"{label}. Marathonwerk: doeltempo leren lopen met vermoeide benen. "
+            f"{warning + ' ' if warning else ''}{REHAB_PRE_RUN}"
+            f"{DELAHAIJE_RUN}"
+        ),
+        "duur_min": total_min,
+        "tss_geschat": _tss_run(total_min, if_score),
+        "sport": "Run",
+        "zone": "Marathon pace",
+        "intensiteit_factor": if_score,
+        "fun": 3,
+    }
+    if warning:
+        workout["warnings"] = [{"code": "mp_vs_threshold", "message": warning}]
+    return workout
 
 
 # 6 rungs i.p.v. 4, 3 varianten per rung i.p.v. 2 (atleet-keuze 2026-07-11:
@@ -1578,22 +1703,218 @@ RUN_QUALITY_LIBRARY: dict[str, list[list[dict]]] = {
     ],
 }
 
+QUALITY_TOOLKIT_BY_GATE = {
+    "tempoduur": ("threshold", "speed"),
+    "drempel": ("threshold", "vo2max"),
+    "race_specifiek": ("marathon", "threshold"),
+}
+
 RUN_QUALITY_ROTATION = ("threshold_short", "threshold_long", "vo2max")
+
+
+def run_quality_library(
+    threshold_sec: int,
+    mp_sec: int | None = None,
+) -> dict[str, list[list[dict]]]:
+    """Runtime run-quality library: paces are calculated at plan time."""
+    mp_sec = mp_sec or _default_marathon_pace()
+    threshold = [
+        [
+            _build_run_threshold_long(2, 10, 3.0, 95, 0.84, "Instap cruise", threshold_sec),
+            _build_run_threshold_short(5, 1.0, 2.0, 100, 0.86, "Instap km-reps", threshold_sec),
+            _build_run_threshold_long(3, 8, 2.5, 96, 0.85, "Instap variant", threshold_sec),
+        ],
+        [
+            _build_run_threshold_long(2, 12, 2.5, 96, 0.86, "Opbouw cruise", threshold_sec),
+            _build_run_threshold_short(6, 1.0, 2.0, 100, 0.88, "Opbouw km-reps", threshold_sec),
+            _build_run_threshold_long(3, 10, 2.5, 96, 0.87, "Opbouw variant", threshold_sec),
+        ],
+        [
+            _build_run_threshold_long(3, 12, 2.0, 97, 0.88, "Zwaarder cruise", threshold_sec),
+            _build_run_threshold_short(5, 1.5, 2.0, 101, 0.90, "Zwaarder reps", threshold_sec),
+            _build_run_threshold_long(2, 18, 3.0, 98, 0.89, "Zwaarder variant", threshold_sec),
+        ],
+        [
+            _build_run_threshold_long(3, 15, 2.0, 98, 0.90, "Piek cruise", threshold_sec),
+            _build_run_threshold_short(6, 1.5, 2.0, 102, 0.92, "Piek reps", threshold_sec),
+            _build_run_threshold_long(2, 22, 3.0, 98, 0.91, "Piek variant", threshold_sec),
+        ],
+        [
+            _build_run_threshold_long(3, 18, 2.0, 99, 0.92, "Scherper cruise", threshold_sec),
+            _build_run_threshold_short(6, 1.8, 2.0, 102, 0.93, "Scherper reps", threshold_sec),
+            _build_run_threshold_long(4, 14, 2.0, 99, 0.92, "Scherper variant", threshold_sec),
+        ],
+        [
+            _build_run_threshold_long(3, 20, 2.0, 100, 0.94, "Piek+ cruise", threshold_sec),
+            _build_run_threshold_short(6, 2.0, 2.0, 103, 0.95, "Piek+ reps", threshold_sec),
+            _build_run_threshold_long(2, 30, 3.0, 100, 0.94, "Piek+ variant", threshold_sec),
+        ],
+    ]
+    speed = [
+        [
+            _build_run_speed(45, 6, 20, 108, 0.72, "Instap", threshold_sec),
+            _build_run_speed(45, 8, 20, 108, 0.73, "Instap variant", threshold_sec),
+            _build_run_speed(50, 6, 30, 108, 0.74, "Instap variant 2", threshold_sec),
+        ],
+        [
+            _build_run_speed(50, 8, 25, 110, 0.74, "Opbouw", threshold_sec),
+            _build_run_speed(50, 10, 20, 110, 0.75, "Opbouw variant", threshold_sec),
+            _build_run_speed(55, 8, 30, 110, 0.75, "Opbouw variant 2", threshold_sec),
+        ],
+        [
+            _build_run_speed(55, 10, 30, 112, 0.76, "Zwaarder", threshold_sec),
+            _build_run_speed(55, 12, 25, 112, 0.77, "Zwaarder variant", threshold_sec),
+            _build_run_speed(60, 10, 35, 112, 0.77, "Zwaarder variant 2", threshold_sec),
+        ],
+        [
+            _build_run_speed(60, 12, 35, 114, 0.78, "Piek", threshold_sec),
+            _build_run_speed(60, 10, 45, 114, 0.78, "Piek variant", threshold_sec),
+            _build_run_speed(65, 12, 40, 114, 0.79, "Piek variant 2", threshold_sec),
+        ],
+        [
+            _build_run_speed(65, 12, 45, 116, 0.79, "Scherper", threshold_sec),
+            _build_run_speed(65, 14, 40, 116, 0.80, "Scherper variant", threshold_sec),
+            _build_run_speed(70, 12, 50, 116, 0.80, "Scherper variant 2", threshold_sec),
+        ],
+        [
+            _build_run_speed(70, 14, 50, 118, 0.80, "Piek+", threshold_sec),
+            _build_run_speed(70, 12, 60, 118, 0.80, "Piek+ variant", threshold_sec),
+            _build_run_speed(75, 14, 55, 120, 0.80, "Piek+ variant 2", threshold_sec),
+        ],
+    ]
+    vo2max = [
+        [
+            _build_run_vo2max(8, 60, 75, 105, 0.86, "Instap", threshold_sec),
+            _build_run_vo2max(6, 90, 90, 105, 0.86, "Instap variant", threshold_sec),
+            _build_run_vo2max(10, 45, 60, 105, 0.86, "Instap variant 2", threshold_sec),
+        ],
+        [
+            _build_run_vo2max(10, 60, 60, 106, 0.88, "Opbouw", threshold_sec),
+            _build_run_vo2max(7, 90, 75, 106, 0.88, "Opbouw variant", threshold_sec),
+            _build_run_vo2max(8, 75, 75, 106, 0.88, "Opbouw variant 2", threshold_sec),
+        ],
+        [
+            _build_run_vo2max(8, 120, 90, 107, 0.90, "Zwaarder", threshold_sec),
+            _build_run_vo2max(5, 180, 120, 107, 0.90, "Zwaarder variant", threshold_sec),
+            _build_run_vo2max(10, 90, 90, 107, 0.90, "Zwaarder variant 2", threshold_sec),
+        ],
+        [
+            _build_run_vo2max(6, 240, 120, 108, 0.93, "Piek", threshold_sec),
+            _build_run_vo2max(5, 300, 150, 108, 0.93, "Piek variant", threshold_sec),
+            _build_run_vo2max(8, 180, 120, 108, 0.93, "Piek variant 2", threshold_sec),
+        ],
+        [
+            _build_run_vo2max(10, 180, 120, 110, 0.94, "Scherper", threshold_sec),
+            _build_run_vo2max(6, 300, 150, 110, 0.94, "Scherper variant", threshold_sec),
+            _build_run_vo2max(12, 120, 90, 110, 0.94, "Scherper variant 2", threshold_sec),
+        ],
+        [
+            _build_run_vo2max(10, 210, 120, 112, 0.95, "Piek+", threshold_sec),
+            _build_run_vo2max(6, 330, 150, 112, 0.95, "Piek+ variant", threshold_sec),
+            _build_run_vo2max(14, 120, 90, 112, 0.95, "Piek+ variant 2", threshold_sec),
+        ],
+    ]
+    marathon = [
+        [
+            _build_run_marathon(mp_sec, 2, 10, 10, 0.80, "Instap", threshold_sec),
+            _build_run_marathon(mp_sec, 3, 8, 8, 0.80, "Instap variant", threshold_sec),
+            _build_run_marathon(mp_sec, 1, 25, 15, 0.80, "Instap variant 2", threshold_sec),
+        ],
+        [
+            _build_run_marathon(mp_sec, 2, 15, 12, 0.82, "Opbouw", threshold_sec),
+            _build_run_marathon(mp_sec, 3, 10, 10, 0.82, "Opbouw variant", threshold_sec),
+            _build_run_marathon(mp_sec, 1, 35, 18, 0.82, "Opbouw variant 2", threshold_sec),
+        ],
+        [
+            _build_run_marathon(mp_sec, 2, 20, 15, 0.84, "Zwaarder", threshold_sec),
+            _build_run_marathon(mp_sec, 3, 15, 12, 0.84, "Zwaarder variant", threshold_sec),
+            _build_run_marathon(mp_sec, 1, 45, 20, 0.84, "Zwaarder variant 2", threshold_sec),
+        ],
+        [
+            _build_run_marathon(mp_sec, 2, 25, 18, 0.86, "Piek", threshold_sec),
+            _build_run_marathon(mp_sec, 3, 18, 15, 0.86, "Piek variant", threshold_sec),
+            _build_run_marathon(mp_sec, 1, 55, 25, 0.86, "Piek variant 2", threshold_sec),
+        ],
+        [
+            _build_run_marathon(mp_sec, 2, 30, 20, 0.88, "Scherper", threshold_sec),
+            _build_run_marathon(mp_sec, 3, 20, 18, 0.88, "Scherper variant", threshold_sec),
+            _build_run_marathon(mp_sec, 1, 60, 30, 0.88, "Scherper variant 2", threshold_sec),
+        ],
+        [
+            _build_run_marathon(mp_sec, 2, 35, 25, 0.90, "Piek+", threshold_sec),
+            _build_run_marathon(mp_sec, 3, 22, 20, 0.90, "Piek+ variant", threshold_sec),
+            _build_run_marathon(mp_sec, 1, 70, 35, 0.90, "Piek+ variant 2", threshold_sec),
+        ],
+    ]
+    threshold_short = []
+    threshold_long = []
+    for rung in threshold:
+        short_variants = []
+        for i in range(3):
+            variant = rung[1].copy()
+            if i:
+                variant["naam"] = f"{variant['naam']} variant {i + 1}"
+            short_variants.append(variant)
+        long_variants = [rung[0], rung[2]]
+        variant = rung[0].copy()
+        variant["naam"] = f"{variant['naam']} variant 3"
+        long_variants.append(variant)
+        threshold_short.append(short_variants)
+        threshold_long.append(long_variants)
+    return {
+        "threshold": threshold,
+        "threshold_short": threshold_short,
+        "threshold_long": threshold_long,
+        "speed": speed,
+        "vo2max": vo2max,
+        "marathon": marathon,
+    }
+
+
+def _default_marathon_pace() -> int:
+    try:
+        from core import goal_engine
+
+        goal = goal_engine.get_active_goal()
+        if goal and goal.type == "marathon" and goal.target_value:
+            seconds = _parse_time_seconds(goal.target_value)
+            if seconds:
+                return round(seconds / 42.195)
+    except Exception:
+        pass
+    return 256
+
+
+def _parse_time_seconds(value: str | None) -> int | None:
+    if not value:
+        return None
+    try:
+        parts = [int(p) for p in str(value).split(":")]
+    except ValueError:
+        return None
+    if len(parts) == 3:
+        return parts[0] * 3600 + parts[1] * 60 + parts[2]
+    if len(parts) == 2:
+        return parts[0] * 60 + parts[1]
+    return None
 
 
 def pick_run_quality(
     step: int,
     variety_index: int,
     category: str | None = None,
+    threshold_sec: int | None = None,
+    mp_sec: int | None = None,
 ) -> dict:
     """Pick a progressive run quality workout.
 
     The step selects the difficulty rung; variety_index selects the category
     and variant deterministically, so replanning the same week stays stable.
     """
+    threshold_sec = threshold_sec or _default_threshold_pace()
     if category is None:
         category = RUN_QUALITY_ROTATION[variety_index % len(RUN_QUALITY_ROTATION)]
-    ladders = RUN_QUALITY_LIBRARY[category]
+    ladders = run_quality_library(threshold_sec, mp_sec=mp_sec)[category]
     rung_idx = min(max(step - 1, 0), len(ladders) - 1)
     variants = ladders[rung_idx]
     variant = variants[(variety_index // len(RUN_QUALITY_ROTATION)) % len(variants)]

@@ -52,7 +52,7 @@ def classify_workout(event: dict) -> str:
             return "run_trail"
         if "herstel" in name or "recovery" in name or "easy" in name:
             return "run_recovery"
-        if "tempo" in name or "threshold" in name:
+        if "tempo" in name or "threshold" in name or "drempel" in name:
             return "run_tempo"
         if "interval" in name:
             return "run_intervals"

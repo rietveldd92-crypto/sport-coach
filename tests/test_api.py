@@ -317,6 +317,42 @@ def test_fixed_sessions_crud_roundtrip(client):
     assert client.get("/api/fixed-sessions").json()["fixed_sessions"] == []
 
 
+def test_threshold_pace_api_manual_race_suggestion_and_rpe(client):
+    r = client.get("/api/athlete/threshold-pace")
+    assert r.status_code == 200
+    assert r.json()["threshold_pace_sec_per_km"] == 255
+
+    r = client.put("/api/athlete/threshold-pace", json={
+        "sec_per_km": 250,
+        "reason": "handmatige test",
+    })
+    assert r.status_code == 200
+    assert r.json()["threshold_pace_sec_per_km"] == 250
+
+    r = client.post("/api/athlete/race-result", json={
+        "distance_m": 5000,
+        "time_sec": 20 * 60,
+    })
+    assert r.status_code == 200
+    suggestion = r.json()["suggestion"]
+    assert suggestion["status"] == "pending"
+    assert suggestion["old_sec"] == 250
+
+    r = client.post(
+        f"/api/athlete/threshold-pace/suggestion/{suggestion['id']}",
+        json={"accepted": True},
+    )
+    assert r.status_code == 200
+    assert r.json()["threshold_pace_sec_per_km"] == suggestion["proposed_sec"]
+
+    r = client.post("/api/workout/activity-1/rpe", json={
+        "rpe": 7,
+        "date": TODAY.isoformat(),
+    })
+    assert r.status_code == 200
+    assert r.json()["rpe"]["rpe"] == 7
+
+
 # ── GOALS + SEASON ────────────────────────────────────────────────────────
 
 def test_goals_create_generates_macroplan(client):

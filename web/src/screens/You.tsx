@@ -18,6 +18,9 @@ import {
   useFixedSessions,
   usePattern,
   usePutFixedSession,
+  usePutThresholdPace,
+  useResolveThresholdSuggestion,
+  useThresholdPace,
   useTrends,
 } from "../api/queries";
 import type {
@@ -26,6 +29,7 @@ import type {
   FixedSession,
   InjuryGuard,
   PatternSlot,
+  ThresholdPaceView,
   TrendsView,
 } from "../api/types";
 import OfflineBanner, { useOnline } from "../components/OfflineBanner";
@@ -463,8 +467,10 @@ function SettingsSection({ trends }: { trends: TrendsView | undefined }) {
         instellingen
       </h3>
 
+      <ThresholdPaceCard />
+
       {/* Weekpatroon-editor */}
-      <div className="overflow-hidden rounded-2xl border border-line bg-raised">
+      <div className="mt-3 overflow-hidden rounded-2xl border border-line bg-raised">
         <p className="border-b border-line px-5 pb-3 pt-4 text-sm font-medium">
           Weekpatroon
           <span className="ml-2 font-mono text-[0.64rem] font-normal text-dim">
@@ -547,6 +553,127 @@ function SettingsSection({ trends }: { trends: TrendsView | undefined }) {
       )}
     </section>
   );
+}
+
+function ThresholdPaceCard() {
+  const threshold = useThresholdPace();
+  const save = usePutThresholdPace();
+  const resolve = useResolveThresholdSuggestion();
+  const view = threshold.data;
+  const [value, setValue] = useState("");
+
+  useEffect(() => {
+    if (view?.threshold_pace_sec_per_km)
+      setValue(paceLabel(view.threshold_pace_sec_per_km));
+  }, [view?.threshold_pace_sec_per_km]);
+
+  const latest = view?.log?.[view.log.length - 1];
+  const busy = save.isPending || resolve.isPending;
+
+  const onSave = () => {
+    const sec = parsePace(value);
+    if (!sec) return;
+    save.mutate({ sec_per_km: sec, reason: "handmatig" });
+  };
+
+  return (
+    <div className="overflow-hidden rounded-2xl border border-line bg-raised px-5 py-4">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="font-mono text-[0.6rem] uppercase tracking-[0.18em] text-dim">
+            drempelpace
+          </p>
+          <p className="mt-1 font-mono text-[1.7rem] font-medium">
+            {view ? `${paceLabel(view.threshold_pace_sec_per_km)}/km` : "—"}
+          </p>
+          <p className="mt-1 text-[0.76rem] text-muted">
+            {latest
+              ? `${latest.reason} · ${latest.date}`
+              : "Nog geen wijzigingslog."}
+          </p>
+        </div>
+        <div className="grid w-28 gap-2">
+          <input
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            className="rounded-lg border border-line bg-elevated px-3 py-2 text-center font-mono text-[0.82rem] outline-none focus:border-accent"
+          />
+          <button
+            onClick={onSave}
+            disabled={busy || !parsePace(value)}
+            className="rounded-lg bg-accent px-3 py-2 text-[0.76rem] font-semibold text-white disabled:opacity-50"
+          >
+            OK
+          </button>
+        </div>
+      </div>
+
+      {view?.suggestion && (
+        <ThresholdSuggestionCard
+          view={view}
+          busy={busy}
+          onResolve={(accepted) =>
+            resolve.mutate({ id: view.suggestion!.id, accepted })
+          }
+        />
+      )}
+    </div>
+  );
+}
+
+function ThresholdSuggestionCard({
+  view,
+  busy,
+  onResolve,
+}: {
+  view: ThresholdPaceView;
+  busy: boolean;
+  onResolve: (accepted: boolean) => void;
+}) {
+  const suggestion = view.suggestion;
+  if (!suggestion) return null;
+  return (
+    <div className="mt-4 rounded-xl border border-warning/40 bg-warning/10 px-3.5 py-3">
+      <p className="font-mono text-[0.62rem] uppercase tracking-[0.16em] text-warning">
+        voorstel
+      </p>
+      <p className="mt-1 text-sm font-medium">
+        {paceLabel(suggestion.old_sec)}/km → {paceLabel(suggestion.proposed_sec)}/km
+      </p>
+      <p className="mt-1.5 text-[0.78rem] leading-relaxed text-muted">
+        {suggestion.reason}
+      </p>
+      <div className="mt-3 flex gap-2">
+        <button
+          onClick={() => onResolve(true)}
+          disabled={busy}
+          className="rounded-lg bg-accent px-3 py-2 text-[0.76rem] font-semibold text-white disabled:opacity-50"
+        >
+          Accepteren
+        </button>
+        <button
+          onClick={() => onResolve(false)}
+          disabled={busy}
+          className="rounded-lg border border-line-strong px-3 py-2 text-[0.76rem] font-semibold disabled:opacity-50"
+        >
+          Afwijzen
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function paceLabel(sec: number): string {
+  const m = Math.floor(sec / 60);
+  const s = Math.round(sec % 60);
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+function parsePace(raw: string): number | null {
+  const match = raw.trim().match(/^(\d):(\d{2})$/);
+  if (!match) return null;
+  const sec = Number(match[1]) * 60 + Number(match[2]);
+  return sec >= 220 && sec <= 320 ? sec : null;
 }
 
 function FixedSessionRow({

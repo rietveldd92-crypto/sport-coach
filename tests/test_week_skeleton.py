@@ -74,8 +74,30 @@ def test_buildweek_heeft_twee_intervallen_long_en_commutes():
     assert _roles(slots).count("commute") == 2
 
     interval_types = [s.sessie["type"] for s in slots if s.rol.startswith("interval")]
-    assert interval_types == ["run_threshold_short", "run_threshold_long"]
+    assert interval_types[0].startswith("run_threshold")
+    assert interval_types[1] == "run_vo2max"
     assert {s.vaste_dag for s in slots if s.rol == "commute"} == {"dinsdag", "vrijdag"}
+
+
+def test_gate_kiest_juiste_quality_toolkit():
+    guard = _guard()
+    prefs = _prefs()
+
+    tempoduur = build_skeleton(
+        15, _volume(run_intensity="tempoduur"), guard,
+        {"is_deload_week": False}, prefs, [],
+    )
+    assert [s.sessie["type"] for s in tempoduur if s.rol.startswith("interval")] == [
+        "run_threshold_long", "run_speed",
+    ]
+
+    race = build_skeleton(
+        15, {**_volume(), "run_intensiteit": "race_specifiek"}, guard,
+        {"is_deload_week": False}, prefs, [],
+    )
+    race_types = [s.sessie["type"] for s in race if s.rol.startswith("interval")]
+    assert race_types[0] == "run_marathon"
+    assert race_types[1].startswith("run_threshold")
 
 
 def test_deloadweek_heeft_een_interval():

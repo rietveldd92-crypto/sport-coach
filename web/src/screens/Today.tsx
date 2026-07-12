@@ -1,7 +1,13 @@
 import { useState } from "react";
 import { isAuthError, isUnavailable } from "../api/client";
-import { useSyncTp, useToday } from "../api/queries";
-import type { EventSummary } from "../api/types";
+import {
+  useResolveThresholdSuggestion,
+  usePostWorkoutRpe,
+  useSyncTp,
+  useThresholdPace,
+  useToday,
+} from "../api/queries";
+import type { EventSummary, ThresholdSuggestion } from "../api/types";
 import { InjuryBadge, SportBadge, ZoneChip } from "../components/Badges";
 import OfflineBanner, { useOnline } from "../components/OfflineBanner";
 import Spinner from "../components/Spinner";
@@ -19,6 +25,8 @@ import {
 
 export default function Today() {
   const { data, isLoading, isError, error, refetch } = useToday();
+  const threshold = useThresholdPace();
+  const resolveThreshold = useResolveThresholdSuggestion();
   const online = useOnline();
   const [swapOpen, setSwapOpen] = useState(false);
 
@@ -68,6 +76,19 @@ export default function Today() {
         </div>
       </header>
 
+      {threshold.data?.suggestion && (
+        <ThresholdSuggestionBanner
+          suggestion={threshold.data.suggestion}
+          busy={resolveThreshold.isPending}
+          onResolve={(accepted) =>
+            resolveThreshold.mutate({
+              id: threshold.data!.suggestion!.id,
+              accepted,
+            })
+          }
+        />
+      )}
+
       {workout ? (
         <HeroCard
           workout={workout}
@@ -92,6 +113,52 @@ export default function Today() {
 
 // ── Hero ──────────────────────────────────────────────────────────────────
 
+function ThresholdSuggestionBanner({
+  suggestion,
+  busy,
+  onResolve,
+}: {
+  suggestion: ThresholdSuggestion;
+  busy: boolean;
+  onResolve: (accepted: boolean) => void;
+}) {
+  return (
+    <section className="rise-in mb-5 rounded-2xl border border-warning/40 bg-warning/10 px-4 py-3.5">
+      <p className="font-mono text-[0.62rem] uppercase tracking-[0.16em] text-warning">
+        drempelvoorstel
+      </p>
+      <p className="mt-1 text-sm font-medium">
+        {paceLabel(suggestion.old_sec)}/km → {paceLabel(suggestion.proposed_sec)}/km
+      </p>
+      <p className="mt-1.5 text-[0.78rem] leading-relaxed text-muted">
+        {suggestion.reason}
+      </p>
+      <div className="mt-3 flex gap-2">
+        <button
+          onClick={() => onResolve(true)}
+          disabled={busy}
+          className="rounded-lg bg-accent px-3 py-2 text-[0.76rem] font-semibold text-white disabled:opacity-50"
+        >
+          Accepteren
+        </button>
+        <button
+          onClick={() => onResolve(false)}
+          disabled={busy}
+          className="rounded-lg border border-line-strong px-3 py-2 text-[0.76rem] font-semibold disabled:opacity-50"
+        >
+          Afwijzen
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function paceLabel(sec: number): string {
+  const m = Math.floor(sec / 60);
+  const s = Math.round(sec % 60);
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
 function HeroCard({
   workout,
   onSwap,
@@ -111,6 +178,13 @@ function HeroCard({
   );
   const done = workout.done || localDone;
   const sync = useSyncTp();
+  const rpeMutation = usePostWorkoutRpe();
+  const [rpeValue, setRpeValue] = useState<number | null>(null);
+  const asksRpe =
+    done &&
+    workout.activity &&
+    event.type === "Run" &&
+    /drempel|threshold/i.test(event.name ?? "");
 
   const toggleDone = () => {
     if (workout.done) return; // echte activity wint altijd
@@ -161,6 +235,21 @@ function HeroCard({
         <Description text={event.description} />
 
         {workout.coach_note && <CoachNote note={workout.coach_note} />}
+
+        {asksRpe && (
+          <RpeChips
+            value={rpeValue}
+            busy={rpeMutation.isPending}
+            onPick={(rpe) => {
+              setRpeValue(rpe);
+              rpeMutation.mutate({
+                activityId: workout.activity!.id,
+                rpe,
+                date: (workout.activity!.start_date_local ?? "").slice(0, 10),
+              });
+            }}
+          />
+        )}
 
         <div className="mt-6 flex gap-2.5">
           <button
@@ -279,6 +368,40 @@ function CoachNote({ note }: { note: string }) {
 }
 
 // ── Rustdag ───────────────────────────────────────────────────────────────
+
+function RpeChips({
+  value,
+  busy,
+  onPick,
+}: {
+  value: number | null;
+  busy: boolean;
+  onPick: (rpe: number) => void;
+}) {
+  return (
+    <div className="mt-5 rounded-xl border border-line bg-elevated px-3.5 py-3">
+      <p className="font-mono text-[0.62rem] uppercase tracking-[0.16em] text-dim">
+        Hoe zwaar voelde dit?
+      </p>
+      <div className="mt-2 grid grid-cols-10 gap-1">
+        {Array.from({ length: 10 }, (_, i) => i + 1).map((rpe) => (
+          <button
+            key={rpe}
+            onClick={() => onPick(rpe)}
+            disabled={busy}
+            className={`h-8 rounded-md border text-[0.72rem] font-semibold ${
+              value === rpe
+                ? "border-accent bg-accent text-white"
+                : "border-line-strong text-muted"
+            } disabled:opacity-60`}
+          >
+            {rpe}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function RestCard() {
   return (

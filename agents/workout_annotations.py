@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 
 ATHLETE_FTP = 290
-THRESHOLD_PACE_SEC_PER_KM = 260  # 4:20/km — drempelpace (zie endurance_coach)
+THRESHOLD_PACE_SEC_PER_KM = 255  # 4:15/km default; actuele waarde komt uit threshold_model.
 
 
 def pct_to_watts(pct: float, ftp: int = ATHLETE_FTP) -> int:

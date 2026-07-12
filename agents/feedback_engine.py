@@ -38,10 +38,25 @@ HARD_WORKOUT_TYPES = {
 # Referentiewaarden — pas hier aan als FTP/HRmax verandert
 ATHLETE_FTP = 290
 ATHLETE_HRMAX = 190
+ATHLETE_THRESHOLD_PACE_DEFAULT_SEC = 255
+THRESHOLD_HR_MIN = 167
+THRESHOLD_HR_MAX = 175
 Z2_HR_MIN = round(ATHLETE_HRMAX * 0.68)  # 129
 # Operationeel easy-plafond: Dennis herstelt aantoonbaar beter als HR op easy
 # runs/bikes onder 145 blijft; alles 145–152 = grijze zone voor hem.
 Z2_HR_MAX = 145
+
+
+def get_athlete_threshold_pace_sec() -> int:
+    """Single source of truth voor drempelpace (sec/km), default 4:15/km."""
+    try:
+        from shared import load_state
+
+        state = load_state() or {}
+        return int(state.get("threshold_pace_sec_per_km")
+                   or ATHLETE_THRESHOLD_PACE_DEFAULT_SEC)
+    except Exception:
+        return ATHLETE_THRESHOLD_PACE_DEFAULT_SEC
 
 _gemini_client = None
 _genai_types = None
@@ -387,12 +402,15 @@ def build_prompt(
     target_tss = metrics.get("target_tss") or event.get("load_target") or 0
     target_line = f"Geplande TSS-target: {target_tss}" if target_tss else ""
     desc = (event.get("description") or "").strip()[:300]
+    threshold_pace_sec = get_athlete_threshold_pace_sec()
+    threshold_pace = f"{threshold_pace_sec // 60}:{threshold_pace_sec % 60:02d}/km"
 
     prompt = f"""{COACH_SYSTEM_PROMPT}
 
 REFERENTIEWAARDEN ATLEET (gebruik DEZE, verzin geen andere)
 - FTP: {ATHLETE_FTP}W (alleen relevant voor de FIETS)
 - HRmax: {ATHLETE_HRMAX}bpm
+- Drempelpace hardlopen: {threshold_pace}; drempel-HR-band {THRESHOLD_HR_MIN}-{THRESHOLD_HR_MAX}bpm.
 - Easy/Z2 hartslag-bandbreedte: {Z2_HR_MIN}–{Z2_HR_MAX}bpm. {Z2_HR_MAX}bpm is een hard plafond op easy runs/bikes — alles erboven (tot ~152) is voor deze atleet de grijze zone en kost herstel.
 - HARDLOPEN: negeer running-power volledig (onbetrouwbaar). Beoordeel loop-workouts uitsluitend op HR, pace en kadans.
 
