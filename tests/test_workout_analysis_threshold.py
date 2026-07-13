@@ -16,6 +16,25 @@ def _no_interval_fetch(monkeypatch):
         workout_analysis.api, "get_activity_detail",
         lambda _id: {"icu_intervals": _INTERVALS},
     )
+    monkeypatch.setattr(
+        workout_analysis.api, "get_activity_streams",
+        lambda _id, types=None: {},
+    )
+
+
+def _streams(monkeypatch, paces_sec: list[tuple[int, int]], hr: int = 170):
+    """Bouw een 1Hz-stream uit (pace_sec_per_km, duur_sec)-blokken."""
+    vel, beats = [], []
+    for pace_sec, seconds in paces_sec:
+        vel += [1000 / pace_sec] * seconds
+        beats += [hr] * seconds
+    monkeypatch.setattr(
+        workout_analysis.api, "get_activity_streams",
+        lambda _id, types=None: [
+            {"type": "velocity_smooth", "data": vel},
+            {"type": "heartrate", "data": beats},
+        ],
+    )
 
 
 # 3x 1km: 4:10, 4:12, 4:14/km bij HR 170-172 => gemiddeld 4:12/km (252s)
@@ -67,6 +86,81 @@ def test_zonder_target_geen_pace_delta():
 
     assert metrics["observed_pace_sec"] == 252
     assert "pace_delta_sec" not in metrics
+
+
+def test_reps_komen_uit_de_pace_stream_niet_uit_icu_intervals(monkeypatch):
+    """intervals.icu knipt run-reps op running power, niet op pace.
+
+    Echte sessie (13 jul): een 12-minutenrep werd in brokken geknipt met
+    'RECOVERY'-stukken op 4:17/km ertussen, en 2,5 min op target verdween
+    zelfs helemaal in de recovery. Op de pace-stream staan de reps er wel.
+    """
+    event = {"type": "Run", "name": "Lange drempel - 3x12 min @ 4:23/km"}
+    _streams(monkeypatch, [
+        (295, 900),   # warming-up 4:55/km
+        (260, 720),   # rep 1 — 12 min op 4:20/km
+        (330, 150),   # sukkeldraf 5:30/km
+        (259, 720),   # rep 2
+        (330, 150),
+        (262, 720),   # rep 3
+        (340, 300),   # cooling-down
+    ])
+
+    metrics = workout_analysis.analyze(event, _ACTIVITY)["metrics"]
+
+    # Het gladstrijkvenster vervaagt de repgrens een paar seconden; op de
+    # vraag "waren dit drie blokken van twaalf minuten?" doet dat niets af.
+    assert [round(d / 60) for d in metrics["rep_durations_s"]] == [12, 12, 12]
+    assert metrics["work_time_min"] == 36
+    assert metrics["target_pace_sec"] == 263
+    # 4:20/km gelopen op een target van 4:23: een sneller-signaal, geen trager.
+    # (Met de oude icu_intervals-route kwam hier +17s uit — de sukkeldraf.)
+    assert -4 <= metrics["pace_delta_sec"] <= -1
+
+
+def test_korte_dip_binnen_een_rep_breekt_de_rep_niet(monkeypatch):
+    """Een bocht of stoplicht mag geen rep in tweeën hakken."""
+    event = {"type": "Run", "name": "Lange drempel - 3x12 min @ 4:23/km"}
+    _streams(monkeypatch, [
+        (295, 600),
+        (260, 350),
+        (300, 10),    # even inzakken
+        (260, 360),
+        (340, 300),
+    ])
+
+    metrics = workout_analysis.analyze(event, _ACTIVITY)["metrics"]
+
+    assert len(metrics["rep_durations_s"]) == 1
+    assert metrics["work_time_min"] == 12
+
+
+def test_sukkeldraf_telt_niet_als_werk(monkeypatch):
+    """De herstelpace mag nooit in de gemiddelde intervalpace belanden."""
+    event = {"type": "Run", "name": "Lange drempel - 3x12 min @ 4:23/km"}
+    _streams(monkeypatch, [
+        (260, 720),
+        (337, 400),   # 5:37/km — ruim buiten de 8%-marge
+        (260, 720),
+    ])
+
+    metrics = workout_analysis.analyze(event, _ACTIVITY)["metrics"]
+
+    assert [round(d / 60) for d in metrics["rep_durations_s"]] == [12, 12]
+    assert metrics["observed_pace_sec"] == 260
+
+
+def test_zonder_bruikbare_stream_valt_analyse_terug_op_intervals(monkeypatch):
+    """Fake-modus en oude activiteiten leveren geen streams — dan de intervals."""
+    event = {"type": "Run", "name": "Korte drempel - 5x1km @ 4:15/km"}
+    monkeypatch.setattr(
+        workout_analysis.api, "get_activity_streams",
+        lambda _id, types=None: {},
+    )
+
+    metrics = workout_analysis.analyze(event, _ACTIVITY)["metrics"]
+
+    assert metrics["observed_pace_sec"] == 252  # uit _INTERVALS
 
 
 @pytest.mark.parametrize("name,expected", [
