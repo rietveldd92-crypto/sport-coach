@@ -428,6 +428,11 @@ REP_SMOOTH_SEC = 15      # GPS-ruis uitmiddelen zonder rep-grenzen te vervagen
 REP_GAP_MERGE_SEC = 20   # kort inzakken (bocht, stoplicht) breekt de rep niet
 REP_PACE_TOLERANCE = 1.08  # tot 8% trager dan target telt nog als werk
 
+# Gelijke pace hoort gelijke HR te geven; wijkt dat sterk af, dan meet de
+# sensor niet de atleet. 15 bpm is ruim boven normale drift binnen een sessie.
+HR_PLAUSIBLE_SPREAD_BPM = 15
+HR_PLAUSIBLE_PACE_SPREAD = 0.17  # min/km (~10 s/km)
+
 
 def target_pace_sec(event: dict) -> int | None:
     """Voorgeschreven target-pace (sec/km) uit een workout.
@@ -448,6 +453,26 @@ def target_pace_sec(event: dict) -> int | None:
     if not match:
         return None
     return int(match.group(1)) * 60 + int(match.group(2))
+
+
+def hr_reading_is_plausible(reps: list[dict]) -> bool:
+    """Kan de hartslag van deze sessie iets betekenen?
+
+    Een borstband zonder band eronder — de optische polsmeting — loopt achter
+    en lockt op je cadans. Het verraadt zichzelf: reps die op vrijwel dezelfde
+    pace liepen krijgen dan hartslagen die tientallen slagen uiteenlopen. Dat
+    is geen fysiologie, dat is de sensor. Zonder deze toets zou zo'n spookmeting
+    het drempeldossier de verkeerde kant op duwen.
+    """
+    usable = [r for r in reps if r.get("hr") and r.get("pace")]
+    if len(usable) < 2:
+        return True  # niets om aan te twijfelen; HR ontbreekt sowieso al
+
+    paces = [r["pace"] for r in usable]
+    hrs = [r["hr"] for r in usable]
+    if max(paces) - min(paces) > HR_PLAUSIBLE_PACE_SPREAD:
+        return True  # pace liep zelf uiteen, dan mág de HR dat ook
+    return max(hrs) - min(hrs) <= HR_PLAUSIBLE_SPREAD_BPM
 
 
 def detect_run_reps(act_id: str, target_sec: int) -> list[dict]:
@@ -561,8 +586,18 @@ def _analyze_run_hard(wtype, event, activity, act_id, base):
             elif avg_pace < 5.0:
                 insights.append(f"Gem. intervalpace {avg_pace:.2f}/km.")
 
-        # HR response: hoeveel steeg HR per interval?
-        if len(hrs) >= 2:
+        hr_reliable = hr_reading_is_plausible(intervals_data)
+        base["hr_reliable"] = hr_reliable
+
+        if not hr_reliable:
+            insights.append(
+                "Hartslag is deze sessie niet bruikbaar: de reps liepen op "
+                "vrijwel dezelfde pace maar geven sterk uiteenlopende HR. "
+                "Typisch voor een polsmeting (achterloop, cadans-lock). "
+                "Beoordeel deze training op pace en RPE; negeer HR-drift, "
+                "decoupling en zone-verdeling.")
+        elif len(hrs) >= 2:
+            # HR response: hoeveel steeg HR per interval?
             hr_rise = hrs[-1] - hrs[0]
             if hr_rise > 10:
                 insights.append(f"HR steeg {hr_rise} bpm van eerste naar laatste interval — accumulerende vermoeidheid.")

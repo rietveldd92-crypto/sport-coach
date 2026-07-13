@@ -173,3 +173,60 @@ def test_zonder_bruikbare_stream_valt_analyse_terug_op_intervals(monkeypatch):
 def test_library_v2_namen_worden_herkend(name, expected):
     """Zonder deze regels vielen de v2-categorieën terug op 'run_z2'."""
     assert workout_analysis.classify_workout({"type": "Run", "name": name}) == expected
+
+
+# ── HARTSLAG-BETROUWBAARHEID ───────────────────────────────────────────────
+
+def test_gelijke_pace_met_uiteenlopende_hr_is_een_sensorfout():
+    """Echte sessie (13 jul, polsmeting): 3 reps op ~4:20/km, HR 147-173.
+
+    Tijdens de herstelloop klom de HR zelfs boven die van de rep ervoor.
+    Dat is geen fysiologie maar een optische sensor die achterloopt.
+    """
+    reps = [
+        {"pace": 4.34, "hr": 147, "duration_s": 706},
+        {"pace": 4.32, "hr": 173, "duration_s": 709},
+        {"pace": 4.36, "hr": 171, "duration_s": 717},
+    ]
+
+    assert workout_analysis.hr_reading_is_plausible(reps) is False
+
+
+def test_gelijke_pace_met_normale_hr_drift_blijft_bruikbaar():
+    reps = [
+        {"pace": 4.34, "hr": 168, "duration_s": 706},
+        {"pace": 4.32, "hr": 172, "duration_s": 709},
+        {"pace": 4.36, "hr": 175, "duration_s": 717},
+    ]
+
+    assert workout_analysis.hr_reading_is_plausible(reps) is True
+
+
+def test_uiteenlopende_pace_mag_uiteenlopende_hr_geven():
+    """Een progressieve sessie hoort HR-spreiding te hebben; niet verdacht."""
+    reps = [
+        {"pace": 4.60, "hr": 150, "duration_s": 600},
+        {"pace": 4.10, "hr": 178, "duration_s": 600},
+    ]
+
+    assert workout_analysis.hr_reading_is_plausible(reps) is True
+
+
+def test_onbruikbare_hr_onderdrukt_de_hr_conclusies(monkeypatch):
+    """Zonder deze rem las de coach de sensorfout voor als 'vermoeidheid'."""
+    event = {"type": "Run", "name": "Lange drempel - 3x12 min @ 4:23/km"}
+    monkeypatch.setattr(
+        workout_analysis, "detect_run_reps",
+        lambda _id, _target: [
+            {"pace": 4.34, "hr": 147, "max_hr": 155, "duration_s": 706},
+            {"pace": 4.32, "hr": 173, "max_hr": 185, "duration_s": 709},
+            {"pace": 4.36, "hr": 171, "max_hr": 187, "duration_s": 717},
+        ],
+    )
+
+    result = workout_analysis.analyze(event, _ACTIVITY)
+
+    assert result["metrics"]["hr_reliable"] is False
+    tekst = " ".join(result["insights"])
+    assert "niet bruikbaar" in tekst
+    assert "accumulerende vermoeidheid" not in tekst
