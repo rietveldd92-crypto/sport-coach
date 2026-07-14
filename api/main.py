@@ -25,13 +25,19 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from fastapi import Depends, FastAPI, HTTPException, Request  # noqa: E402
+from fastapi import Depends, FastAPI, HTTPException, Request, Response  # noqa: E402
 from fastapi.responses import FileResponse, JSONResponse  # noqa: E402
+from pydantic import BaseModel  # noqa: E402
 
 import config  # noqa: E402
 import history_db  # noqa: E402
+from api import auth  # noqa: E402
 from api.auth import require_auth  # noqa: E402
 from core.views import IntervalsUnavailable  # noqa: E402
+
+
+class LoginBody(BaseModel):
+    password: str
 
 _log = logging.getLogger(__name__)
 
@@ -80,6 +86,26 @@ def create_app() -> FastAPI:
     def health() -> dict:
         """Onbeveiligde liveness-check (geen data)."""
         return {"status": "ok"}
+
+    # ── auth: bewust zónder require_auth, anders kun je nooit inloggen ────
+
+    @app.get("/api/auth/status")
+    def auth_status(request: Request) -> dict:
+        return {
+            "authenticated": auth.is_authenticated(request),
+            "auth_required": auth.auth_enabled(),
+        }
+
+    @app.post("/api/auth/login")
+    def auth_login(request: Request, response: Response,
+                   body: LoginBody) -> dict:
+        auth.login(request, response, body.password)
+        return {"ok": True}
+
+    @app.post("/api/auth/logout")
+    def auth_logout(response: Response) -> dict:
+        auth.logout(response)
+        return {"ok": True}
 
     _mount_spa(app)
 

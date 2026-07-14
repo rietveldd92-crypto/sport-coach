@@ -3,6 +3,10 @@
 
 const TOKEN_KEY = "api_token";
 
+/** Vuurt zodra een request 401 geeft: de sessie is weg. App.tsx luistert
+ *  en schakelt terug naar het inlogscherm. */
+export const AUTH_LOST_EVENT = "coach:auth-lost";
+
 /** Eenmalig: ?token=xxx in de URL → localStorage, daarna URL opschonen.
  *  Zo koppel je de PWA aan een gedeployde backend zonder login-UI. */
 (() => {
@@ -40,6 +44,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   try {
     res = await fetch(path, {
       ...init,
+      // De sessie-cookie is httpOnly: JS ziet 'm niet, maar moet 'm wel
+      // meesturen. Zonder dit blijft elke request 401 na een geslaagde login.
+      credentials: "same-origin",
       headers: {
         "Content-Type": "application/json",
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -57,6 +64,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       if (body?.detail) detail = String(body.detail);
     } catch {
       /* geen JSON-body */
+    }
+    // Sessie verlopen of ingetrokken tijdens gebruik: de app moet terug naar
+    // het inlogscherm, niet elk scherm apart een foutmelding laten tonen.
+    if (res.status === 401 && !path.startsWith("/api/auth/")) {
+      window.dispatchEvent(new Event(AUTH_LOST_EVENT));
     }
     throw new ApiError(res.status, detail);
   }
@@ -90,7 +102,23 @@ export function isUnavailable(err: unknown): boolean {
   return err instanceof ApiError && (err.status === 0 || err.status === 502);
 }
 
-/** 401 — token ontbreekt of klopt niet (open de app met ?token=…). */
+/** 401 — niet ingelogd. De app toont dan het inlogscherm. */
 export function isAuthError(err: unknown): boolean {
   return err instanceof ApiError && err.status === 401;
+}
+
+// ── auth ───────────────────────────────────────────────────────────────────
+
+export type AuthStatus = { authenticated: boolean; auth_required: boolean };
+
+export const getAuthStatus = () => get<AuthStatus>("/api/auth/status");
+
+/** Zet de httpOnly sessie-cookie. Gooit ApiError(401) bij fout wachtwoord,
+ *  ApiError(429) als de brute-force-rem aanslaat. */
+export const login = (password: string) =>
+  post<{ ok: boolean }>("/api/auth/login", { password });
+
+export async function logout(): Promise<void> {
+  await post("/api/auth/logout");
+  setToken(null); // ook de oude bearer-token opruimen
 }
