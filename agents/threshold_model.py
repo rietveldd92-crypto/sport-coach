@@ -69,7 +69,12 @@ def record_observation(analysis: dict[str, Any], rpe: int | None = None) -> dict
     metrics = analysis.get("metrics") or {}
     pace_delta = analysis.get("pace_delta_sec", metrics.get("pace_delta_sec"))
     hr = analysis.get("hr_reps_avg", metrics.get("hr_reps_avg"))
+    # Een onbetrouwbare meting is erger dan geen meting: hij ziet eruit als een
+    # feit. Band op None => de trend leunt op pace en RPE (zie _is_*_signal).
+    hr_reliable = analysis.get("hr_reliable", metrics.get("hr_reliable", True))
     hr_vs_band = analysis.get("hr_vs_band") or _hr_vs_band(hr)
+    if not hr_reliable:
+        hr_vs_band = None
     completed = bool(analysis.get("completed", True))
     clean_rpe = _clean_rpe(rpe if rpe is not None else analysis.get("rpe"))
     target = analysis.get("target_pace_sec", metrics.get("target_pace_sec"))
@@ -119,6 +124,7 @@ def observe_from_workout(event: dict, activity: dict, analysis: dict) -> dict | 
                 "hr_reps_avg": metrics.get("interval_hr_avg") or metrics.get("hr_avg"),
                 "target_pace_sec": metrics.get("target_pace_sec"),
                 "observed_pace_sec": metrics.get("observed_pace_sec"),
+                "hr_reliable": metrics.get("hr_reliable", True),
                 "completed": True,
             },
             rpe=(rpe_row or {}).get("rpe"),
@@ -345,18 +351,28 @@ def _in_workout_cooldown(today: date) -> bool:
 
 def _is_faster_signal(obs: dict) -> bool:
     rpe = obs.get("rpe")
+    if obs.get("pace_delta_sec") is None or float(obs["pace_delta_sec"]) > -3:
+        return False
+    if obs.get("hr_vs_band") is None:
+        # Onbruikbare HR (polsmeting): pace alleen is te dun, want sneller
+        # lopen zegt niets zolang je niet weet wat het kostte. RPE neemt de
+        # rol van de hartslag over en is dan verplicht.
+        return rpe is not None and int(rpe) <= 7
     return (
-        obs.get("pace_delta_sec") is not None
-        and float(obs["pace_delta_sec"]) <= -3
-        and obs.get("hr_vs_band") in {"onder", "in"}
+        obs.get("hr_vs_band") in {"onder", "in"}
         and (rpe is None or int(rpe) <= 7)
     )
 
 
 def _is_slower_signal(obs: dict) -> bool:
+    rpe = obs.get("rpe")
     failed = not bool(obs.get("completed", 1))
     slow = obs.get("pace_delta_sec") is not None and float(obs["pace_delta_sec"]) >= 5
-    return (slow or failed) and obs.get("hr_vs_band") == "boven"
+    if not (slow or failed):
+        return False
+    if obs.get("hr_vs_band") is None:
+        return rpe is not None and int(rpe) >= 8
+    return obs.get("hr_vs_band") == "boven"
 
 
 def _hr_vs_band(hr: Any) -> str | None:

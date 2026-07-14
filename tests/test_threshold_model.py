@@ -228,3 +228,62 @@ def test_dismiss_vraagt_niet_om_herplan():
     resolved = threshold_model.resolve_suggestion(suggestion["id"], accepted=False)
 
     assert resolved["replan_needed"] is False
+
+
+# ── ONBETROUWBARE HARTSLAG (polsmeting) ────────────────────────────────────
+
+def _obs_zonder_hr(day_offset: int, activity_id: str, delta: int,
+                   rpe: int | None, completed: bool = True):
+    """Observatie uit een sessie waarvan de HR-meting niet deugde."""
+    return threshold_model.record_observation({
+        "activity_id": activity_id,
+        "date": (TODAY - timedelta(days=day_offset)).isoformat(),
+        "pace_delta_sec": delta,
+        "hr_reps_avg": 164,      # de meting bestáát, maar klopt niet
+        "hr_reliable": False,
+        "completed": completed,
+    }, rpe=rpe)
+
+
+def test_onbetrouwbare_hr_wordt_niet_als_band_vastgelegd():
+    """Een spookmeting mag niet als feit in het dossier belanden."""
+    _seed_state(255)
+
+    obs = _obs_zonder_hr(1, "a1", -5, 6)
+
+    assert obs["hr_vs_band"] is None
+
+
+def test_zonder_hr_beslissen_pace_en_rpe_samen():
+    """Drie snelle sessies op lage RPE tellen ook zonder bruikbare hartslag."""
+    _seed_state(255)
+    _obs_zonder_hr(1, "a1", -5, 6)
+    _obs_zonder_hr(2, "a2", -4, 7)
+    _obs_zonder_hr(3, "a3", -3, 6)
+
+    suggestion = threshold_model.evaluate_trend(today=TODAY)
+
+    assert suggestion is not None
+    assert suggestion["proposed_sec"] == 252
+
+
+def test_zonder_hr_en_zonder_rpe_geen_voorstel():
+    """Pace alleen is te dun: sneller lopen zegt niets zonder wat het kostte."""
+    _seed_state(255)
+    _obs_zonder_hr(1, "a1", -5, None)
+    _obs_zonder_hr(2, "a2", -4, None)
+    _obs_zonder_hr(3, "a3", -3, None)
+
+    assert threshold_model.evaluate_trend(today=TODAY) is None
+
+
+def test_zonder_hr_stuurt_hoge_rpe_bij_trage_sessies_de_drempel_omhoog():
+    _seed_state(255)
+    _obs_zonder_hr(1, "a1", 6, 9)
+    _obs_zonder_hr(2, "a2", 7, 8)
+    _obs_zonder_hr(3, "a3", 5, 9)
+
+    suggestion = threshold_model.evaluate_trend(today=TODAY)
+
+    assert suggestion is not None
+    assert suggestion["proposed_sec"] == 258

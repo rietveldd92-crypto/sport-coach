@@ -108,24 +108,40 @@ def match_events_activities(events: list, activities: list) -> list:
     """
     result = []
     matched_activity_ids = set()
+    workouts = [e for e in events if e.get("category") == "WORKOUT"]
 
-    # 1. Match WORKOUT events met activities (elke activity max 1x matchen)
-    for event in events:
-        if event.get("category") != "WORKOUT":
-            continue
+    def candidates(event: dict) -> list:
         e_date = event.get("start_date_local", "")[:10]
         e_type = event.get("type", "")
-        matched = None
-        for act in activities:
-            act_id = act.get("id")
-            if act_id in matched_activity_ids:
-                continue
-            a_date = act.get("start_date_local", "")[:10]
-            a_type = act.get("type", "")
-            if a_date == e_date and types_match(e_type, a_type):
-                matched = act
-                matched_activity_ids.add(act_id)
-                break
+        return [
+            act for act in activities
+            if act.get("id") not in matched_activity_ids
+            and act.get("start_date_local", "")[:10] == e_date
+            and types_match(e_type, act.get("type", ""))
+        ]
+
+    # 1. Match WORKOUT events met activities (elke activity max 1x matchen).
+    #    Twee rondes: eerst events waarvan de naam exact op een activiteit valt.
+    #    Op een dubbele loopdag (easy + drempel) zijn datum en type gelijk, dus
+    #    zonder naam-ronde pikt het eerste event de verkeerde activiteit in en
+    #    krijgt de drempelsessie er geen — met een vervuild dossier tot gevolg.
+    matches: dict[str, dict] = {}
+    for event in workouts:
+        name = (event.get("name") or "").strip().lower()
+        if not name:
+            continue
+        act = next((a for a in candidates(event)
+                    if (a.get("name") or "").strip().lower() == name), None)
+        if act:
+            matches[str(event.get("id"))] = act
+            matched_activity_ids.add(act.get("id"))
+
+    for event in workouts:
+        matched = matches.get(str(event.get("id")))
+        if matched is None:
+            matched = next(iter(candidates(event)), None)
+            if matched:
+                matched_activity_ids.add(matched.get("id"))
         result.append({"event": event, "activity": matched, "done": matched is not None})
 
     # 2. NOTE events (rehab, kracht) — toon als context

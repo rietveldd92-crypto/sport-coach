@@ -19,6 +19,22 @@ HR_Z2_MAX = 145  # operationeel easy-plafond (Dennis: erboven = grijze zone, sle
 HR_Z2_MIN = round(HR_MAX * 0.68)  # 129 bpm
 
 
+def select_work_intervals(raw_intervals: list[dict], fallback) -> list[dict]:
+    """Kies de work-intervals uit een activiteit.
+
+    Als intervals.icu de sessie zelf al in WORK/RECOVERY heeft gesplitst is dat
+    de waarheid — dan telt niets anders mee. De heuristiek (HR/vermogen boven
+    een drempel) is puur een terugval voor activiteiten zonder die splitsing:
+    HR zakt na een rep te traag om herstel van werk te onderscheiden, dus als
+    heuristiek náást de WORK-typering sleept hij de sukkeldrafjes mee naar
+    binnen en verpest hij de gemiddelde pace.
+    """
+    typed = [iv for iv in raw_intervals if iv.get("type") == "WORK"]
+    if typed:
+        return typed
+    return [iv for iv in raw_intervals if fallback(iv)]
+
+
 def classify_workout(event: dict) -> str:
     """Bepaal het workout-type op basis van event naam en sport."""
     name = (event.get("name") or "").lower()
@@ -141,11 +157,11 @@ def _analyze_bike_intensity(wtype, event, activity, act_id, base):
     try:
         detail = api.get_activity_detail(act_id)
         raw_intervals = detail.get("icu_intervals") or detail.get("intervals") or []
-        # Filter op work intervals (niet warmup/cooldown)
-        work_intervals = [iv for iv in raw_intervals
-                          if iv.get("type") == "WORK"
-                          or (iv.get("average_watts", 0) > FTP * 0.80
-                              and iv.get("moving_time", 0) > 120)]
+        work_intervals = select_work_intervals(
+            raw_intervals,
+            lambda iv: (iv.get("average_watts", 0) > FTP * 0.80
+                        and iv.get("moving_time", 0) > 120),
+        )
         for iv in work_intervals:
             intervals_data.append({
                 "power": iv.get("average_watts") or iv.get("weighted_average_watts", 0),
@@ -407,6 +423,16 @@ def _analyze_run_varied(wtype, event, activity, act_id, base):
 
 _PACE_RE = re.compile(r"(\d{1,2}):(\d{2})\s*/\s*km")
 
+REP_MIN_SEC = 180        # korter dan 3 min is geen drempelrep
+REP_SMOOTH_SEC = 15      # GPS-ruis uitmiddelen zonder rep-grenzen te vervagen
+REP_GAP_MERGE_SEC = 20   # kort inzakken (bocht, stoplicht) breekt de rep niet
+REP_PACE_TOLERANCE = 1.08  # tot 8% trager dan target telt nog als werk
+
+# Gelijke pace hoort gelijke HR te geven; wijkt dat sterk af, dan meet de
+# sensor niet de atleet. 15 bpm is ruim boven normale drift binnen een sessie.
+HR_PLAUSIBLE_SPREAD_BPM = 15
+HR_PLAUSIBLE_PACE_SPREAD = 0.17  # min/km (~10 s/km)
+
 
 def target_pace_sec(event: dict) -> int | None:
     """Voorgeschreven target-pace (sec/km) uit een workout.
@@ -429,29 +455,113 @@ def target_pace_sec(event: dict) -> int | None:
     return int(match.group(1)) * 60 + int(match.group(2))
 
 
+def hr_reading_is_plausible(reps: list[dict]) -> bool:
+    """Kan de hartslag van deze sessie iets betekenen?
+
+    Een borstband zonder band eronder — de optische polsmeting — loopt achter
+    en lockt op je cadans. Het verraadt zichzelf: reps die op vrijwel dezelfde
+    pace liepen krijgen dan hartslagen die tientallen slagen uiteenlopen. Dat
+    is geen fysiologie, dat is de sensor. Zonder deze toets zou zo'n spookmeting
+    het drempeldossier de verkeerde kant op duwen.
+    """
+    usable = [r for r in reps if r.get("hr") and r.get("pace")]
+    if len(usable) < 2:
+        return True  # niets om aan te twijfelen; HR ontbreekt sowieso al
+
+    paces = [r["pace"] for r in usable]
+    hrs = [r["hr"] for r in usable]
+    if max(paces) - min(paces) > HR_PLAUSIBLE_PACE_SPREAD:
+        return True  # pace liep zelf uiteen, dan mág de HR dat ook
+    return max(hrs) - min(hrs) <= HR_PLAUSIBLE_SPREAD_BPM
+
+
+def detect_run_reps(act_id: str, target_sec: int) -> list[dict]:
+    """Reconstrueer de reps uit de pace-stream.
+
+    intervals.icu detecteert run-intervals op running power, niet op pace. Bij
+    een drempelsessie knipt dat de reps in stukken op elke wattdip en schuift
+    het soms hele minuten op target-pace naar 'RECOVERY'. Zodra de workout een
+    voorgeschreven target draagt is de pace zelf de betrouwbaarste bron: alles
+    wat rond het target loopt is werk, de sukkeldraf ertussen niet.
+    """
+    streams = api.get_activity_streams(
+        act_id, types=["velocity_smooth", "heartrate"])
+    if isinstance(streams, list):
+        streams = {s.get("type"): s.get("data") for s in streams}
+    vel = (streams or {}).get("velocity_smooth") or []
+    hr = (streams or {}).get("heartrate") or []
+    if len(vel) < REP_MIN_SEC:
+        return []
+
+    # Pace per seconde, gladgestreken: losse GPS-pieken mogen geen rep breken.
+    smooth = []
+    for i in range(len(vel)):
+        window = [v for v in vel[max(0, i - REP_SMOOTH_SEC // 2):
+                                 i + REP_SMOOTH_SEC // 2 + 1] if v]
+        smooth.append(sum(window) / len(window) if window else 0.0)
+
+    limit = target_sec * REP_PACE_TOLERANCE
+    is_work = [v > 0 and (1000 / v) <= limit for v in smooth]
+
+    segments: list[list[int]] = []
+    for i, work in enumerate(is_work):
+        if not work:
+            continue
+        if segments and i - segments[-1][1] <= REP_GAP_MERGE_SEC:
+            segments[-1][1] = i
+        else:
+            segments.append([i, i])
+
+    reps = []
+    for start, end in segments:
+        duration = end - start + 1
+        if duration < REP_MIN_SEC:
+            continue
+        meters = sum(v for v in vel[start:end + 1] if v)
+        if meters <= 0:
+            continue
+        beats = [h for h in hr[start:end + 1] if h]
+        reps.append({
+            "pace": round((duration / 60) / (meters / 1000), 2),
+            "hr": round(sum(beats) / len(beats)) if beats else 0,
+            "max_hr": max(beats) if beats else 0,
+            "duration_s": duration,
+        })
+    return reps
+
+
 def _analyze_run_hard(wtype, event, activity, act_id, base):
     insights = []
     intervals_data = []
+    target_sec = target_pace_sec(event)
 
-    try:
-        detail = api.get_activity_detail(act_id)
-        raw_intervals = detail.get("icu_intervals") or detail.get("intervals") or []
-        work_intervals = [iv for iv in raw_intervals
-                          if iv.get("type") == "WORK"
-                          or (iv.get("average_heartrate", 0) > HR_Z2_MAX
-                              and iv.get("moving_time", 0) > 60)]
-        for iv in work_intervals:
-            d = iv.get("distance", 0)
-            t = iv.get("moving_time", 0)
-            pace = (t / 60) / (d / 1000) if d > 0 and t > 0 else 0
-            intervals_data.append({
-                "pace": round(pace, 2),
-                "hr": iv.get("average_heartrate", 0),
-                "max_hr": iv.get("max_heartrate", 0),
-                "duration_s": t,
-            })
-    except Exception:
-        pass
+    if target_sec:
+        try:
+            intervals_data = detect_run_reps(act_id, target_sec)
+        except Exception:
+            intervals_data = []
+
+    if not intervals_data:
+        try:
+            detail = api.get_activity_detail(act_id)
+            raw_intervals = detail.get("icu_intervals") or detail.get("intervals") or []
+            work_intervals = select_work_intervals(
+                raw_intervals,
+                lambda iv: (iv.get("average_heartrate", 0) > HR_Z2_MAX
+                            and iv.get("moving_time", 0) > 60),
+            )
+            for iv in work_intervals:
+                d = iv.get("distance", 0)
+                t = iv.get("moving_time", 0)
+                pace = (t / 60) / (d / 1000) if d > 0 and t > 0 else 0
+                intervals_data.append({
+                    "pace": round(pace, 2),
+                    "hr": iv.get("average_heartrate", 0),
+                    "max_hr": iv.get("max_heartrate", 0),
+                    "duration_s": t,
+                })
+        except Exception:
+            pass
 
     if intervals_data:
         paces = [iv["pace"] for iv in intervals_data if iv["pace"] > 0]
@@ -476,8 +586,18 @@ def _analyze_run_hard(wtype, event, activity, act_id, base):
             elif avg_pace < 5.0:
                 insights.append(f"Gem. intervalpace {avg_pace:.2f}/km.")
 
-        # HR response: hoeveel steeg HR per interval?
-        if len(hrs) >= 2:
+        hr_reliable = hr_reading_is_plausible(intervals_data)
+        base["hr_reliable"] = hr_reliable
+
+        if not hr_reliable:
+            insights.append(
+                "Hartslag is deze sessie niet bruikbaar: de reps liepen op "
+                "vrijwel dezelfde pace maar geven sterk uiteenlopende HR. "
+                "Typisch voor een polsmeting (achterloop, cadans-lock). "
+                "Beoordeel deze training op pace en RPE; negeer HR-drift, "
+                "decoupling en zone-verdeling.")
+        elif len(hrs) >= 2:
+            # HR response: hoeveel steeg HR per interval?
             hr_rise = hrs[-1] - hrs[0]
             if hr_rise > 10:
                 insights.append(f"HR steeg {hr_rise} bpm van eerste naar laatste interval — accumulerende vermoeidheid.")
@@ -487,11 +607,25 @@ def _analyze_run_hard(wtype, event, activity, act_id, base):
         if hrs:
             base["interval_hr_avg"] = round(sum(hrs) / len(hrs), 1)
 
+        # Tijd op drempel is bij deze pijler de prikkel, dus leg 'm expliciet vast.
+        durations = [iv["duration_s"] for iv in intervals_data if iv["duration_s"]]
+        if durations:
+            base["rep_durations_s"] = durations
+            base["work_time_min"] = round(sum(durations) / 60)
+
         # Drempel-observatie: gerealiseerde intervalpace vs. de voorgeschreven
         # target uit de workout-naam. Negatief = sneller gelopen dan target.
+        # Tijd-gewogen: een rep van 12 min zegt meer dan een van 3 min.
         if paces:
-            observed_sec = round(sum(paces) / len(paces) * 60)
-            target_sec = target_pace_sec(event)
+            weighted = [iv for iv in intervals_data
+                        if iv["pace"] > 0 and iv["duration_s"]]
+            if weighted:
+                total_s = sum(iv["duration_s"] for iv in weighted)
+                total_km = sum((iv["duration_s"] / 60) / iv["pace"]
+                               for iv in weighted)
+                observed_sec = round(total_s / total_km) if total_km else 0
+            else:
+                observed_sec = round(sum(paces) / len(paces) * 60)
             base["observed_pace_sec"] = observed_sec
             if target_sec:
                 base["target_pace_sec"] = target_sec
