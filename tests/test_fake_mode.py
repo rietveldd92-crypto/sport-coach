@@ -105,3 +105,46 @@ def test_today_and_week_serve_fixture_data(fake_client):
         next_ids = {i["event"]["id"] for i in r_next.json()["items"]}
         assert "e_tomorrow" in next_ids
     assert len(week["availability"]) == 7
+
+
+def test_availability_override_survives_plan_week(fake_client):
+    """Regressie (2026-07-20): beschikbaarheid zetten → week herplannen
+    mocht de zojuist gezette overrides niet wissen. De plan-flow doet
+    meerdere load→save-state-cycli (injury_guard, load_manager, weeklog);
+    zolang save_state availability terugschreef, verdween elke override
+    die niet in de (stale) snapshot zat — en plande de week op niets."""
+    client, _mock = fake_client
+
+    # Volgende week plannen: geen fixture-events, dus een schone plan-run.
+    next_monday = MONDAY + timedelta(days=7)
+    days = [next_monday + timedelta(days=i) for i in range(7)]
+
+    # Beschikbaarheid via de API zoals de AvailabilitySheet dat doet.
+    for d in days[:6]:
+        r = client.put(
+            f"/api/availability/override/{d.isoformat()}",
+            json={"slots": [{"start": "07:00", "end": "09:00", "context": "any"}]},
+        )
+        assert r.status_code == 200
+    r = client.put(
+        f"/api/availability/override/{days[6].isoformat()}",
+        json={"slots": []},  # zondag rustdag
+    )
+    assert r.status_code == 200
+
+    r = client.post(f"/api/week/{next_monday.isoformat()}/plan")
+    assert r.status_code == 200
+    plan = r.json()
+    codes = {w.get("code") for w in plan.get("warnings") or []}
+    assert "no_availability" not in codes
+    assert plan["planned_sessions"] > 0
+
+    # Overrides staan er na het plannen nog exact zo in.
+    r = client.get(f"/api/week/{next_monday.isoformat()}")
+    assert r.status_code == 200
+    avail = r.json()["availability"]
+    for d in days[:6]:
+        assert avail[d.isoformat()] == [
+            {"start": "07:00", "end": "09:00", "context": "any"}
+        ], f"override voor {d} is verdwenen na plan"
+    assert avail[days[6].isoformat()] == []
