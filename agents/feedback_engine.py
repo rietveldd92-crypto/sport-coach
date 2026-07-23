@@ -37,11 +37,16 @@ HARD_WORKOUT_TYPES = {
 
 # Referentiewaarden — pas hier aan als FTP/HRmax verandert
 ATHLETE_FTP = 290
-ATHLETE_HRMAX = 190
+# Gemeten piek in drempel-/VO2max-sessies (23 jul, 8 jul, 13 jun 2026 elk 194).
+# Stond lang op 190; dat drukte de drempelband omlaag, waardoor sessies op een
+# normale drempel-HR als "boven de band" golden en het drempelmodel ze als
+# trager-signaal las.
+ATHLETE_HRMAX = 194
 ATHLETE_THRESHOLD_PACE_DEFAULT_SEC = 255
-THRESHOLD_HR_MIN = 167
-THRESHOLD_HR_MAX = 175
-Z2_HR_MIN = round(ATHLETE_HRMAX * 0.68)  # 129
+# Afgeleid i.p.v. hard ingevuld: de band hoort mee te schuiven met HRmax.
+THRESHOLD_HR_MIN = round(ATHLETE_HRMAX * 0.88)  # 171
+THRESHOLD_HR_MAX = round(ATHLETE_HRMAX * 0.92)  # 178
+Z2_HR_MIN = round(ATHLETE_HRMAX * 0.68)  # 132
 # Operationeel easy-plafond: Dennis herstelt aantoonbaar beter als HR op easy
 # runs/bikes onder 145 blijft; alles 145–152 = grijze zone voor hem.
 Z2_HR_MAX = 145
