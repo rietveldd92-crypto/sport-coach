@@ -77,13 +77,18 @@ def find_new_completed_workouts() -> tuple[list[dict], list, list]:
     log = _load_feedback_log()
     processed = set(log.get("processed_activities", []))
 
-    # Haal events en activiteiten van deze week
     monday = date.today() - timedelta(days=date.today().weekday())
     sunday = monday + timedelta(days=6)
+    # De job draait 's ochtends, dus een sessie die daarna binnenkomt wacht op de
+    # run van de volgende dag. Op zondag bestaat die dag niet meer: maandag kijkt
+    # alleen naar de nieuwe week en de sessie blijft permanent zonder feedback en
+    # zonder drempelobservatie. Het scanvenster loopt daarom een week terug;
+    # processed_activities houdt dubbele feedback tegen.
+    scan_start = monday - timedelta(days=7)
 
     try:
-        events = api.get_events(monday, sunday)
-        activities = api.get_activities(start=monday, end=sunday)
+        events = api.get_events(scan_start, sunday)
+        activities = api.get_activities(start=scan_start, end=sunday)
     except Exception as e:
         print(f"  Kan data niet ophalen: {e}")
         return [], [], []
@@ -116,7 +121,14 @@ def find_new_completed_workouts() -> tuple[list[dict], list, list]:
                 "activity_id": act_id,
             })
 
-    return results, events, activities
+    # De adaptive cycle en de buur-workout-context redeneren over déze week; het
+    # inhaalvenster hierboven dient alleen om gemiste sessies te vinden.
+    def _this_week(rows: list) -> list:
+        return [r for r in rows
+                if monday.isoformat() <= (r.get("start_date_local") or "")[:10]
+                <= sunday.isoformat()]
+
+    return results, _this_week(events), _this_week(activities)
 
 
 _types_match = shared.types_match

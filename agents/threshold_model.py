@@ -116,6 +116,13 @@ def observe_from_workout(event: dict, activity: dict, analysis: dict) -> dict | 
 
         metrics = analysis.get("metrics") or {}
         rpe_row = get_rpe(activity_id)
+        rpe = (rpe_row or {}).get("rpe")
+        if rpe is None:
+            # Garmin schrijft zijn session-RPE mee als icu_rpe. Zonder deze
+            # fallback blijft de observatie RPE-loos tot de atleet hem in de app
+            # invult — en juist als de HR onbruikbaar is (polsmeting) eist de
+            # sneller-trend een RPE, dus dan telt de observatie nooit mee.
+            rpe = activity.get("icu_rpe")
         observation = record_observation(
             {
                 "activity_id": activity_id,
@@ -127,7 +134,7 @@ def observe_from_workout(event: dict, activity: dict, analysis: dict) -> dict | 
                 "hr_reliable": metrics.get("hr_reliable", True),
                 "completed": True,
             },
-            rpe=(rpe_row or {}).get("rpe"),
+            rpe=rpe,
         )
         evaluate_trend()
         return observation

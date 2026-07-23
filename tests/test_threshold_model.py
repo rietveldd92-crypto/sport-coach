@@ -179,6 +179,18 @@ def test_observe_from_workout_legt_pace_en_hr_band_vast():
     assert obs["hr_vs_band"] == "in"
 
 
+def test_observe_from_workout_pakt_garmin_rpe_als_de_app_er_geen_heeft():
+    _seed_state(255)
+
+    obs = threshold_model.observe_from_workout(
+        _threshold_event(),
+        {"id": 903, "start_date_local": "2026-07-20T07:00:00", "icu_rpe": 8},
+        _analysis(6, 180),
+    )
+
+    assert obs["rpe"] == 8
+
+
 def test_observe_from_workout_negeert_niet_drempelsessies():
     _seed_state(255)
 
