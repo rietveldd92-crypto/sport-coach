@@ -2,6 +2,7 @@ from datetime import date, timedelta
 
 import history_db
 import shared
+from agents import feedback_engine
 from agents import threshold_model
 
 
@@ -159,10 +160,14 @@ def _analysis(delta: int, hr: int, wtype="run_tempo"):
 
 def test_observe_from_workout_legt_pace_en_hr_band_vast():
     _seed_state(255)
+    # Midden in de drempelband, afgeleid van de referentiewaarden — een hard
+    # getal zou stilletjes "onder" gaan betekenen zodra HRmax bijgesteld wordt.
+    in_band = (feedback_engine.THRESHOLD_HR_MIN
+               + feedback_engine.THRESHOLD_HR_MAX) // 2
 
     obs = threshold_model.observe_from_workout(
         _threshold_event(), {"id": 900, "start_date_local": "2026-07-20T07:00:00"},
-        _analysis(-5, 170),
+        _analysis(-5, in_band),
     )
 
     assert obs["pace_delta_sec"] == -5
@@ -170,8 +175,20 @@ def test_observe_from_workout_legt_pace_en_hr_band_vast():
     assert obs["target_pace_sec"] == 255
     # HR uit de reps, niet het activiteitsgemiddelde (130) — anders zou elke
     # intervalsessie als "onder de band" gelden.
-    assert obs["hr_reps_avg"] == 170
+    assert obs["hr_reps_avg"] == in_band
     assert obs["hr_vs_band"] == "in"
+
+
+def test_observe_from_workout_pakt_garmin_rpe_als_de_app_er_geen_heeft():
+    _seed_state(255)
+
+    obs = threshold_model.observe_from_workout(
+        _threshold_event(),
+        {"id": 903, "start_date_local": "2026-07-20T07:00:00", "icu_rpe": 8},
+        _analysis(6, 180),
+    )
+
+    assert obs["rpe"] == 8
 
 
 def test_observe_from_workout_negeert_niet_drempelsessies():
