@@ -440,19 +440,38 @@ def target_pace_sec(event: dict) -> int | None:
     De workout-naam draagt de absolute target ("Korte drempel - 5x1km @ 4:15/km").
     Valt terug op de beschrijving, maar negeert de "Drempelpace:"-header daar —
     dat is de referentiewaarde van de atleet, niet de target van deze sessie.
+
+    Sessies die in de naam op % staan (VO2max) hebben geen pace in de naam;
+    de beschrijving somt dan warmup/main set/cooldown paces op in die volgorde.
+    De eerste match pakken zou de warmup-pace als target lezen (veel te traag),
+    dus we nemen de snelste van alle genoemde paces — dat is altijd het main set.
     """
-    match = _PACE_RE.search(event.get("name") or "")
-    if not match:
-        for line in str(event.get("description") or "").splitlines():
-            line = line.strip()
-            if not line or line.lower().startswith("drempelpace:"):
-                continue
-            match = _PACE_RE.search(line)
-            if match:
-                break
-    if not match:
+    name_match = _PACE_RE.search(event.get("name") or "")
+    if name_match:
+        return int(name_match.group(1)) * 60 + int(name_match.group(2))
+
+    candidates = []
+    for line in str(event.get("description") or "").splitlines():
+        line = line.strip()
+        if not line or line.lower().startswith("drempelpace:"):
+            continue
+        for m in _PACE_RE.finditer(line):
+            candidates.append(int(m.group(1)) * 60 + int(m.group(2)))
+    if not candidates:
         return None
-    return int(match.group(1)) * 60 + int(match.group(2))
+    return min(candidates)
+
+
+def _fmt_pace(dec_min: float) -> str:
+    """Decimale min/km (4.34) naar mm:ss (4:20) — nooit als losse decimalen tonen.
+
+    `4.34` gelezen als kloktijd "4:34" is 14s trager dan de werkelijke pace en
+    kan zelfs ongeldige waarden opleveren (4.73 -> "4:73" bestaat niet). Elke
+    plek die een pace aan de coach-tekst doorgeeft moet via deze functie.
+    """
+    total_sec = round(dec_min * 60)
+    m, s = divmod(total_sec, 60)
+    return f"{m}:{s:02d}"
 
 
 def hr_reading_is_plausible(reps: list[dict]) -> bool:
@@ -550,10 +569,17 @@ def _analyze_run_hard(wtype, event, activity, act_id, base):
                 lambda iv: (iv.get("average_heartrate", 0) > HR_Z2_MAX
                             and iv.get("moving_time", 0) > 60),
             )
+            # icu.icu tagt WORK op running power, niet op pace — dat levert soms
+            # een uitschieter op (een cooldown-surge of GPS-artefact) die veel
+            # trager is dan de sessie voorschrijft. Dezelfde tolerantie als de
+            # pace-stream-detector filtert die eruit zodra we een target hebben.
+            limit = target_sec * REP_PACE_TOLERANCE if target_sec else None
             for iv in work_intervals:
                 d = iv.get("distance", 0)
                 t = iv.get("moving_time", 0)
                 pace = (t / 60) / (d / 1000) if d > 0 and t > 0 else 0
+                if limit and pace > 0 and pace * 60 > limit:
+                    continue
                 intervals_data.append({
                     "pace": round(pace, 2),
                     "hr": iv.get("average_heartrate", 0),
@@ -574,17 +600,17 @@ def _analyze_run_hard(wtype, event, activity, act_id, base):
             base["pace_spread"] = round(spread, 2)
 
             if spread <= 0.05:
-                insights.append(f"Pace extreem consistent: {min(paces):.2f}-{max(paces):.2f}/km. Machine-achtig.")
+                insights.append(f"Pace extreem consistent: {_fmt_pace(min(paces))}-{_fmt_pace(max(paces))}/km. Machine-achtig.")
             elif spread <= 0.15:
-                insights.append(f"Pace consistent: {min(paces):.2f}-{max(paces):.2f}/km ({round(spread*60)}s verschil).")
+                insights.append(f"Pace consistent: {_fmt_pace(min(paces))}-{_fmt_pace(max(paces))}/km ({round(spread*60)}s verschil).")
             else:
-                insights.append(f"Pace inconsistent: {min(paces):.2f}-{max(paces):.2f}/km. Eerste interval te snel of fade?")
+                insights.append(f"Pace inconsistent: {_fmt_pace(min(paces))}-{_fmt_pace(max(paces))}/km. Eerste interval te snel of fade?")
 
             avg_pace = sum(paces) / len(paces)
             if avg_pace < 4.10 and avg_pace > 3.50:
-                insights.append(f"Gem. intervalpace {avg_pace:.2f}/km — in de buurt van 10km racepace. Marathon-specifiek: ~4:15-4:25/km interval pace passender.")
+                insights.append(f"Gem. intervalpace {_fmt_pace(avg_pace)}/km — in de buurt van 10km racepace. Marathon-specifiek: ~4:15-4:25/km interval pace passender.")
             elif avg_pace < 5.0:
-                insights.append(f"Gem. intervalpace {avg_pace:.2f}/km.")
+                insights.append(f"Gem. intervalpace {_fmt_pace(avg_pace)}/km.")
 
         hr_reliable = hr_reading_is_plausible(intervals_data)
         base["hr_reliable"] = hr_reliable

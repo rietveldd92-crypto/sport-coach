@@ -378,7 +378,20 @@ def build_prompt(
             f"Pacing: eerste derde {metrics['avg_pace_first_third']:.2f}/km → laatste derde {metrics['avg_pace_last_third']:.2f}/km"
         )
     if metrics.get("interval_paces"):
-        deep_data.append(f"Interval paces (min/km): {[f'{p:.2f}' for p in metrics['interval_paces']]}")
+        deep_data.append(
+            f"Interval paces: {[workout_analysis._fmt_pace(p) for p in metrics['interval_paces']]}/km"
+        )
+    if metrics.get("target_pace_sec") and metrics.get("observed_pace_sec"):
+        target_s = metrics["target_pace_sec"]
+        observed_s = metrics["observed_pace_sec"]
+        delta = metrics.get("pace_delta_sec", observed_s - target_s)
+        richting = "trager dan" if delta > 0 else "sneller dan" if delta < 0 else "exact op"
+        deep_data.append(
+            f"Intervaltarget deze sessie: {target_s // 60}:{target_s % 60:02d}/km — "
+            f"gerealiseerd {observed_s // 60}:{observed_s % 60:02d}/km "
+            f"({abs(delta)}s/km {richting} target). Gebruik ALLEEN deze twee getallen "
+            f"voor de target-vergelijking, niet de decimale interval paces hierboven."
+        )
     if metrics.get("z1z2_pct") is not None:
         deep_data.append(f"Tijd in zones: Z1+Z2 {metrics['z1z2_pct']}%, boven Z2 {metrics['z3plus_pct']}%")
     if metrics.get("vi"):
