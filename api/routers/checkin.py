@@ -25,6 +25,10 @@ class CheckinRequest(BaseModel):
         description="bijv. knie_pijn, rug_trekkend, heup_instabiel",
     )
     notes: Optional[str] = None
+    weight: Optional[float] = Field(
+        default=None, gt=30, lt=250,
+        description="Gewicht in kg; gaat naar intervals.icu (backend-of-record)",
+    )
 
 
 @router.post("/checkin")
@@ -36,7 +40,15 @@ def post_checkin(body: CheckinRequest) -> dict:
         motivation=body.motivation,
         injury_signals=body.injury_signals,
         notes=body.notes,
+        weight=body.weight,
     )
+
+
+@router.get("/checkin/weight")
+def get_weight_trend(days: int = Query(default=56, ge=14, le=365)) -> dict:
+    """Gewichtstrend — voortschrijdend gemiddelde, nooit één weging."""
+    from agents import weight_trend
+    return weight_trend.analyze(days=days)
 
 
 @router.get("/checkin/history")
