@@ -57,6 +57,12 @@ def _planner_v3_inputs(week_start: date) -> tuple[dict, list[dict], dict[str, in
         )
         for i in range(7)
     }
+    # Een racedag is bezet: de race is de sessie. Zonder dit zet de assigner
+    # er gewoon een geplande run of rit bovenop, want hij ziet alleen
+    # beschikbaarheid — niet de kalender.
+    from agents import availability as _av
+    for dag in _av.get_race_day_names(week_start):
+        availability[dag] = 0
     return prefs, fixed_sessions, availability
 
 
@@ -167,6 +173,17 @@ def run(week_start: date, dry_run: bool = True, skip_run_days: list = None):
                 print(f"  Beschikbaarheid: {len(_rest)} rustdag(en) — {', '.join(_rest)}")
         except Exception as _e:
             print(f"  Beschikbaarheid niet geladen: {_e}")
+
+    # Racedagen komen er altijd bij, ook als de caller expliciet
+    # skip_run_days meegaf: op een racedag plan je niets bovenop.
+    try:
+        from agents import availability as _av
+        _races = _av.get_race_day_names(week_start)
+        if _races:
+            skip_run_days = list(dict.fromkeys((skip_run_days or []) + _races))
+            print(f"  Race deze week: {', '.join(_races)} — dag geblokkeerd.")
+    except Exception as _e:
+        print(f"  Racedagen niet geladen: {_e}")
 
     print(f"\n  Starttdatum week: {week_start} (maandag)")
     print("  Data ophalen uit intervals.icu...")
