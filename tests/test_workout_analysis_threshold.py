@@ -225,6 +225,48 @@ def test_gelijke_pace_met_normale_hr_drift_blijft_bruikbaar():
     assert workout_analysis.hr_reading_is_plausible(reps) is True
 
 
+def test_band_die_pas_halverwege_aanslaat_is_ook_een_sensorfout():
+    """Echte sessie (28 jul): borstband om, maar droge electroden.
+
+    6x3 min op 3:48-3:59/km. De rep-gemiddelden lopen keurig op (152->166)
+    en bleven binnen de 15 bpm; de piek per rep verraadt het wel: 165, 164,
+    160, 162, 173, 176. Rep 3 zakt onder rep 1 en daarna springt hij 16 bpm.
+    Dat is de sensor die aanslaat, niet een hart dat zwaarder gaat werken.
+    """
+    reps = [
+        {"pace": 3.87, "hr": 152, "max_hr": 165, "duration_s": 170},
+        {"pace": 3.90, "hr": 154, "max_hr": 164, "duration_s": 173},
+        {"pace": 3.80, "hr": 155, "max_hr": 160, "duration_s": 176},
+        {"pace": 3.98, "hr": 154, "max_hr": 162, "duration_s": 170},
+        {"pace": 3.88, "hr": 162, "max_hr": 173, "duration_s": 161},
+        {"pace": 3.85, "hr": 166, "max_hr": 176, "duration_s": 178},
+    ]
+
+    assert workout_analysis.hr_reading_is_plausible(reps) is False
+
+
+def test_vo2max_reps_van_drie_minuten_overleven_de_rep_detectie(monkeypatch):
+    """De ondergrens van 3 min hoort niet voor VO2max te gelden.
+
+    Met REP_MIN_SEC=180 leverde de sessie van 28 jul (reps van 161-178 s)
+    nul reps op, en zonder reps sloeg de HR-toets stilzwijgend over.
+    """
+    captured = {}
+
+    def _fake(act_id, target_sec, min_rep_sec=workout_analysis.REP_MIN_SEC):
+        captured["min_rep_sec"] = min_rep_sec
+        return []
+
+    monkeypatch.setattr(workout_analysis, "detect_run_reps", _fake)
+    workout_analysis.analyze(
+        {"type": "Run", "name": "VO2max - 6x3m @ 112%",
+         "description": "6x\n- 3m 112% Pace (3:53/km)\n- 2m 58% Pace"},
+        _ACTIVITY,
+    )
+
+    assert captured["min_rep_sec"] == workout_analysis.VO2_REP_MIN_SEC
+
+
 def test_uiteenlopende_pace_mag_uiteenlopende_hr_geven():
     """Een progressieve sessie hoort HR-spreiding te hebben; niet verdacht."""
     reps = [
@@ -240,7 +282,7 @@ def test_onbruikbare_hr_onderdrukt_de_hr_conclusies(monkeypatch):
     event = {"type": "Run", "name": "Lange drempel - 3x12 min @ 4:23/km"}
     monkeypatch.setattr(
         workout_analysis, "detect_run_reps",
-        lambda _id, _target: [
+        lambda _id, _target, _min_rep=None: [
             {"pace": 4.34, "hr": 147, "max_hr": 155, "duration_s": 706},
             {"pace": 4.32, "hr": 173, "max_hr": 185, "duration_s": 709},
             {"pace": 4.36, "hr": 171, "max_hr": 187, "duration_s": 717},
