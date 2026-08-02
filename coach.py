@@ -319,6 +319,27 @@ def print_week(events: list, monday: date):
     print(f"{'=' * 60}")
 
 
+def print_aerobic_efficiency(weeks: int = 10):
+    """Toon de pace-bij-vaste-hartslag trend.
+
+    Dit is de progressiemarker voor de aerobe motor. Whole-run efficiency
+    factor is daar ongeschikt voor: die middelt over de hele run, dus een
+    duurloop met een hard eindblok scoort slechter terwijl je juist fitter
+    bent geworden.
+    """
+    from agents import aerobic_efficiency as ae
+
+    try:
+        activities = api.get_activities(
+            start=date.today() - timedelta(weeks=weeks), end=date.today())
+    except Exception as exc:
+        print(f"\n  Aerobe efficiëntie niet beschikbaar: {exc}")
+        return
+
+    analysis = ae.analyze(activities)
+    print("\n" + ae.format_block(analysis))
+
+
 def print_feedback(completed: list[dict]):
     """Print feedback op voltooide workouts."""
     if not completed:
@@ -424,6 +445,9 @@ def main():
 
     # Toon week
     print_week(events, monday)
+
+    # Aerobe progressie — pace bij vaste hartslag over de laatste 10 weken
+    print_aerobic_efficiency()
 
     # Feedback op voltooide workouts
     completed = check_completed(events, recent)
