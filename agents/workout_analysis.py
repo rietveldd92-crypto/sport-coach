@@ -323,9 +323,10 @@ def _analyze_run_long(wtype, event, activity, act_id, base):
             insights.append(f"Even pacing: {_fmt_pace(avg_first)} → {_fmt_pace(avg_last)}/km. Stabiel en gedisciplineerd.")
 
         # Cardiac decoupling — pace-gecorrigeerd (Friel/intervals.icu-definitie).
-        decoupling = _cardiac_decoupling(splits, activity)
+        decoupling, decoupling_bron = _cardiac_decoupling(splits, activity)
         if decoupling is not None:
             base["cardiac_decoupling_pct"] = decoupling
+            base["cardiac_decoupling_bron"] = decoupling_bron
 
             if decoupling > 5:
                 insights.append(f"Cardiac decoupling {decoupling}% — aerobe basis nog in ontwikkeling. Je hartslag liep op terwijl je pace niet meesteeg.")
@@ -464,7 +465,8 @@ def target_pace_sec(event: dict) -> int | None:
     return min(candidates)
 
 
-def _cardiac_decoupling(splits: list[dict], activity: dict | None = None) -> float | None:
+def _cardiac_decoupling(splits: list[dict], activity: dict | None = None
+                        ) -> tuple[float | None, str | None]:
     """Pace-gecorrigeerde cardiac decoupling in procent. Hoger = slechter.
 
     Decoupling meet of je *efficiëntie* (snelheid per hartslag) wegzakt in de
@@ -476,16 +478,21 @@ def _cardiac_decoupling(splits: list[dict], activity: dict | None = None) -> flo
     We nemen de waarde van intervals.icu als die er is — die rekent hem over de
     volledige stream in plaats van over km-splits — en vallen anders terug op
     de EF-verhouding tussen de twee helften.
+
+    Returns ``(waarde, bron)``. De bron hoort erbij: de twee methodes rekenen
+    over een ander venster (hele activiteit versus km-splits zonder warming-up)
+    en leveren dus niet exact hetzelfde getal. Wie de reeks over meerdere runs
+    vergelijkt moet kunnen zien of hij appels met appels vergelijkt.
     """
     if activity and activity.get("decoupling") is not None:
         try:
-            return round(float(activity["decoupling"]), 1)
+            return round(float(activity["decoupling"]), 1), "intervals.icu"
         except (TypeError, ValueError):
             pass
 
     usable = [s for s in splits if (s.get("hr") or 0) > 0 and (s.get("pace") or 0) > 0]
     if len(usable) < 4:
-        return None
+        return None, None
 
     half = len(usable) // 2
     first, second = usable[:half], usable[half:]
@@ -496,8 +503,8 @@ def _cardiac_decoupling(splits: list[dict], activity: dict | None = None) -> flo
 
     ef_first = _ef(first)
     if ef_first <= 0:
-        return None
-    return round((ef_first - _ef(second)) / ef_first * 100, 1)
+        return None, None
+    return round((ef_first - _ef(second)) / ef_first * 100, 1), "km-splits"
 
 
 def _fmt_pace(dec_min: float) -> str:

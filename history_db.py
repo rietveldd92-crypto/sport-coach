@@ -306,6 +306,7 @@ def _migration_008_aerobic_efficiency(conn: sqlite3.Connection) -> None:
             pace_sec      INTEGER,
             samples_sec   INTEGER NOT NULL DEFAULT 0,
             distance_km   REAL,
+            temp_c        REAL,
             computed_at   TEXT DEFAULT (datetime('now')),
             PRIMARY KEY (activity_id, hr_low, hr_high)
         )
@@ -340,6 +341,7 @@ def _migration_009_aerobic_efficiency_band_key(conn: sqlite3.Connection) -> None
             pace_sec      INTEGER,
             samples_sec   INTEGER NOT NULL DEFAULT 0,
             distance_km   REAL,
+            temp_c        REAL,
             computed_at   TEXT DEFAULT (datetime('now')),
             PRIMARY KEY (activity_id, hr_low, hr_high)
         )
@@ -363,6 +365,20 @@ def _migration_009_aerobic_efficiency_band_key(conn: sqlite3.Connection) -> None
     )
 
 
+def _migration_010_aerobic_efficiency_temp(conn: sqlite3.Connection) -> None:
+    """v10: temperatuur bij de meting bewaren.
+
+    Pace bij vaste hartslag verslechtert in de hitte, en de vijfde as van de
+    modusbepaling kan een week naar CONSOLIDATIE duwen. Zonder temperatuur
+    weet je niet of een dalende trend training is of augustus. De kolom mag
+    NULL zijn — intervals.icu levert weerdata alleen als de atleet die
+    koppeling aan heeft staan.
+    """
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(aerobic_efficiency)")}
+    if cols and "temp_c" not in cols:
+        conn.execute("ALTER TABLE aerobic_efficiency ADD COLUMN temp_c REAL")
+
+
 # Registreer migraties in volgorde: (version, name, function)
 _MIGRATIONS = [
     (1, "initial_schema", _migration_001_initial_schema),
@@ -374,6 +390,7 @@ _MIGRATIONS = [
     (7, "observation_paces", _migration_007_observation_paces),
     (8, "aerobic_efficiency", _migration_008_aerobic_efficiency),
     (9, "aerobic_efficiency_band_key", _migration_009_aerobic_efficiency_band_key),
+    (10, "aerobic_efficiency_temp", _migration_010_aerobic_efficiency_temp),
 ]
 
 
@@ -1309,6 +1326,7 @@ def record_aerobic_efficiency(
     pace_sec: Optional[int],
     samples_sec: int,
     distance_km: Optional[float] = None,
+    temp_c: Optional[float] = None,
 ) -> None:
     """Leg een meting vast — ook een lege (te weinig tijd in de band).
 
@@ -1322,17 +1340,18 @@ def record_aerobic_efficiency(
             """
             INSERT INTO aerobic_efficiency
                 (activity_id, activity_date, hr_low, hr_high,
-                 pace_sec, samples_sec, distance_km)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+                 pace_sec, samples_sec, distance_km, temp_c)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(activity_id, hr_low, hr_high) DO UPDATE SET
                 activity_date = excluded.activity_date,
                 pace_sec      = excluded.pace_sec,
                 samples_sec   = excluded.samples_sec,
                 distance_km   = excluded.distance_km,
+                temp_c        = COALESCE(excluded.temp_c, temp_c),
                 computed_at   = datetime('now')
             """,
             (str(activity_id), activity_date, hr_low, hr_high,
-             pace_sec, samples_sec, distance_km),
+             pace_sec, samples_sec, distance_km, temp_c),
         )
         conn.commit()
 

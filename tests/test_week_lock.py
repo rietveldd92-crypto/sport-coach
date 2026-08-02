@@ -113,3 +113,38 @@ def test_vastzetten_en_ontgrendel_samen_is_een_fout(monkeypatch):
     with pytest.raises(SystemExit) as exc:
         plan_week.main()
     assert exc.value.code == 1
+
+
+def test_unlock_haalt_alle_locks_weg(monkeypatch):
+    """Eén achtergebleven notitie houdt de week vergrendeld."""
+    import intervals_client
+
+    events = [_lock_event(), {**_lock_event(), "id": "43"}, {"name": "Krachttraining"}]
+    verwijderd = []
+    monkeypatch.setattr(intervals_client, "get_events", lambda *a, **kw: events)
+    monkeypatch.setattr(intervals_client, "delete_event",
+                        lambda eid: verwijderd.append(eid))
+
+    assert week_lock.unlock_week(date(2026, 8, 3)) is True
+    assert sorted(verwijderd) == ["42", "43"]
+
+
+def test_lock_week_schrijft_niets_bij_onbekende_status(monkeypatch):
+    """Blind een tweede lock aanmaken maakt unlock later onbetrouwbaar."""
+    import intervals_client
+
+    aangemaakt = []
+    monkeypatch.setattr(intervals_client, "get_events",
+                        lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("502")))
+    monkeypatch.setattr(intervals_client, "create_event",
+                        lambda **kw: aangemaakt.append(kw))
+
+    with pytest.raises(RuntimeError, match="niet vaststellen"):
+        week_lock.lock_week(date(2026, 8, 3), "test")
+    assert aangemaakt == []
+
+
+def test_find_locks_geeft_alles():
+    events = [_lock_event(), {**_lock_event(), "id": "43"}, {"name": "Dagelijkse rehab"}]
+    assert len(week_lock.find_locks(events)) == 2
+    assert week_lock.find_lock(events)["id"] == "42"

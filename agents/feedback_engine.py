@@ -379,7 +379,11 @@ def build_prompt(
         )
         deep_data.append(f"Km-splits (mm:ss/km): {split_str}")
     if metrics.get("cardiac_decoupling_pct") is not None:
-        deep_data.append(f"Cardiac decoupling: {metrics['cardiac_decoupling_pct']}% (lager = beter aerobe basis)")
+        bron = metrics.get("cardiac_decoupling_bron")
+        bron_str = f", bron: {bron}" if bron else ""
+        deep_data.append(
+            f"Cardiac decoupling: {metrics['cardiac_decoupling_pct']}% "
+            f"(pace-gecorrigeerd, lager = beter aerobe basis{bron_str})")
     if metrics.get("avg_pace_first_third") and metrics.get("avg_pace_last_third"):
         deep_data.append(
             f"Pacing: eerste derde {workout_analysis._fmt_pace(metrics['avg_pace_first_third'])}/km"

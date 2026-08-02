@@ -45,6 +45,18 @@ MIN_DURATION_SEC = 40 * 60
 # gemiddelde pace kunstmatig omlaag trekken.
 MIN_SPEED_MS = 1.5
 
+# Boven deze temperatuur is pace bij vaste hartslag niet vergelijkbaar: je
+# hart pompt dan mede voor de koeling en niet alleen voor de spieren. We
+# gooien zulke runs niet weg — ze staan wél in de reeks — maar ze tellen niet
+# mee in de trend. Alleen toepasbaar als intervals.icu weerdata levert.
+MAX_TEMP_C = 22.0
+
+# De trend mag pas een trainingsbeslissing sturen als hij over een echt venster
+# loopt. Een warme veertien dagen kan de pace tijdelijk drukken; drie weken en
+# vijf metingen niet meer zomaar.
+TREND_MIN_METINGEN = 5
+TREND_MIN_SPAN_DAGEN = 21
+
 # Kwaliteitssessies uitsluiten: hun dribbelpauzes zitten ook in de HR-band.
 _QUALITY_WORDS = (
     "drempel", "threshold", "vo2max", "interval", "tempo", "cruise",
@@ -74,13 +86,41 @@ def _streams(activity_id: str) -> dict:
     return {s.get("type"): (s.get("data") or []) for s in raw or []}
 
 
+def _activity_temp(activity: dict) -> Optional[float]:
+    """Gemiddelde temperatuur, of None als intervals.icu er geen levert."""
+    for key in ("average_weather_temp", "average_temp", "average_feels_like"):
+        val = activity.get(key)
+        if val is not None:
+            try:
+                return float(val)
+            except (TypeError, ValueError):
+                continue
+    return None
+
+
+def _row(date_str, pace_sec, samples, km, temp) -> dict:
+    return {
+        "date": date_str,
+        "pace_sec": pace_sec,
+        "samples_sec": samples,
+        "distance_km": km,
+        "temp_c": temp,
+        "usable": pace_sec is not None,
+        "te_warm": temp is not None and temp > MAX_TEMP_C,
+    }
+
+
 def measure(activity: dict, hr_low: int = HR_LOW, hr_high: int = HR_HIGH,
-            use_cache: bool = True) -> Optional[dict]:
+            use_cache: bool = True, errors: Optional[list] = None) -> Optional[dict]:
     """Meet pace bij vaste hartslag voor één activiteit.
 
-    Returns ``{"date", "pace_sec", "samples_sec", "distance_km", "usable"}``,
-    of None als de activiteit sowieso niet in aanmerking komt (geen run, te
-    kort, kwaliteitssessie).
+    Returns een rij (zie ``_row``) of None als de activiteit niet in aanmerking
+    komt: geen run, te kort, of een kwaliteitssessie.
+
+    ``errors`` verzamelt, als je een lijst meegeeft, de activiteiten waarvan de
+    streams niet op te halen waren. Zonder die lijst verdwijnt een API-storing
+    stil en meldt de coach "geen bruikbare meting" terwijl er niets mis is met
+    de training.
     """
     if (activity.get("type") or "") != "Run":
         return None
@@ -94,25 +134,26 @@ def measure(activity: dict, hr_low: int = HR_LOW, hr_high: int = HR_HIGH,
     if not act_id or not act_date:
         return None
 
+    temp = _activity_temp(activity)
+
     if use_cache:
         try:
             import history_db
 
             cached = history_db.get_aerobic_efficiency(act_id, hr_low, hr_high)
             if cached:
-                return {
-                    "date": cached["activity_date"],
-                    "pace_sec": cached["pace_sec"],
-                    "samples_sec": cached["samples_sec"],
-                    "distance_km": cached["distance_km"],
-                    "usable": cached["pace_sec"] is not None,
-                }
-        except Exception:
-            pass  # cache is een optimalisatie, nooit een blokkade
+                return _row(cached["activity_date"], cached["pace_sec"],
+                            cached["samples_sec"], cached["distance_km"],
+                            cached["temp_c"] if cached["temp_c"] is not None else temp)
+        except Exception as exc:
+            if errors is not None:
+                errors.append(f"{act_date}: cache niet leesbaar ({exc})")
 
     try:
         st = _streams(act_id)
-    except Exception:
+    except Exception as exc:
+        if errors is not None:
+            errors.append(f"{act_date}: streams niet op te halen ({exc})")
         return None
 
     hr = st.get("heartrate") or []
@@ -139,23 +180,36 @@ def measure(activity: dict, hr_low: int = HR_LOW, hr_high: int = HR_HIGH,
         history_db.record_aerobic_efficiency(
             act_id, activity_date=act_date, hr_low=hr_low, hr_high=hr_high,
             pace_sec=pace_sec, samples_sec=samples, distance_km=km,
+            temp_c=temp,
         )
-    except Exception:
-        pass
+    except Exception as exc:
+        if errors is not None:
+            errors.append(f"{act_date}: meting niet op te slaan ({exc})")
 
-    return {"date": act_date, "pace_sec": pace_sec, "samples_sec": samples,
-            "distance_km": km, "usable": pace_sec is not None}
+    return _row(act_date, pace_sec, samples, km, temp)
 
 
 def build_trend(activities: list[dict], hr_low: int = HR_LOW,
-                hr_high: int = HR_HIGH) -> list[dict]:
+                hr_high: int = HR_HIGH,
+                errors: Optional[list] = None) -> list[dict]:
     """Bruikbare metingen uit een lijst activiteiten, oplopend op datum."""
     metingen = []
     for act in activities or []:
-        m = measure(act, hr_low, hr_high)
+        m = measure(act, hr_low, hr_high, errors=errors)
         if m and m["usable"]:
             metingen.append(m)
     return sorted(metingen, key=lambda m: m["date"])
+
+
+def _trend_metingen(metingen: list[dict]) -> list[dict]:
+    """De metingen die de trend mogen sturen: warme dagen tellen niet mee.
+
+    Boven MAX_TEMP_C pompt je hart mede voor de koeling, dus pace bij vaste
+    hartslag zakt zonder dat er iets met je conditie gebeurt. Onbekende
+    temperatuur laten we staan — anders houdt niemand zonder weerkoppeling ooit
+    een trend over.
+    """
+    return [m for m in metingen if not m.get("te_warm")]
 
 
 def _slope_sec_per_week(metingen: list[dict]) -> Optional[float]:
@@ -189,10 +243,13 @@ def analyze(activities: list[dict], hr_low: int = HR_LOW,
             hr_high: int = HR_HIGH) -> dict:
     """Volledige analyse: metingen, trend en oordeel.
 
-    Returns een dict met ``metingen``, ``huidig``, ``vorige``, ``delta_sec``,
-    ``slope_sec_per_week``, ``richting`` en ``samenvatting``.
+    ``betrouwbaar_voor_besluit`` zegt of de trend zwaar genoeg weegt om een
+    trainingsbeslissing te sturen. Dat vraagt meer dan een helling: genoeg
+    metingen over een lang genoeg venster, zodat een warme veertien dagen of
+    één rare run de week niet naar CONSOLIDATIE duwt.
     """
-    metingen = build_trend(activities, hr_low, hr_high)
+    fouten: list[str] = []
+    metingen = build_trend(activities, hr_low, hr_high, errors=fouten)
     result = {
         "hr_band": (hr_low, hr_high),
         "metingen": metingen,
@@ -202,13 +259,20 @@ def analyze(activities: list[dict], hr_low: int = HR_LOW,
         "slope_sec_per_week": None,
         "richting": "onbekend",
         "samenvatting": "",
+        "fouten": fouten,
+        "temp_bekend": False,
+        "warme_metingen": 0,
+        "betrouwbaar_voor_besluit": False,
     }
 
     if not metingen:
-        result["samenvatting"] = (
-            f"Nog geen bruikbare meting in de band {hr_low}-{hr_high} bpm "
-            f"(minimaal {MIN_SAMPLES_SEC}s nodig, kwaliteitssessies tellen niet mee)."
-        )
+        basis = (f"Nog geen bruikbare meting in de band {hr_low}-{hr_high} bpm "
+                 f"(minimaal {MIN_SAMPLES_SEC}s nodig, kwaliteitssessies tellen "
+                 "niet mee).")
+        if fouten:
+            basis += (f" Let op: {len(fouten)} activiteit(en) konden niet "
+                      "opgehaald worden — dit zegt dus niets over je training.")
+        result["samenvatting"] = basis
         return result
 
     result["huidig"] = metingen[-1]
@@ -216,8 +280,19 @@ def analyze(activities: list[dict], hr_low: int = HR_LOW,
         result["vorige"] = metingen[-2]
         result["delta_sec"] = metingen[-1]["pace_sec"] - metingen[-2]["pace_sec"]
 
-    slope = _slope_sec_per_week(metingen)
+    # Warme dagen tellen niet mee in de trend: pace bij vaste hartslag zakt in
+    # de hitte zonder dat je conditie verandert.
+    trend_set = _trend_metingen(metingen)
+    result["temp_bekend"] = any(m.get("temp_c") is not None for m in metingen)
+    result["warme_metingen"] = len(metingen) - len(trend_set)
+
+    slope = _slope_sec_per_week(trend_set)
     result["slope_sec_per_week"] = round(slope, 1) if slope is not None else None
+
+    if slope is not None and len(trend_set) >= TREND_MIN_METINGEN:
+        span = (date.fromisoformat(trend_set[-1]["date"])
+                - date.fromisoformat(trend_set[0]["date"])).days
+        result["betrouwbaar_voor_besluit"] = span >= TREND_MIN_SPAN_DAGEN
 
     huidig = fmt_pace(metingen[-1]["pace_sec"])
     band = f"{hr_low}-{hr_high} bpm"
@@ -243,9 +318,16 @@ def analyze(activities: list[dict], hr_low: int = HR_LOW,
         result["richting"] = "stabiel"
         oordeel = "vlak — geen meetbare aerobe winst of verlies"
 
-    result["samenvatting"] = (
-        f"Pace @ {band}: {huidig} over {len(metingen)} metingen. {oordeel}."
-    )
+    delen = [f"Pace @ {band}: {huidig} over {len(metingen)} metingen. {oordeel}."]
+    if result["warme_metingen"]:
+        delen.append(f"{result['warme_metingen']} meting(en) boven "
+                     f"{MAX_TEMP_C:.0f}°C niet meegeteld in de trend.")
+    elif not result["temp_bekend"]:
+        delen.append("Temperatuur onbekend (weerdata staat uit in intervals.icu) "
+                     "— een warme periode kan de trend drukken.")
+    if fouten:
+        delen.append(f"{len(fouten)} activiteit(en) niet op te halen.")
+    result["samenvatting"] = " ".join(delen)
     return result
 
 

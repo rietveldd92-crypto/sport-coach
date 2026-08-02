@@ -20,16 +20,26 @@ LOCK_NOTE_NAME = "[LOCK] Week vastgezet"
 LOCK_CATEGORY = "NOTE"
 
 
+def find_locks(events: list[dict]) -> list[dict]:
+    """Alle lock-events in een lijst events.
+
+    Meervoud, want er kunnen er meer dan één zijn: als `lock_week` draait
+    terwijl intervals.icu even onbereikbaar is, kan hij een tweede notitie
+    aanmaken. Zou `unlock_week` er dan maar één weghalen, dan lijkt de week
+    ontgrendeld terwijl hij het niet is.
+    """
+    return [e for e in events or []
+            if (e.get("name") or "").startswith(LOCK_NOTE_NAME)]
+
+
 def find_lock(events: list[dict]) -> dict | None:
-    """Geef het lock-event uit een lijst events, of None.
+    """Het eerste lock-event, of None.
 
     Pure functie: geen API-calls, zodat callers die de events toch al ophaalden
     geen tweede round-trip doen.
     """
-    for e in events or []:
-        if (e.get("name") or "").startswith(LOCK_NOTE_NAME):
-            return e
-    return None
+    locks = find_locks(events)
+    return locks[0] if locks else None
 
 
 def is_locked(events: list[dict]) -> bool:
@@ -67,11 +77,21 @@ def fetch_lock(week_start: date) -> dict | None:
 
 
 def lock_week(week_start: date, reason: str = "") -> dict:
-    """Zet een week vast. Idempotent: bestaat de lock al, dan hergebruiken we hem."""
+    """Zet een week vast. Idempotent: bestaat de lock al, dan hergebruiken we hem.
+
+    Kunnen we de bestaande events niet ophalen, dan schrijven we niets. Blind
+    een lock aanmaken zou een tweede notitie kunnen opleveren naast een lock
+    die er al is, en dan haalt `unlock_week` er straks maar één weg.
+    """
     import intervals_client as api
 
     existing = fetch_lock(week_start)
-    if existing and not existing.get("_unknown"):
+    if existing and existing.get("_unknown"):
+        raise RuntimeError(
+            f"Kan lock-status van {week_start} niet vaststellen: "
+            f"{existing.get('description')}. Niets gewijzigd — probeer opnieuw."
+        )
+    if existing:
         return existing
 
     body = reason.strip() or "Handmatig vastgezet."
@@ -92,11 +112,24 @@ def lock_week(week_start: date, reason: str = "") -> dict:
 
 
 def unlock_week(week_start: date) -> bool:
-    """Haal de lock weg. Geeft True als er iets verwijderd is."""
+    """Haal alle locks van deze week weg. Geeft True als er iets verwijderd is.
+
+    Alle, niet de eerste: één achtergebleven lock-notitie houdt de week
+    vergrendeld terwijl het commando zegt dat hij vrij is.
+    """
     import intervals_client as api
 
-    lock = fetch_lock(week_start)
-    if not lock or lock.get("_unknown") or not lock.get("id"):
-        return False
-    api.delete_event(lock["id"])
-    return True
+    try:
+        events = api.get_events(week_start, week_start + timedelta(days=6))
+    except Exception as exc:
+        raise RuntimeError(
+            f"Kan events van {week_start} niet ophalen ({exc}) — "
+            "lock niet verwijderd."
+        )
+
+    verwijderd = 0
+    for lock in find_locks(events):
+        if lock.get("id"):
+            api.delete_event(lock["id"])
+            verwijderd += 1
+    return verwijderd > 0

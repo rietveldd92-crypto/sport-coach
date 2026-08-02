@@ -24,6 +24,7 @@ if hasattr(sys.stdout, "reconfigure"):
 
 import intervals_client as api
 from agents import adherence, injury_guard, load_manager, marathon_periodizer
+from agents.aerobic_efficiency import TREND_MIN_METINGEN, TREND_MIN_SPAN_DAGEN
 
 STATE_PATH = Path(__file__).parent / "state.json"
 
@@ -263,14 +264,23 @@ def assess(review: dict, feedback: str = None) -> dict:
     aerobic_regressing = False
     if aerobic and aerobic.get("metingen"):
         slope = aerobic.get("slope_sec_per_week")
-        n = len(aerobic["metingen"])
         coaching_notes.append(aerobic["samenvatting"])
-        if slope is not None and slope > 2.0 and n >= 4:
+        # De as mag alleen beslissen als de trend het draagt: genoeg metingen
+        # over een lang genoeg venster, warme dagen er al uit. Anders kan een
+        # hittegolf of één rare run de week naar CONSOLIDATIE duwen.
+        if slope is not None and slope > 2.0 and aerobic.get("betrouwbaar_voor_besluit"):
             aerobic_regressing = True
             coaching_notes.append(
                 f"Aerobe efficiëntie zakt weg ({slope * 4:.0f} s/km trager per 4 weken "
                 "bij dezelfde hartslag) terwijl de belasting doorloopt. Dat is een "
                 "reden om te consolideren, niet om er volume bij te doen."
+            )
+        elif slope is not None and slope > 2.0:
+            coaching_notes.append(
+                "Aerobe efficiëntie lijkt weg te zakken, maar de reeks is nog te "
+                f"kort om er een weekbesluit op te nemen ({TREND_MIN_METINGEN} "
+                f"metingen over {TREND_MIN_SPAN_DAGEN} dagen nodig). Alleen in de "
+                "gaten houden."
             )
 
     # ── MODUS BEPALEN ──
