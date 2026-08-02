@@ -119,7 +119,8 @@ def compare_feel(workout_type: str, metrics: dict) -> str | None:
         decoupling = metrics.get("cardiac_decoupling_pct")
         if decoupling and decoupling > 5:
             return (
-                f"Cardiac decoupling {decoupling}% — je HR steeg terwijl je pace gelijk bleef. "
+                f"Cardiac decoupling {decoupling}% — je efficiëntie zakte weg in de tweede helft: "
+                "meer hartslag voor dezelfde snelheid. "
                 "Dat kan betekenen dat je te snel begon, of dat de aerobe basis nog groeit. "
                 "Volgende keer: eerste helft bewust trager."
             )

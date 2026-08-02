@@ -316,22 +316,19 @@ def _analyze_run_long(wtype, event, activity, act_id, base):
         base["avg_pace_last_third"] = round(avg_last, 2)
 
         if avg_last < avg_first - 0.05:
-            insights.append(f"Negative split! Laatste derde {avg_last:.2f}/km vs eerste {avg_first:.2f}/km. Precies wat je wilt bij de lange duurloop.")
+            insights.append(f"Negative split! Laatste derde {_fmt_pace(avg_last)}/km vs eerste {_fmt_pace(avg_first)}/km. Precies wat je wilt bij de lange duurloop.")
         elif avg_last > avg_first + 0.15:
-            insights.append(f"Positive split: vertraagd van {avg_first:.2f}/km naar {avg_last:.2f}/km. Te snel begonnen of glycogeen op?")
+            insights.append(f"Positive split: vertraagd van {_fmt_pace(avg_first)}/km naar {_fmt_pace(avg_last)}/km. Te snel begonnen of glycogeen op?")
         else:
-            insights.append(f"Even pacing: {avg_first:.2f} → {avg_last:.2f}/km. Stabiel en gedisciplineerd.")
+            insights.append(f"Even pacing: {_fmt_pace(avg_first)} → {_fmt_pace(avg_last)}/km. Stabiel en gedisciplineerd.")
 
-        # HR cardiac decoupling
-        hrs = [s["hr"] for s in splits if s["hr"] > 0]
-        if len(hrs) >= 4:
-            first_half_hr = sum(hrs[:len(hrs)//2]) / (len(hrs)//2)
-            second_half_hr = sum(hrs[len(hrs)//2:]) / (len(hrs) - len(hrs)//2)
-            decoupling = round((second_half_hr - first_half_hr) / first_half_hr * 100, 1)
+        # Cardiac decoupling — pace-gecorrigeerd (Friel/intervals.icu-definitie).
+        decoupling = _cardiac_decoupling(splits, activity)
+        if decoupling is not None:
             base["cardiac_decoupling_pct"] = decoupling
 
             if decoupling > 5:
-                insights.append(f"Cardiac decoupling {decoupling}% — aerobe basis nog in ontwikkeling. HR steeg terwijl pace gelijk bleef.")
+                insights.append(f"Cardiac decoupling {decoupling}% — aerobe basis nog in ontwikkeling. Je hartslag liep op terwijl je pace niet meesteeg.")
             elif decoupling > 2:
                 insights.append(f"Cardiac decoupling {decoupling}% — normaal voor deze duur.")
             else:
@@ -370,7 +367,7 @@ def _analyze_run_easy(wtype, event, activity, act_id, base):
         pace = round(base["duration"] / base["distance"], 2)
         base["avg_pace"] = pace
         if pace < 5.0 and base["hr_pct"] > 75:
-            insights.append(f"Pace {pace:.2f}/km bij HR {base['hr_pct']}% — makkelijk lopen is makkelijk lopen. Langzamer.")
+            insights.append(f"Pace {_fmt_pace(pace)}/km bij HR {base['hr_pct']}% — makkelijk lopen is makkelijk lopen. Langzamer.")
 
     if base["cadence"] and base["cadence"] < 170:
         insights.append(f"Kadans {base['cadence']} spm — probeer 175+ aan te houden, bespaart je benen.")
@@ -465,6 +462,42 @@ def target_pace_sec(event: dict) -> int | None:
     if not candidates:
         return None
     return min(candidates)
+
+
+def _cardiac_decoupling(splits: list[dict], activity: dict | None = None) -> float | None:
+    """Pace-gecorrigeerde cardiac decoupling in procent. Hoger = slechter.
+
+    Decoupling meet of je *efficiëntie* (snelheid per hartslag) wegzakt in de
+    tweede helft. Kale HR-drift meten is fout: bij een negative split loopt je
+    hartslag per definitie op omdat je harder gaat lopen, en dan scoort een
+    perfect uitgevoerde duurloop als "aerobe basis onvoldoende". Precies
+    omgekeerd dus.
+
+    We nemen de waarde van intervals.icu als die er is — die rekent hem over de
+    volledige stream in plaats van over km-splits — en vallen anders terug op
+    de EF-verhouding tussen de twee helften.
+    """
+    if activity and activity.get("decoupling") is not None:
+        try:
+            return round(float(activity["decoupling"]), 1)
+        except (TypeError, ValueError):
+            pass
+
+    usable = [s for s in splits if (s.get("hr") or 0) > 0 and (s.get("pace") or 0) > 0]
+    if len(usable) < 4:
+        return None
+
+    half = len(usable) // 2
+    first, second = usable[:half], usable[half:]
+
+    def _ef(rows: list[dict]) -> float:
+        # Efficiency factor = snelheid (km/min) per hartslag.
+        return sum((1 / r["pace"]) / r["hr"] for r in rows) / len(rows)
+
+    ef_first = _ef(first)
+    if ef_first <= 0:
+        return None
+    return round((ef_first - _ef(second)) / ef_first * 100, 1)
 
 
 def _fmt_pace(dec_min: float) -> str:

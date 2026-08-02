@@ -461,6 +461,13 @@ def main():
                              "Skipt weken die al workouts hebben.")
     parser.add_argument("--geen-run-maandag", action="store_true",
                         help="Sla de maandag-run over (verplaatst naar woensdag)")
+    parser.add_argument("--vastzetten", action="store_true",
+                        help="Zet de week vast: de planner (en de zondag-scheduler) "
+                             "laten hem met rust tot je hem ontgrendelt.")
+    parser.add_argument("--ontgrendel", action="store_true",
+                        help="Haal de week-lock weg zodat er weer gepland mag worden.")
+    parser.add_argument("--reden", type=str, default="",
+                        help="Toelichting bij --vastzetten (komt in de kalendernotitie).")
     args = parser.parse_args()
 
     if args.status:
@@ -484,6 +491,21 @@ def main():
             sys.exit(1)
     else:
         week_start = _next_monday()
+
+    if args.vastzetten or args.ontgrendel:
+        from agents import week_lock
+
+        if args.ontgrendel:
+            if week_lock.unlock_week(week_start):
+                print(f"  Week {week_start} ontgrendeld — de planner mag hem weer vullen.")
+            else:
+                print(f"  Week {week_start} was niet vastgezet.")
+        else:
+            week_lock.lock_week(week_start, args.reden)
+            print(f"  🔒 Week {week_start} vastgezet.")
+            if args.reden:
+                print(f"     Reden: {args.reden}")
+        return
 
     dry_run = not args.schrijf
 

@@ -28,8 +28,39 @@ MIN_RUN_KM = 3.0
 _FALLBACK_PACE_SEC_PER_KM = 330  # 5:30/km easy
 
 
+# Sessietypes die de weekstimulus dragen. Die kort je niet in om km te
+# compenseren: de km zijn het bijproduct, de tijd-op-drempel is het doel.
+_KEY_SESSION_TYPES = (
+    "run_threshold", "run_vo2max", "run_marathon", "run_speed", "run_interval",
+)
+_KEY_SESSION_WORDS = (
+    "drempel", "threshold", "vo2max", "interval", "tempo", "cruise",
+    "marathon-specifiek", "over-under",
+)
+
+
 def _is_run(sport: str) -> bool:
     return (sport or "") == "Run"
+
+
+def is_key_session(sessie: dict) -> bool:
+    """Draagt deze sessie de weekstimulus?
+
+    Proportioneel inkorten werkt voor easy runs en duurlopen: die zijn puur
+    volume, dus 15% eraf is 15% minder volume en verder verandert er niets.
+    Bij een drempel- of VO2max-sessie werkt dat niet — de main set staat vast
+    in de beschrijving (`3x 15m`), dus inkorten verlaagt alleen de duur en de
+    TSS in de kalender terwijl de workout zelf onveranderd zwaar blijft. Het
+    resultaat is een sessie die niet meer in zijn eigen tijdvak past en achteraf
+    als "niet afgemaakt" scoort.
+
+    Een kwaliteitssessie sla je over of je doet 'm heel. Niet half.
+    """
+    stype = (sessie.get("type") or "").lower()
+    if any(stype.startswith(t) for t in _KEY_SESSION_TYPES):
+        return True
+    haystack = f"{sessie.get('naam') or ''} {sessie.get('zone') or ''}".lower()
+    return any(w in haystack for w in _KEY_SESSION_WORDS)
 
 
 def _session_km(sessie: dict) -> float:
@@ -189,17 +220,30 @@ def apply(
     remaining_km_total = sum(_session_km(s) for s in remaining)
     reduction_budget = max(0.0, overshoot) if do_compensate else 0.0
 
+    # Kwaliteitssessies dragen de weekstimulus en worden niet ingekort; de
+    # overshoot verdelen we over de sessies die wél puur volume zijn.
+    cappable = [s for s in remaining if not is_key_session(s)]
+    cappable_km_total = sum(_session_km(s) for s in cappable)
+    beschermd = [s.get("naam") for s in remaining if is_key_session(s)]
+    if beschermd:
+        info["beschermd"] = beschermd
+    if reduction_budget > 0 and not cappable:
+        # Alleen kwaliteitssessies over: dan compenseren we niet. Liever een
+        # paar km overshoot dan een halve sleutelsessie.
+        info["niet_gecompenseerd_km"] = round(reduction_budget, 1)
+        reduction_budget = 0.0
+
     new_sessions = []
     for s in sessions:
-        if s not in remaining:
+        if s not in remaining or is_key_session(s):
             new_sessions.append(s)
             continue
         cur_km = _session_km(s)
         target_km = cur_km
 
         # Stap 1: proportionele overshoot-reductie
-        if reduction_budget > 0 and remaining_km_total > 0:
-            share = cur_km / remaining_km_total
+        if reduction_budget > 0 and cappable_km_total > 0:
+            share = cur_km / cappable_km_total
             target_km = cur_km - (reduction_budget * share)
 
         if target_km < cur_km - 0.3:  # alleen cappen bij zinvol verschil
@@ -296,17 +340,22 @@ def apply_to_events(
     if not do_compensate:
         return []
 
-    remaining_km_total = sum(_session_km(s) for s in remaining)
+    # Zelfde regel als in apply(): kwaliteitssessies blijven heel. Zie
+    # is_key_session() voor het waarom.
+    cappable = [s for s in remaining if not is_key_session(s)]
+    cappable_km_total = sum(_session_km(s) for s in cappable)
+    if not cappable:
+        return []
     reduction_budget = max(0.0, overshoot) if do_compensate else 0.0
 
     updates: list[dict] = []
-    for s in remaining:
+    for s in cappable:
         cur_km = _session_km(s)
         if cur_km <= 0:
             continue
         target_km = cur_km
-        if reduction_budget > 0 and remaining_km_total > 0:
-            target_km = cur_km - (reduction_budget * (cur_km / remaining_km_total))
+        if reduction_budget > 0 and cappable_km_total > 0:
+            target_km = cur_km - (reduction_budget * (cur_km / cappable_km_total))
         target_km = max(MIN_RUN_KM, round(target_km, 1))
         if target_km >= cur_km - 0.3:
             continue
