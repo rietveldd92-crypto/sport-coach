@@ -146,3 +146,46 @@ def test_fmt_pace():
     assert ae.fmt_pace(301) == "5:01/km"
     assert ae.fmt_pace(320) == "5:20/km"
     assert ae.fmt_pace(None) == "-"
+
+
+def test_cache_scheidt_hr_banden(tmp_path, monkeypatch):
+    """Bandwissel mag de meting van de andere band niet overschrijven.
+
+    Migratie 008 had activity_id als enige primary key terwijl de lookup op
+    (activity_id, hr_low, hr_high) ging — een bandwissel wiste dan stil de
+    historie.
+    """
+    monkeypatch.setenv("SPORT_DB_PATH", str(tmp_path / "t.db"))
+    import importlib
+
+    import history_db
+    importlib.reload(history_db)
+
+    history_db.record_aerobic_efficiency(
+        "a1", activity_date="2026-08-02", hr_low=142, hr_high=150,
+        pace_sec=301, samples_sec=540, distance_km=24.9)
+    history_db.record_aerobic_efficiency(
+        "a1", activity_date="2026-08-02", hr_low=135, hr_high=145,
+        pace_sec=318, samples_sec=900, distance_km=24.9)
+
+    smal = history_db.get_aerobic_efficiency("a1", 142, 150)
+    breed = history_db.get_aerobic_efficiency("a1", 135, 145)
+    assert smal is not None and smal["pace_sec"] == 301
+    assert breed is not None and breed["pace_sec"] == 318
+
+    importlib.reload(history_db)
+
+
+def test_streams_vraagt_alleen_wat_nodig_is(monkeypatch):
+    """Zonder types-filter komen alle 15 streams mee; dat is pure bandbreedte."""
+    import intervals_client
+
+    gevraagd = {}
+
+    def _fake(aid, types=None):
+        gevraagd["types"] = types
+        return _streams([145] * 3600, [1000 / 300] * 3600)
+
+    monkeypatch.setattr(intervals_client, "get_activity_streams", _fake)
+    ae.measure(_run("1", "2026-08-02"))
+    assert gevraagd["types"] == ["velocity_smooth", "heartrate"]

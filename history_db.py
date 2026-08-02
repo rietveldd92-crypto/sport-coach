@@ -299,17 +299,64 @@ def _migration_008_aerobic_efficiency(conn: sqlite3.Connection) -> None:
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS aerobic_efficiency (
-            activity_id   TEXT PRIMARY KEY,
+            activity_id   TEXT NOT NULL,
             activity_date TEXT NOT NULL,
             hr_low        INTEGER NOT NULL,
             hr_high       INTEGER NOT NULL,
             pace_sec      INTEGER,
             samples_sec   INTEGER NOT NULL DEFAULT 0,
             distance_km   REAL,
-            computed_at   TEXT DEFAULT (datetime('now'))
+            computed_at   TEXT DEFAULT (datetime('now')),
+            PRIMARY KEY (activity_id, hr_low, hr_high)
         )
         """
     )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_aerobic_efficiency_date "
+        "ON aerobic_efficiency (activity_date)"
+    )
+
+
+def _migration_009_aerobic_efficiency_band_key(conn: sqlite3.Connection) -> None:
+    """v9: de HR-band hoort bij de sleutel, niet alleen bij de rij.
+
+    Migratie 008 zette `activity_id` als enige primary key terwijl de lookup op
+    (activity_id, hr_low, hr_high) gaat. Gevolg: verander je de band, dan
+    overschrijft `ON CONFLICT(activity_id)` de meting van de oude band — de
+    historie is dan stil weg, en terugschakelen betekent alles opnieuw uit de
+    streams halen.
+    """
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(aerobic_efficiency)")}
+    if not cols:
+        return  # tabel bestaat niet; 008 maakt hem al met de juiste sleutel
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS aerobic_efficiency_v2 (
+            activity_id   TEXT NOT NULL,
+            activity_date TEXT NOT NULL,
+            hr_low        INTEGER NOT NULL,
+            hr_high       INTEGER NOT NULL,
+            pace_sec      INTEGER,
+            samples_sec   INTEGER NOT NULL DEFAULT 0,
+            distance_km   REAL,
+            computed_at   TEXT DEFAULT (datetime('now')),
+            PRIMARY KEY (activity_id, hr_low, hr_high)
+        )
+        """
+    )
+    conn.execute(
+        """
+        INSERT OR REPLACE INTO aerobic_efficiency_v2
+            (activity_id, activity_date, hr_low, hr_high,
+             pace_sec, samples_sec, distance_km, computed_at)
+        SELECT activity_id, activity_date, hr_low, hr_high,
+               pace_sec, samples_sec, distance_km, computed_at
+        FROM aerobic_efficiency
+        """
+    )
+    conn.execute("DROP TABLE aerobic_efficiency")
+    conn.execute("ALTER TABLE aerobic_efficiency_v2 RENAME TO aerobic_efficiency")
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_aerobic_efficiency_date "
         "ON aerobic_efficiency (activity_date)"
@@ -326,6 +373,7 @@ _MIGRATIONS = [
     (6, "threshold_pace", _migration_006_threshold_pace),
     (7, "observation_paces", _migration_007_observation_paces),
     (8, "aerobic_efficiency", _migration_008_aerobic_efficiency),
+    (9, "aerobic_efficiency_band_key", _migration_009_aerobic_efficiency_band_key),
 ]
 
 
@@ -1276,10 +1324,8 @@ def record_aerobic_efficiency(
                 (activity_id, activity_date, hr_low, hr_high,
                  pace_sec, samples_sec, distance_km)
             VALUES (?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(activity_id) DO UPDATE SET
+            ON CONFLICT(activity_id, hr_low, hr_high) DO UPDATE SET
                 activity_date = excluded.activity_date,
-                hr_low        = excluded.hr_low,
-                hr_high       = excluded.hr_high,
                 pace_sec      = excluded.pace_sec,
                 samples_sec   = excluded.samples_sec,
                 distance_km   = excluded.distance_km,

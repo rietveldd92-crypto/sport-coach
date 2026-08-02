@@ -31,7 +31,8 @@ _FALLBACK_PACE_SEC_PER_KM = 330  # 5:30/km easy
 # Sessietypes die de weekstimulus dragen. Die kort je niet in om km te
 # compenseren: de km zijn het bijproduct, de tijd-op-drempel is het doel.
 _KEY_SESSION_TYPES = (
-    "run_threshold", "run_vo2max", "run_marathon", "run_speed", "run_interval",
+    "run_threshold", "run_vo2max", "run_marathon", "run_speed",
+    "run_intervals", "run_tempo",
 )
 _KEY_SESSION_WORDS = (
     "drempel", "threshold", "vo2max", "interval", "tempo", "cruise",
@@ -216,8 +217,6 @@ def apply(
         info["capped"] = []
         return sessions, info
 
-    # Proportionele reductie over resterende runs
-    remaining_km_total = sum(_session_km(s) for s in remaining)
     reduction_budget = max(0.0, overshoot) if do_compensate else 0.0
 
     # Kwaliteitssessies dragen de weekstimulus en worden niet ingekort; de

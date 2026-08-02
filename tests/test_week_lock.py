@@ -2,6 +2,8 @@
 
 from datetime import date
 
+import pytest
+
 from agents import week_lock
 
 
@@ -73,3 +75,41 @@ def test_build_week_wist_niets_op_vergrendelde_week(monkeypatch):
     assert events == []
     assert verwijderd == [], "vergrendelde week mag niet gewist worden"
     assert geschreven == [], "vergrendelde week mag niet gevuld worden"
+
+
+def test_lock_vlaggen_botsen_niet_stil_met_planvlaggen(monkeypatch, capsys):
+    """--horizon slikte --vastzetten op en startte de planner.
+
+    De lock-vlag bestaat om planning te blokkeren; als hij in combinatie met
+    --horizon of --schrijf stil genegeerd wordt, doet het commando precies het
+    tegenovergestelde van wat je vroeg.
+    """
+    import sys as _sys
+    import plan_week
+
+    gepland = []
+    monkeypatch.setattr(plan_week, "run_horizon",
+                        lambda *a, **kw: gepland.append(a))
+    monkeypatch.setattr(plan_week, "run", lambda *a, **kw: gepland.append(a))
+
+    for argv in (
+        ["plan_week.py", "--horizon", "2", "--vastzetten"],
+        ["plan_week.py", "--schrijf", "--vastzetten"],
+        ["plan_week.py", "--ontgrendel", "--schrijf"],
+    ):
+        monkeypatch.setattr(_sys, "argv", argv)
+        with pytest.raises(SystemExit) as exc:
+            plan_week.main()
+        assert exc.value.code == 1, f"{argv} had moeten afbreken"
+        assert gepland == [], f"{argv} startte alsnog de planner"
+
+
+def test_vastzetten_en_ontgrendel_samen_is_een_fout(monkeypatch):
+    import sys as _sys
+    import plan_week
+
+    monkeypatch.setattr(_sys, "argv",
+                        ["plan_week.py", "--vastzetten", "--ontgrendel"])
+    with pytest.raises(SystemExit) as exc:
+        plan_week.main()
+    assert exc.value.code == 1

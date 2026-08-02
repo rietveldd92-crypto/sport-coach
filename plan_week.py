@@ -476,6 +476,27 @@ def main():
 
     skip_run_days = ["maandag"] if args.geen_run_maandag else []
 
+    # Lock-vlaggen en planvlaggen sluiten elkaar uit. Zonder deze check slikte
+    # --horizon de --vastzetten stil op (horizon returnt eerder), en dan start
+    # de planner terwijl je juist vroeg om níet te plannen — met --schrijf erbij
+    # is dat precies de overschrijving die de lock moet voorkomen.
+    if args.vastzetten and args.ontgrendel:
+        print("  ⚠️  --vastzetten en --ontgrendel gaan niet samen.")
+        sys.exit(1)
+    if args.vastzetten or args.ontgrendel:
+        conflicterend = [
+            naam for naam, actief in (
+                ("--horizon", args.horizon is not None and args.horizon > 0),
+                ("--schrijf", args.schrijf),
+                ("--geen-run-maandag", args.geen_run_maandag),
+            ) if actief
+        ]
+        if conflicterend:
+            print(f"  ⚠️  {', '.join(conflicterend)} kan niet samen met "
+                  "--vastzetten/--ontgrendel: dat zijn planacties en de "
+                  "lock-vlaggen zijn er juist om planning te blokkeren.")
+            sys.exit(1)
+
     if args.horizon is not None and args.horizon > 0:
         run_horizon(args.horizon, write=args.schrijf, skip_run_days=skip_run_days)
         return

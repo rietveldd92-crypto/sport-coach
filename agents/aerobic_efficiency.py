@@ -58,10 +58,17 @@ def is_quality_run(activity: dict) -> bool:
 
 
 def _streams(activity_id: str) -> dict:
-    """Streams als dict per type. De API geeft een lijst van {type, data}."""
+    """Streams als dict per type. De API geeft een lijst van {type, data}.
+
+    Alleen de twee streams die we nodig hebben opvragen: zonder `types` stuurt
+    intervals.icu alle vijftien terug (watts, latlng, respiration, stance_time,
+    …), en dat is bij een rit van twee uur zo'n 100.000 waarden die we
+    weggooien. Zelfde patroon als workout_analysis._hr_per_rep.
+    """
     import intervals_client as api
 
-    raw = api.get_activity_streams(activity_id)
+    raw = api.get_activity_streams(
+        activity_id, types=["velocity_smooth", "heartrate"])
     if isinstance(raw, dict):
         return raw
     return {s.get("type"): (s.get("data") or []) for s in raw or []}
@@ -255,7 +262,10 @@ def format_block(analysis: dict, breedte: int = 60) -> str:
         regels.append(f"  {analysis['samenvatting']}")
         return "\n".join(regels)
 
-    for m in metingen[-6:]:
+    TOON = 6
+    if len(metingen) > TOON:
+        regels.append(f"  ({len(metingen) - TOON} oudere meting(en) niet getoond)")
+    for m in metingen[-TOON:]:
         km = f"{m['distance_km']:.1f} km" if m.get("distance_km") else ""
         regels.append(
             f"  {m['date']}  {fmt_pace(m['pace_sec']):>9}  "
