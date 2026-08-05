@@ -375,7 +375,7 @@ def threshold_context() -> dict:
     drift_sentence = _drift_sentence(drift_series)
 
     return {
-        "sentence": f"{sentence} {drift_sentence}".strip(),
+        "sentence": sentence,
         "recent_observations": list(reversed(observations)),
         "faster_count": len(faster),
         "slower_count": len(slower),
@@ -462,7 +462,11 @@ def _in_workout_cooldown(today: date) -> bool:
 
 def _is_faster_signal(obs: dict) -> bool:
     rpe = obs.get("rpe")
-    if obs.get("pace_delta_sec") is None or float(obs["pace_delta_sec"]) > -3:
+    if not bool(obs.get("completed", 1)):
+        return False
+    # -3 s/km valt nog binnen de expliciete on-target-band (Â±3). Houd de
+    # assen disjunct: pas strikt sneller dan die band is een pace-signaal.
+    if obs.get("pace_delta_sec") is None or float(obs["pace_delta_sec"]) >= -3:
         return False
     if obs.get("hr_vs_band") is None:
         # Onbruikbare HR (polsmeting): pace alleen is te dun, want sneller

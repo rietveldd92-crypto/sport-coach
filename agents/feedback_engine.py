@@ -464,6 +464,7 @@ AUTO-ANALYSE BEVINDINGEN
 
 DREMPEL-TREND (deterministisch berekend; verwoord dit alleen, verzin geen drempelwaarde)
 {threshold_ctx["sentence"]}
+{threshold_ctx.get("drift_sentence", "")}
 
 WELLNESS / HERSTEL
 {wellness_ctx or '(geen wellness data beschikbaar)'}

@@ -48,7 +48,7 @@ def test_drie_van_vier_sneller_met_lage_rpe_geeft_voorstel():
     _seed_state(255)
     _obs(1, "a1", -5, "onder", 6)
     _obs(2, "a2", -4, "in", 7)
-    _obs(3, "a3", -3, "onder", 6)
+    _obs(3, "a3", -4, "onder", 6)
     _obs(4, "a4", 1, "in", 8)
 
     suggestion = threshold_model.evaluate_trend(today=TODAY)
@@ -63,7 +63,7 @@ def test_sneller_met_te_veel_ontbrekende_rpe_geen_suggestie():
     _seed_state(255)
     _obs(1, "a1", -5, "onder", None)
     _obs(2, "a2", -4, "in", None)
-    _obs(3, "a3", -3, "onder", 6)
+    _obs(3, "a3", -4, "onder", 6)
     _obs(4, "a4", 1, "in", 8)
 
     assert threshold_model.evaluate_trend(today=TODAY) is None
@@ -79,6 +79,27 @@ def test_drie_van_vier_langzamer_met_hr_boven_geeft_trager_voorstel():
     suggestion = threshold_model.evaluate_trend(today=TODAY)
 
     assert suggestion["proposed_sec"] == 258
+
+
+def test_afgebroken_snelle_reps_tellen_nooit_als_vooruitgang():
+    _seed_state(255)
+    _obs(1, "a1", -6, "in", 6, completed=False)
+    _obs(2, "a2", -5, "in", 6, completed=False)
+    _obs(3, "a3", -4, "onder", 6, completed=False)
+
+    assert threshold_model.evaluate_trend(today=TODAY) is None
+
+
+def test_min_drie_seconden_is_on_target_en_niet_ook_sneller():
+    observation = {
+        "pace_delta_sec": -3,
+        "hr_vs_band": "in",
+        "rpe": 6,
+        "completed": True,
+    }
+
+    assert threshold_model._on_target(observation) is True
+    assert threshold_model._is_faster_signal(observation) is False
 
 
 def test_oude_observaties_tellen_niet_mee():
@@ -276,7 +297,7 @@ def test_zonder_hr_beslissen_pace_en_rpe_samen():
     _seed_state(255)
     _obs_zonder_hr(1, "a1", -5, 6)
     _obs_zonder_hr(2, "a2", -4, 7)
-    _obs_zonder_hr(3, "a3", -3, 6)
+    _obs_zonder_hr(3, "a3", -4, 6)
 
     suggestion = threshold_model.evaluate_trend(today=TODAY)
 
