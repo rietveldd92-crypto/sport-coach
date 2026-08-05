@@ -25,6 +25,7 @@ from datetime import date, timedelta
 # Functienamen die gepatcht worden op de intervals_client-module.
 PATCHED = (
     "get_athlete", "get_activities", "get_wellness", "get_wellness_today",
+    "update_wellness",
     "get_events", "create_event", "update_event", "delete_event",
     "bulk_delete_events", "get_activity_detail", "get_activity_streams",
 )
@@ -151,6 +152,16 @@ class MockIntervals:
     def get_wellness_today(self) -> dict:
         recs = [w for w in self.wellness if w["id"] == self.today.isoformat()]
         return recs[0] if recs else {}
+
+    def update_wellness(self, on_date: date, **fields) -> dict:
+        day = on_date.isoformat()
+        record = next((w for w in self.wellness if w["id"] == day), None)
+        if record is None:
+            record = {"id": day}
+            self.wellness.append(record)
+        record.update(fields)
+        self.calls.append(("update_wellness", day, dict(fields)))
+        return dict(record)
 
     def get_activity_detail(self, activity_id, intervals=True) -> dict:
         return next(

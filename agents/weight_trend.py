@@ -53,7 +53,8 @@ def analyze(days: int = 56) -> dict:
     """
     series = _weights(days)
     if not series:
-        return {"latest": None, "avg_recent": None, "avg_prior": None,
+        return {"latest": None, "latest_date": None,
+                "avg_recent": None, "avg_prior": None,
                 "kg_per_week": None, "n_measurements": 0,
                 "message": "Geen gewichtsmetingen — trend niet te bepalen."}
 

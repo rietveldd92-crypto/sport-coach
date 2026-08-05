@@ -164,6 +164,17 @@ export interface CheckinResult {
   };
 }
 
+/** GET /api/checkin/weight */
+export interface WeightTrendView {
+  latest: number | null;
+  latest_date: string | null;
+  avg_recent: number | null;
+  avg_prior: number | null;
+  kg_per_week: number | null;
+  n_measurements: number;
+  message: string;
+}
+
 export interface PlanWeekRow {
   week_start: string;
   phase?: string;

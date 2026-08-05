@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import BottomSheet from "../components/BottomSheet";
-import { useCheckin } from "../api/queries";
+import { useCheckin, useWeightTrend } from "../api/queries";
 import type { CheckinResult } from "../api/types";
 
 const SLIDERS = [
@@ -31,8 +31,16 @@ interface Props {
   onClose: () => void;
 }
 
+export function parseOptionalWeight(value: string): number | undefined {
+  const normalized = value.trim().replace(",", ".");
+  if (!normalized) return undefined;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
 export default function CheckinSheet({ open, onClose }: Props) {
   const checkin = useCheckin();
+  const weightTrend = useWeightTrend(open);
   const [values, setValues] = useState<Record<SliderKey, number>>({
     sleep_score: 3,
     energy: 3,
@@ -40,7 +48,14 @@ export default function CheckinSheet({ open, onClose }: Props) {
     motivation: 3,
   });
   const [signals, setSignals] = useState<string[]>([]);
+  const [weight, setWeight] = useState("");
   const [result, setResult] = useState<CheckinResult | null>(null);
+
+  useEffect(() => {
+    if (open && !weight && weightTrend.data?.latest != null) {
+      setWeight(String(weightTrend.data.latest).replace(".", ","));
+    }
+  }, [open, weight, weightTrend.data?.latest]);
 
   const toggleSignal = (id: string) =>
     setSignals((cur) =>
@@ -48,9 +63,19 @@ export default function CheckinSheet({ open, onClose }: Props) {
     );
 
   const submit = () => {
+    const parsedWeight = parseOptionalWeight(weight);
     checkin.mutate(
-      { ...values, injury_signals: signals },
-      { onSuccess: setResult },
+      {
+        ...values,
+        injury_signals: signals,
+        ...(parsedWeight === undefined ? {} : { weight: parsedWeight }),
+      },
+      {
+        onSuccess: async (data) => {
+          await weightTrend.refetch();
+          setResult(data);
+        },
+      },
     );
   };
 
@@ -75,6 +100,24 @@ export default function CheckinSheet({ open, onClose }: Props) {
           <p className="text-sm leading-relaxed text-muted">
             {result.recovery.message}
           </p>
+          {weightTrend.data && (
+            <div className="rounded-xl border border-line px-4 py-3 text-sm">
+              <div className="flex flex-wrap gap-x-4 gap-y-1 font-mono text-xs text-muted">
+                {weightTrend.data.latest != null && (
+                  <span>Laatste {weightTrend.data.latest.toFixed(1)} kg</span>
+                )}
+                {weightTrend.data.avg_recent != null && (
+                  <span>Gemiddeld {weightTrend.data.avg_recent.toFixed(1)} kg</span>
+                )}
+                {weightTrend.data.kg_per_week != null && (
+                  <span>{weightTrend.data.kg_per_week >= 0 ? "+" : ""}{weightTrend.data.kg_per_week.toFixed(2)} kg/week</span>
+                )}
+              </div>
+              <p className="mt-2 leading-snug text-muted">
+                {weightTrend.data.message}
+              </p>
+            </div>
+          )}
           <button
             onClick={close}
             className="w-full rounded-xl bg-accent py-3 text-sm font-semibold text-white transition-colors hover:bg-accent-hover"
@@ -109,6 +152,25 @@ export default function CheckinSheet({ open, onClose }: Props) {
               </div>
             </div>
           ))}
+
+          <div>
+            <div className="mb-2 flex items-baseline justify-between">
+              <label htmlFor="checkin-weight" className="text-sm font-medium">
+                Gewicht <span className="font-normal text-dim">(optioneel)</span>
+              </label>
+              <span className="text-xs text-dim">kg</span>
+            </div>
+            <input
+              id="checkin-weight"
+              aria-label="Gewicht"
+              type="text"
+              inputMode="decimal"
+              value={weight}
+              placeholder="87,5"
+              onChange={(e) => setWeight(e.target.value)}
+              className="w-full rounded-xl border border-line-strong bg-surface px-3.5 py-3 font-mono text-base outline-none transition-colors focus:border-accent"
+            />
+          </div>
 
           <div>
             <p className="mb-2.5 text-sm font-medium">Signalen</p>
