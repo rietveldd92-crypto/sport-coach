@@ -79,6 +79,29 @@ def test_target_pace_valt_terug_op_beschrijving():
     assert workout_analysis.target_pace_sec(event) == 260
 
 
+def test_target_pace_bij_procent_naam_pakt_main_set_niet_warmup():
+    """VO2max-sessies hebben geen pace in de naam ('5x3m @ 107%').
+
+    De beschrijving noemt warmup/main set/cooldown paces in die volgorde
+    (6:10/km warmup, 3:58/km main set, 7:20/km actieve rust, 6:51/km cooldown).
+    De eerste match pakken (16 jul bug) las de warmup-pace als target: veel
+    te traag, dus alles onder dat tempo (incl. cooldown) telde als 'werk'.
+    """
+    event = {
+        "type": "Run",
+        "name": "VO2max - 5x3m @ 107%",
+        "description": (
+            "Drempelpace: 4:15/km\n\n"
+            "Warmup\n- 12m 69% Pace (6:10/km)\n\n"
+            "Main Set\n5x\n- 3m 3:58/km Pace (107% drempel - VO2max)\n"
+            "- 2m 58% Pace (7:20/km)\n\n"
+            "Cooldown\n- 12m 62% Pace (6:51/km)"
+        ),
+    }
+
+    assert workout_analysis.target_pace_sec(event) == 238
+
+
 def test_zonder_target_geen_pace_delta():
     event = {"type": "Run", "name": "Drempelsessie"}
 
