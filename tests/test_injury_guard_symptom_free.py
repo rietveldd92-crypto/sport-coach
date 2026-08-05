@@ -5,9 +5,17 @@ De poorten voor strides (14) en tempo (21) waren daarmee onbereikbaar voor
 een atleet die nooit een klacht had gemeld — op 28 juli 2026 stond de teller
 op 4 bij 999 dagen sinds het laatste signaal, met alles op slot.
 """
+from datetime import date, timedelta
+
 import pytest
 
 from agents import injury_guard
+
+
+class _PinnedDate(date):
+    @classmethod
+    def today(cls):
+        return cls(2026, 8, 5)
 
 
 def _state(injury: dict) -> dict:
@@ -46,11 +54,13 @@ def test_een_gemeld_signaal_zet_de_teller_terug_op_nul(monkeypatch):
 
 def test_met_historie_telt_de_gewone_teller(monkeypatch):
     """Wie wél een klacht heeft gehad, doorloopt het terugkeerprotocol."""
+    monkeypatch.setattr(injury_guard, "date", _PinnedDate)
+    signal_day = (_PinnedDate.today() - timedelta(days=6)).isoformat()
     monkeypatch.setattr(injury_guard, "_load_state", lambda: _state({
         "active_signals": [],
-        "history": [{"date": "2026-07-20", "signals": ["knie_pijn"],
+        "history": [{"date": signal_day, "signals": ["knie_pijn"],
                      "type": "direct"}],
-        "last_signal_date": "2026-07-20",
+        "last_signal_date": signal_day,
         "days_symptom_free": 5,
     }))
 
