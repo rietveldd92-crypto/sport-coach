@@ -122,6 +122,15 @@ Cool-down
 if __name__ == "__main__":
     print("=== Weekplan 23-29 maart inplannen ===\n")
 
+    # Stap 0: respecteer een vastgezette week — dit script wist de hele periode.
+    from agents import week_lock
+
+    if week_lock.fetch_lock(START) is not None:
+        raise SystemExit(
+            f"Week {START} is vastgezet. Ontgrendel eerst met:\n"
+            f"  python plan_week.py --week {START.isoformat()} --ontgrendel"
+        )
+
     # Stap 1: Wis bestaande workouts
     print("Bestaande workouts verwijderen...")
     deleted = bulk_delete_events(START, END)

@@ -72,6 +72,13 @@ class AthleteProfile:
     ftp: int = 290
     hrmax: int = 192
     days_symptom_free: int = 99        # injury-context (4e-run-trigger)
+    # Harde bovengrens op run-sessies per week. De doeltype-profielen tillen
+    # `sessions` in de specifieke fases naar `peak_sessions` (marathon: 5),
+    # ongeacht wat de atleet werkelijk doet. Dennis loopt bewust 3x en fietst
+    # de rest; de V3-weekplanner plant dat ook zo (`fourth_run_gate_open`),
+    # maar het macroplan bleef 5 runs / 54 km voorschrijven. Twee plannen die
+    # elkaar tegenspreken, en de haalbaarheidscheck rekende met de verkeerde.
+    max_run_sessions: Optional[int] = None
 
 
 def build_athlete_profile(activities: Optional[list] = None,
@@ -124,10 +131,18 @@ def build_athlete_profile(activities: Optional[list] = None,
                 sum(sessions_by_week.values()) / len(sessions_by_week)
             )
 
+    # Dezelfde voorkeur die de V3-weekplanner gebruikt, zodat macroplan en
+    # weekplan niet uit elkaar lopen: 3 runs, 4 als de gate open staat.
+    prefs = state.get("preferences") or {}
+    max_runs = prefs.get("max_run_sessions")
+    if max_runs is None:
+        max_runs = 4 if prefs.get("fourth_run_gate_open") else 3
+
     return AthleteProfile(
         current_ctl=ctl,
         recent_run_km_avg=run_km_avg,
         recent_run_sessions=max(1, run_sessions),
+        max_run_sessions=int(max_runs) if max_runs else None,
         ftp=int(state.get("ftp") or ftp),
         hrmax=int(state.get("hrmax") or 192),
         days_symptom_free=days_free,
@@ -512,6 +527,8 @@ def generate_plan(
                 taper_index += 1
             run_km = round(peak_km * vol_frac, 1)
             run_sessions_w = profile.taper_sessions if run_km > 0 else 0
+            if athlete.max_run_sessions:
+                run_sessions_w = min(run_sessions_w, athlete.max_run_sessions)
             long_km = 0.0 if is_race_week else round(run_km * profile.long_run_fraction, 1)
             if profile.volume_driver == "tss":
                 tss = last_build_tss * (0.40 if is_race_week else vol_frac)
@@ -553,6 +570,8 @@ def generate_plan(
                     fourth_run_pending = True
                 if seen_trans:
                     sessions = max(sessions, profile.peak_sessions)
+                if athlete.max_run_sessions:
+                    sessions = min(sessions, athlete.max_run_sessions)
 
                 if enforce_consistency_rules is not None:
                     check = enforce_consistency_rules(
@@ -611,6 +630,15 @@ def generate_plan(
             bike_sessions=bike_sessions,
             intensity_gate=gate,
         ))
+
+    if (athlete.max_run_sessions
+            and athlete.max_run_sessions < profile.peak_sessions):
+        warnings.append(
+            f"Plan gebouwd op {athlete.max_run_sessions} runs/week; dit "
+            f"doeltype piekt normaal op {profile.peak_sessions}. Het verschil "
+            f"loopt via de fiets — dat draagt de aerobe basis, maar niet de "
+            f"loopspecifieke duurzaamheid van de lange duurloop."
+        )
 
     # ── Stap 6: B/C-doelen → mini-taper + recovery ──
     if intermediate_goals:

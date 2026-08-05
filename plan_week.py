@@ -57,6 +57,12 @@ def _planner_v3_inputs(week_start: date) -> tuple[dict, list[dict], dict[str, in
         )
         for i in range(7)
     }
+    # Een racedag is bezet: de race is de sessie. Zonder dit zet de assigner
+    # er gewoon een geplande run of rit bovenop, want hij ziet alleen
+    # beschikbaarheid — niet de kalender.
+    from agents import availability as _av
+    for dag in _av.get_race_day_names(week_start):
+        availability[dag] = 0
     return prefs, fixed_sessions, availability
 
 
@@ -167,6 +173,17 @@ def run(week_start: date, dry_run: bool = True, skip_run_days: list = None):
                 print(f"  Beschikbaarheid: {len(_rest)} rustdag(en) — {', '.join(_rest)}")
         except Exception as _e:
             print(f"  Beschikbaarheid niet geladen: {_e}")
+
+    # Racedagen komen er altijd bij, ook als de caller expliciet
+    # skip_run_days meegaf: op een racedag plan je niets bovenop.
+    try:
+        from agents import availability as _av
+        _races = _av.get_race_day_names(week_start)
+        if _races:
+            skip_run_days = list(dict.fromkeys((skip_run_days or []) + _races))
+            print(f"  Race deze week: {', '.join(_races)} — dag geblokkeerd.")
+    except Exception as _e:
+        print(f"  Racedagen niet geladen: {_e}")
 
     print(f"\n  Starttdatum week: {week_start} (maandag)")
     print("  Data ophalen uit intervals.icu...")
@@ -444,6 +461,13 @@ def main():
                              "Skipt weken die al workouts hebben.")
     parser.add_argument("--geen-run-maandag", action="store_true",
                         help="Sla de maandag-run over (verplaatst naar woensdag)")
+    parser.add_argument("--vastzetten", action="store_true",
+                        help="Zet de week vast: de planner (en de zondag-scheduler) "
+                             "laten hem met rust tot je hem ontgrendelt.")
+    parser.add_argument("--ontgrendel", action="store_true",
+                        help="Haal de week-lock weg zodat er weer gepland mag worden.")
+    parser.add_argument("--reden", type=str, default="",
+                        help="Toelichting bij --vastzetten (komt in de kalendernotitie).")
     args = parser.parse_args()
 
     if args.status:
@@ -451,6 +475,27 @@ def main():
         return
 
     skip_run_days = ["maandag"] if args.geen_run_maandag else []
+
+    # Lock-vlaggen en planvlaggen sluiten elkaar uit. Zonder deze check slikte
+    # --horizon de --vastzetten stil op (horizon returnt eerder), en dan start
+    # de planner terwijl je juist vroeg om níet te plannen — met --schrijf erbij
+    # is dat precies de overschrijving die de lock moet voorkomen.
+    if args.vastzetten and args.ontgrendel:
+        print("  ⚠️  --vastzetten en --ontgrendel gaan niet samen.")
+        sys.exit(1)
+    if args.vastzetten or args.ontgrendel:
+        conflicterend = [
+            naam for naam, actief in (
+                ("--horizon", args.horizon is not None and args.horizon > 0),
+                ("--schrijf", args.schrijf),
+                ("--geen-run-maandag", args.geen_run_maandag),
+            ) if actief
+        ]
+        if conflicterend:
+            print(f"  ⚠️  {', '.join(conflicterend)} kan niet samen met "
+                  "--vastzetten/--ontgrendel: dat zijn planacties en de "
+                  "lock-vlaggen zijn er juist om planning te blokkeren.")
+            sys.exit(1)
 
     if args.horizon is not None and args.horizon > 0:
         run_horizon(args.horizon, write=args.schrijf, skip_run_days=skip_run_days)
@@ -467,6 +512,21 @@ def main():
             sys.exit(1)
     else:
         week_start = _next_monday()
+
+    if args.vastzetten or args.ontgrendel:
+        from agents import week_lock
+
+        if args.ontgrendel:
+            if week_lock.unlock_week(week_start):
+                print(f"  Week {week_start} ontgrendeld — de planner mag hem weer vullen.")
+            else:
+                print(f"  Week {week_start} was niet vastgezet.")
+        else:
+            week_lock.lock_week(week_start, args.reden)
+            print(f"  🔒 Week {week_start} vastgezet.")
+            if args.reden:
+                print(f"     Reden: {args.reden}")
+        return
 
     dry_run = not args.schrijf
 

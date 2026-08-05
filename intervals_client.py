@@ -54,6 +54,21 @@ def get_wellness(start: date = None, end: date = None) -> list:
     return r.json()
 
 
+def update_wellness(on_date: date, **fields) -> dict:
+    """Schrijf wellness-velden voor één dag (gewicht, HRV, rust-HR, ...).
+
+    intervals.icu is de backend-of-record: gewicht dat hier landt voedt ook
+    `icu_weight` op activiteiten en dus de W/kg-berekening. Lokaal opslaan
+    zou een tweede waarheid maken.
+    """
+    r = requests.put(
+        f"{BASE_URL}/athlete/{ATHLETE_ID}/wellness/{on_date.isoformat()}",
+        auth=_auth(), json=fields, timeout=TIMEOUT,
+    )
+    r.raise_for_status()
+    return r.json()
+
+
 def get_events(start: date = None, end: date = None, resolve: bool = False) -> list:
     """Haal geplande events/workouts op uit de kalender.
 

@@ -316,22 +316,20 @@ def _analyze_run_long(wtype, event, activity, act_id, base):
         base["avg_pace_last_third"] = round(avg_last, 2)
 
         if avg_last < avg_first - 0.05:
-            insights.append(f"Negative split! Laatste derde {avg_last:.2f}/km vs eerste {avg_first:.2f}/km. Precies wat je wilt bij de lange duurloop.")
+            insights.append(f"Negative split! Laatste derde {_fmt_pace(avg_last)}/km vs eerste {_fmt_pace(avg_first)}/km. Precies wat je wilt bij de lange duurloop.")
         elif avg_last > avg_first + 0.15:
-            insights.append(f"Positive split: vertraagd van {avg_first:.2f}/km naar {avg_last:.2f}/km. Te snel begonnen of glycogeen op?")
+            insights.append(f"Positive split: vertraagd van {_fmt_pace(avg_first)}/km naar {_fmt_pace(avg_last)}/km. Te snel begonnen of glycogeen op?")
         else:
-            insights.append(f"Even pacing: {avg_first:.2f} → {avg_last:.2f}/km. Stabiel en gedisciplineerd.")
+            insights.append(f"Even pacing: {_fmt_pace(avg_first)} → {_fmt_pace(avg_last)}/km. Stabiel en gedisciplineerd.")
 
-        # HR cardiac decoupling
-        hrs = [s["hr"] for s in splits if s["hr"] > 0]
-        if len(hrs) >= 4:
-            first_half_hr = sum(hrs[:len(hrs)//2]) / (len(hrs)//2)
-            second_half_hr = sum(hrs[len(hrs)//2:]) / (len(hrs) - len(hrs)//2)
-            decoupling = round((second_half_hr - first_half_hr) / first_half_hr * 100, 1)
+        # Cardiac decoupling — pace-gecorrigeerd (Friel/intervals.icu-definitie).
+        decoupling, decoupling_bron = _cardiac_decoupling(splits, activity)
+        if decoupling is not None:
             base["cardiac_decoupling_pct"] = decoupling
+            base["cardiac_decoupling_bron"] = decoupling_bron
 
             if decoupling > 5:
-                insights.append(f"Cardiac decoupling {decoupling}% — aerobe basis nog in ontwikkeling. HR steeg terwijl pace gelijk bleef.")
+                insights.append(f"Cardiac decoupling {decoupling}% — aerobe basis nog in ontwikkeling. Je hartslag liep op terwijl je pace niet meesteeg.")
             elif decoupling > 2:
                 insights.append(f"Cardiac decoupling {decoupling}% — normaal voor deze duur.")
             else:
@@ -370,7 +368,7 @@ def _analyze_run_easy(wtype, event, activity, act_id, base):
         pace = round(base["duration"] / base["distance"], 2)
         base["avg_pace"] = pace
         if pace < 5.0 and base["hr_pct"] > 75:
-            insights.append(f"Pace {pace:.2f}/km bij HR {base['hr_pct']}% — makkelijk lopen is makkelijk lopen. Langzamer.")
+            insights.append(f"Pace {_fmt_pace(pace)}/km bij HR {base['hr_pct']}% — makkelijk lopen is makkelijk lopen. Langzamer.")
 
     if base["cadence"] and base["cadence"] < 170:
         insights.append(f"Kadans {base['cadence']} spm — probeer 175+ aan te houden, bespaart je benen.")
@@ -424,6 +422,7 @@ def _analyze_run_varied(wtype, event, activity, act_id, base):
 _PACE_RE = re.compile(r"(\d{1,2}):(\d{2})\s*/\s*km")
 
 REP_MIN_SEC = 180        # korter dan 3 min is geen drempelrep
+VO2_REP_MIN_SEC = 60     # VO2max-reps duren 45 s tot 5 min; 180 s gooide ze weg
 REP_SMOOTH_SEC = 15      # GPS-ruis uitmiddelen zonder rep-grenzen te vervagen
 REP_GAP_MERGE_SEC = 20   # kort inzakken (bocht, stoplicht) breekt de rep niet
 REP_PACE_TOLERANCE = 1.08  # tot 8% trager dan target telt nog als werk
@@ -431,7 +430,17 @@ REP_PACE_TOLERANCE = 1.08  # tot 8% trager dan target telt nog als werk
 # Gelijke pace hoort gelijke HR te geven; wijkt dat sterk af, dan meet de
 # sensor niet de atleet. 15 bpm is ruim boven normale drift binnen een sessie.
 HR_PLAUSIBLE_SPREAD_BPM = 15
-HR_PLAUSIBLE_PACE_SPREAD = 0.17  # min/km (~10 s/km)
+# Tot hier heten reps "dezelfde pace". Stond op 10 s/km, maar een VO2-sessie
+# van 6 reps varieert routineus 11 s/km — dat kocht precies de sessies vrij
+# die we wilden vangen (28 jul: 3:48-3:59/km, HR-piek 160 -> 176). 15 s/km
+# ligt nog ruim onder een echte progressieve sessie (30 s/km en meer).
+HR_PLAUSIBLE_PACE_SPREAD = 0.25  # min/km (15 s/km)
+
+# Drift is alleen een uitspraak over het lichaam als de pace vlak lag. Zakt de
+# atleet weg in de laatste rep, dan koopt hij zijn hartslag omlaag met tempo en
+# meet een dalende drift precies het tegenovergestelde van vooruitgang. Strenger
+# dan HR_PLAUSIBLE_PACE_SPREAD: dat is een sensor-check, dit een trainingsclaim.
+DRIFT_MAX_PACE_SPREAD = 0.15  # min/km (9 s/km)
 
 
 def target_pace_sec(event: dict) -> int | None:
@@ -462,6 +471,48 @@ def target_pace_sec(event: dict) -> int | None:
     return min(candidates)
 
 
+def _cardiac_decoupling(splits: list[dict], activity: dict | None = None
+                        ) -> tuple[float | None, str | None]:
+    """Pace-gecorrigeerde cardiac decoupling in procent. Hoger = slechter.
+
+    Decoupling meet of je *efficiëntie* (snelheid per hartslag) wegzakt in de
+    tweede helft. Kale HR-drift meten is fout: bij een negative split loopt je
+    hartslag per definitie op omdat je harder gaat lopen, en dan scoort een
+    perfect uitgevoerde duurloop als "aerobe basis onvoldoende". Precies
+    omgekeerd dus.
+
+    We nemen de waarde van intervals.icu als die er is — die rekent hem over de
+    volledige stream in plaats van over km-splits — en vallen anders terug op
+    de EF-verhouding tussen de twee helften.
+
+    Returns ``(waarde, bron)``. De bron hoort erbij: de twee methodes rekenen
+    over een ander venster (hele activiteit versus km-splits zonder warming-up)
+    en leveren dus niet exact hetzelfde getal. Wie de reeks over meerdere runs
+    vergelijkt moet kunnen zien of hij appels met appels vergelijkt.
+    """
+    if activity and activity.get("decoupling") is not None:
+        try:
+            return round(float(activity["decoupling"]), 1), "intervals.icu"
+        except (TypeError, ValueError):
+            pass
+
+    usable = [s for s in splits if (s.get("hr") or 0) > 0 and (s.get("pace") or 0) > 0]
+    if len(usable) < 4:
+        return None, None
+
+    half = len(usable) // 2
+    first, second = usable[:half], usable[half:]
+
+    def _ef(rows: list[dict]) -> float:
+        # Efficiency factor = snelheid (km/min) per hartslag.
+        return sum((1 / r["pace"]) / r["hr"] for r in rows) / len(rows)
+
+    ef_first = _ef(first)
+    if ef_first <= 0:
+        return None, None
+    return round((ef_first - _ef(second)) / ef_first * 100, 1), "km-splits"
+
+
 def _fmt_pace(dec_min: float) -> str:
     """Decimale min/km (4.34) naar mm:ss (4:20) — nooit als losse decimalen tonen.
 
@@ -482,19 +533,30 @@ def hr_reading_is_plausible(reps: list[dict]) -> bool:
     pace liepen krijgen dan hartslagen die tientallen slagen uiteenlopen. Dat
     is geen fysiologie, dat is de sensor. Zonder deze toets zou zo'n spookmeting
     het drempeldossier de verkeerde kant op duwen.
+
+    Een band mét band maar met droge electroden geeft hetzelfde beeld, alleen
+    milder: hij leest de eerste kilometers te laag en pakt pas aan zodra de
+    atleet doorzweet. De rep-gemiddelden vlakken dat uit — de piek per rep
+    niet. Daarom toetsen we beide reeksen; de sensor hoeft maar in één ervan
+    door de mand te vallen.
     """
     usable = [r for r in reps if r.get("hr") and r.get("pace")]
     if len(usable) < 2:
         return True  # niets om aan te twijfelen; HR ontbreekt sowieso al
 
     paces = [r["pace"] for r in usable]
-    hrs = [r["hr"] for r in usable]
     if max(paces) - min(paces) > HR_PLAUSIBLE_PACE_SPREAD:
         return True  # pace liep zelf uiteen, dan mág de HR dat ook
-    return max(hrs) - min(hrs) <= HR_PLAUSIBLE_SPREAD_BPM
+
+    for key in ("hr", "max_hr"):
+        series = [r[key] for r in usable if r.get(key)]
+        if len(series) >= 2 and max(series) - min(series) > HR_PLAUSIBLE_SPREAD_BPM:
+            return False
+    return True
 
 
-def detect_run_reps(act_id: str, target_sec: int) -> list[dict]:
+def detect_run_reps(act_id: str, target_sec: int,
+                    min_rep_sec: int = REP_MIN_SEC) -> list[dict]:
     """Reconstrueer de reps uit de pace-stream.
 
     intervals.icu detecteert run-intervals op running power, niet op pace. Bij
@@ -502,6 +564,11 @@ def detect_run_reps(act_id: str, target_sec: int) -> list[dict]:
     het soms hele minuten op target-pace naar 'RECOVERY'. Zodra de workout een
     voorgeschreven target draagt is de pace zelf de betrouwbaarste bron: alles
     wat rond het target loopt is werk, de sukkeldraf ertussen niet.
+
+    `min_rep_sec` is de ondergrens waaronder een blok geen rep heet. Die stond
+    vast op 3 minuten — de ondergrens van een drempelrep — waardoor een hele
+    VO2max-sessie van 6x3 min (28 jul: reps van 161-178 s) nul reps opleverde
+    en élke HR-toets erna werd overgeslagen.
     """
     streams = api.get_activity_streams(
         act_id, types=["velocity_smooth", "heartrate"])
@@ -509,7 +576,7 @@ def detect_run_reps(act_id: str, target_sec: int) -> list[dict]:
         streams = {s.get("type"): s.get("data") for s in streams}
     vel = (streams or {}).get("velocity_smooth") or []
     hr = (streams or {}).get("heartrate") or []
-    if len(vel) < REP_MIN_SEC:
+    if len(vel) < min_rep_sec:
         return []
 
     # Pace per seconde, gladgestreken: losse GPS-pieken mogen geen rep breken.
@@ -534,7 +601,7 @@ def detect_run_reps(act_id: str, target_sec: int) -> list[dict]:
     reps = []
     for start, end in segments:
         duration = end - start + 1
-        if duration < REP_MIN_SEC:
+        if duration < min_rep_sec:
             continue
         meters = sum(v for v in vel[start:end + 1] if v)
         if meters <= 0:
@@ -543,20 +610,42 @@ def detect_run_reps(act_id: str, target_sec: int) -> list[dict]:
         reps.append({
             "pace": round((duration / 60) / (meters / 1000), 2),
             "hr": round(sum(beats) / len(beats)) if beats else 0,
+            # De mediaan naast het gemiddelde, want beide meten iets anders.
+            # Het gemiddelde van rep 1 wordt omlaag getrokken door de eerste
+            # minuut, waarin de hartslag nog aan het opklimmen is (5 aug: rep 1
+            # start op 151 en eindigt op 174). Dat vergroot elke drift-meting
+            # met een paar bpm die niets met de atleet te maken heeft. De
+            # mediaan negeert die aanloop, en ook losse sensorpieken.
+            "hr_median": _median(beats),
             "max_hr": max(beats) if beats else 0,
             "duration_s": duration,
         })
     return reps
 
 
+def _median(values: list[int]) -> int:
+    if not values:
+        return 0
+    ordered = sorted(values)
+    mid = len(ordered) // 2
+    if len(ordered) % 2:
+        return ordered[mid]
+    return round((ordered[mid - 1] + ordered[mid]) / 2)
+
+
 def _analyze_run_hard(wtype, event, activity, act_id, base):
     insights = []
     intervals_data = []
     target_sec = target_pace_sec(event)
+    # VO2max- en intervalsessies draaien op korte reps; met de drempel-
+    # ondergrens van 3 min hield de detector er geen enkele over.
+    min_rep_sec = (VO2_REP_MIN_SEC
+                   if wtype in ("run_vo2max", "run_intervals")
+                   else REP_MIN_SEC)
 
     if target_sec:
         try:
-            intervals_data = detect_run_reps(act_id, target_sec)
+            intervals_data = detect_run_reps(act_id, target_sec, min_rep_sec)
         except Exception:
             intervals_data = []
 
@@ -607,7 +696,13 @@ def _analyze_run_hard(wtype, event, activity, act_id, base):
                 insights.append(f"Pace inconsistent: {_fmt_pace(min(paces))}-{_fmt_pace(max(paces))}/km. Eerste interval te snel of fade?")
 
             avg_pace = sum(paces) / len(paces)
-            if avg_pace < 4.10 and avg_pace > 3.50:
+            # De 10km-waarschuwing hoort bij drempel- en MP-werk, waar te snel
+            # lopen de prikkel verpest. Bij VO2max is boven-drempel juist het
+            # voorschrift (112% pace = ~3:53/km); daar afraden wat het plan
+            # zelf vraagt, zet de atleet tegen zijn eigen schema op.
+            if wtype == "run_vo2max":
+                insights.append(f"Gem. intervalpace {_fmt_pace(avg_pace)}/km — VO2max hoort boven drempel te liggen.")
+            elif avg_pace < 4.10 and avg_pace > 3.50:
                 insights.append(f"Gem. intervalpace {_fmt_pace(avg_pace)}/km — in de buurt van 10km racepace. Marathon-specifiek: ~4:15-4:25/km interval pace passender.")
             elif avg_pace < 5.0:
                 insights.append(f"Gem. intervalpace {_fmt_pace(avg_pace)}/km.")
@@ -619,12 +714,27 @@ def _analyze_run_hard(wtype, event, activity, act_id, base):
             insights.append(
                 "Hartslag is deze sessie niet bruikbaar: de reps liepen op "
                 "vrijwel dezelfde pace maar geven sterk uiteenlopende HR. "
-                "Typisch voor een polsmeting (achterloop, cadans-lock). "
+                "Twee oorzaken geven ditzelfde beeld — een polsmeting die "
+                "achterloopt en op de cadans lockt, of een borstband met "
+                "droge electroden die pas aanslaat zodra je doorzweet. "
                 "Beoordeel deze training op pace en RPE; negeer HR-drift, "
                 "decoupling en zone-verdeling.")
         elif len(hrs) >= 2:
             # HR response: hoeveel steeg HR per interval?
             hr_rise = hrs[-1] - hrs[0]
+            # Dit getal is de kernmeting van drempelopbouw op vaste pace: de
+            # pace-delta staat dan per definitie stil, dus drift is het enige
+            # dat nog beweegt als het lichaam vooruitgaat. Twee voorwaarden.
+            # De pace moet vlak hebben gelegen (DRIFT_MAX_PACE_SPREAD), anders
+            # meet je iemand die zijn hartslag omlaag koopt met tempo. En de
+            # reps moeten uit de pace-stream komen, want alleen die levert een
+            # mediaan: een reeks waarin de ene meting op medianen rust en de
+            # andere op gemiddelden is als trend waardeloos.
+            medians = [iv.get("hr_median") for iv in intervals_data]
+            flat_pace = (base.get("pace_spread") is not None
+                         and base["pace_spread"] <= DRIFT_MAX_PACE_SPREAD)
+            if flat_pace and all(m for m in medians):
+                base["hr_drift_bpm"] = medians[-1] - medians[0]
             if hr_rise > 10:
                 insights.append(f"HR steeg {hr_rise} bpm van eerste naar laatste interval — accumulerende vermoeidheid.")
             elif hr_rise < 3:

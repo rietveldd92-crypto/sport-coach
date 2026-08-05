@@ -285,6 +285,118 @@ def _migration_007_observation_paces(conn: sqlite3.Connection) -> None:
             conn.execute(f"ALTER TABLE threshold_observations ADD COLUMN {col} INTEGER")
 
 
+def _migration_008_aerobic_efficiency(conn: sqlite3.Connection) -> None:
+    """v8: pace bij vaste hartslag per activiteit.
+
+    De berekening kost een streams-call per activiteit (seconde-voor-seconde
+    hartslag + snelheid). Die data verandert nooit meer nadat een activiteit
+    binnen is, dus we rekenen elke run precies één keer door.
+
+    `samples_sec` is het aantal seconden in de HR-band: onder de ondergrens is
+    de meting te dun om iets te betekenen, en dat wil je kunnen zien in plaats
+    van alleen de uitkomst.
+    """
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS aerobic_efficiency (
+            activity_id   TEXT NOT NULL,
+            activity_date TEXT NOT NULL,
+            hr_low        INTEGER NOT NULL,
+            hr_high       INTEGER NOT NULL,
+            pace_sec      INTEGER,
+            samples_sec   INTEGER NOT NULL DEFAULT 0,
+            distance_km   REAL,
+            temp_c        REAL,
+            computed_at   TEXT DEFAULT (datetime('now')),
+            PRIMARY KEY (activity_id, hr_low, hr_high)
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_aerobic_efficiency_date "
+        "ON aerobic_efficiency (activity_date)"
+    )
+
+
+def _migration_009_aerobic_efficiency_band_key(conn: sqlite3.Connection) -> None:
+    """v9: de HR-band hoort bij de sleutel, niet alleen bij de rij.
+
+    Migratie 008 zette `activity_id` als enige primary key terwijl de lookup op
+    (activity_id, hr_low, hr_high) gaat. Gevolg: verander je de band, dan
+    overschrijft `ON CONFLICT(activity_id)` de meting van de oude band — de
+    historie is dan stil weg, en terugschakelen betekent alles opnieuw uit de
+    streams halen.
+    """
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(aerobic_efficiency)")}
+    if not cols:
+        return  # tabel bestaat niet; 008 maakt hem al met de juiste sleutel
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS aerobic_efficiency_v2 (
+            activity_id   TEXT NOT NULL,
+            activity_date TEXT NOT NULL,
+            hr_low        INTEGER NOT NULL,
+            hr_high       INTEGER NOT NULL,
+            pace_sec      INTEGER,
+            samples_sec   INTEGER NOT NULL DEFAULT 0,
+            distance_km   REAL,
+            temp_c        REAL,
+            computed_at   TEXT DEFAULT (datetime('now')),
+            PRIMARY KEY (activity_id, hr_low, hr_high)
+        )
+        """
+    )
+    conn.execute(
+        """
+        INSERT OR REPLACE INTO aerobic_efficiency_v2
+            (activity_id, activity_date, hr_low, hr_high,
+             pace_sec, samples_sec, distance_km, computed_at)
+        SELECT activity_id, activity_date, hr_low, hr_high,
+               pace_sec, samples_sec, distance_km, computed_at
+        FROM aerobic_efficiency
+        """
+    )
+    conn.execute("DROP TABLE aerobic_efficiency")
+    conn.execute("ALTER TABLE aerobic_efficiency_v2 RENAME TO aerobic_efficiency")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_aerobic_efficiency_date "
+        "ON aerobic_efficiency (activity_date)"
+    )
+
+
+def _migration_010_aerobic_efficiency_temp(conn: sqlite3.Connection) -> None:
+    """v10: temperatuur bij de meting bewaren.
+
+    Pace bij vaste hartslag verslechtert in de hitte, en de vijfde as van de
+    modusbepaling kan een week naar CONSOLIDATIE duwen. Zonder temperatuur
+    weet je niet of een dalende trend training is of augustus. De kolom mag
+    NULL zijn — intervals.icu levert weerdata alleen als de atleet die
+    koppeling aan heeft staan.
+    """
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(aerobic_efficiency)")}
+    if cols and "temp_c" not in cols:
+        conn.execute("ALTER TABLE aerobic_efficiency ADD COLUMN temp_c REAL")
+
+
+def _migration_011_observation_drift(conn: sqlite3.Connection) -> None:
+    """v11: hartslagdrift en werktijd per drempelobservatie.
+
+    Het dossier bewaarde alleen het gemiddelde over de reps. Dat getal is
+    hetzelfde voor een sessie met een vlakke hartslag en voor een sessie die
+    van 170 naar 178 klimt, terwijl juist dat verschil zegt of de pace op de
+    drempel lag. Bij opbouw op vaste pace beweegt de pace-delta per definitie
+    niet, dus zonder drift heeft het model geen enkele manier om vooruitgang
+    te zien. Werktijd staat ernaast omdat drift over 36 minuten niet dezelfde
+    meting is als drift over 50.
+    """
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(threshold_observations)")}
+    if "hr_drift_bpm" not in cols:
+        conn.execute("ALTER TABLE threshold_observations ADD COLUMN hr_drift_bpm REAL")
+    if "work_time_min" not in cols:
+        conn.execute("ALTER TABLE threshold_observations ADD COLUMN work_time_min INTEGER")
+
+
 # Registreer migraties in volgorde: (version, name, function)
 _MIGRATIONS = [
     (1, "initial_schema", _migration_001_initial_schema),
@@ -294,6 +406,10 @@ _MIGRATIONS = [
     (5, "fixed_sessions", _migration_005_fixed_sessions),
     (6, "threshold_pace", _migration_006_threshold_pace),
     (7, "observation_paces", _migration_007_observation_paces),
+    (8, "aerobic_efficiency", _migration_008_aerobic_efficiency),
+    (9, "aerobic_efficiency_band_key", _migration_009_aerobic_efficiency_band_key),
+    (10, "aerobic_efficiency_temp", _migration_010_aerobic_efficiency_temp),
+    (11, "observation_drift", _migration_011_observation_drift),
 ]
 
 
@@ -811,6 +927,8 @@ def insert_threshold_observation(
     completed: bool = True,
     target_pace_sec: int | None = None,
     observed_pace_sec: int | None = None,
+    hr_drift_bpm: float | None = None,
+    work_time_min: int | None = None,
 ) -> dict:
     """Schrijf één observatie weg. Idempotent op activity_id.
 
@@ -823,8 +941,9 @@ def insert_threshold_observation(
             """
             INSERT INTO threshold_observations
                 (date, activity_id, pace_delta_sec, hr_reps_avg, hr_vs_band, rpe,
-                 completed, target_pace_sec, observed_pace_sec)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 completed, target_pace_sec, observed_pace_sec,
+                 hr_drift_bpm, work_time_min)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(activity_id) DO UPDATE SET
                 pace_delta_sec = COALESCE(excluded.pace_delta_sec, pace_delta_sec),
                 hr_reps_avg = COALESCE(excluded.hr_reps_avg, hr_reps_avg),
@@ -832,7 +951,9 @@ def insert_threshold_observation(
                 rpe = COALESCE(excluded.rpe, rpe),
                 completed = excluded.completed,
                 target_pace_sec = COALESCE(excluded.target_pace_sec, target_pace_sec),
-                observed_pace_sec = COALESCE(excluded.observed_pace_sec, observed_pace_sec)
+                observed_pace_sec = COALESCE(excluded.observed_pace_sec, observed_pace_sec),
+                hr_drift_bpm = COALESCE(excluded.hr_drift_bpm, hr_drift_bpm),
+                work_time_min = COALESCE(excluded.work_time_min, work_time_min)
             """,
             (
                 date,
@@ -844,6 +965,8 @@ def insert_threshold_observation(
                 1 if completed else 0,
                 target_pace_sec,
                 observed_pace_sec,
+                hr_drift_bpm,
+                work_time_min,
             ),
         )
         conn.commit()
@@ -1200,6 +1323,78 @@ def compute_recovery_score(
         message = "Rust is nu de beste training"
 
     return {"score": round(score, 0), "level": level, "message": message}
+
+
+# ── AEROBE EFFICIENTIE (pace bij vaste hartslag) ───────────────────────────
+
+def get_aerobic_efficiency(activity_id: str, hr_low: int, hr_high: int) -> Optional[dict]:
+    """Gecachete meting, of None als deze activiteit nog niet doorgerekend is.
+
+    De band hoort bij de meting: een waarde gemeten op 142-150 zegt niets over
+    een band van 135-145, dus die vergelijken we expliciet mee.
+    """
+    ensure_migrations()
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM aerobic_efficiency "
+            "WHERE activity_id = ? AND hr_low = ? AND hr_high = ?",
+            (str(activity_id), hr_low, hr_high),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def record_aerobic_efficiency(
+    activity_id: str,
+    *,
+    activity_date: str,
+    hr_low: int,
+    hr_high: int,
+    pace_sec: Optional[int],
+    samples_sec: int,
+    distance_km: Optional[float] = None,
+    temp_c: Optional[float] = None,
+) -> None:
+    """Leg een meting vast — ook een lege (te weinig tijd in de band).
+
+    Juist die lege metingen zijn de moeite waard om te bewaren: anders haalt
+    elke volgende run de streams van dezelfde activiteit opnieuw op om weer tot
+    dezelfde conclusie te komen.
+    """
+    ensure_migrations()
+    with _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO aerobic_efficiency
+                (activity_id, activity_date, hr_low, hr_high,
+                 pace_sec, samples_sec, distance_km, temp_c)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(activity_id, hr_low, hr_high) DO UPDATE SET
+                activity_date = excluded.activity_date,
+                pace_sec      = excluded.pace_sec,
+                samples_sec   = excluded.samples_sec,
+                distance_km   = excluded.distance_km,
+                temp_c        = COALESCE(excluded.temp_c, temp_c),
+                computed_at   = datetime('now')
+            """,
+            (str(activity_id), activity_date, hr_low, hr_high,
+             pace_sec, samples_sec, distance_km, temp_c),
+        )
+        conn.commit()
+
+
+def list_aerobic_efficiency(hr_low: int, hr_high: int,
+                            since: Optional[str] = None) -> list[dict]:
+    """Alle bruikbare metingen in de band, oplopend op datum."""
+    ensure_migrations()
+    sql = ("SELECT * FROM aerobic_efficiency "
+           "WHERE hr_low = ? AND hr_high = ? AND pace_sec IS NOT NULL")
+    params: list = [hr_low, hr_high]
+    if since:
+        sql += " AND activity_date >= ?"
+        params.append(since)
+    sql += " ORDER BY activity_date"
+    with _connect() as conn:
+        return [dict(r) for r in conn.execute(sql, params).fetchall()]
 
 
 # ── SMOKE TEST ─────────────────────────────────────────────────────────────

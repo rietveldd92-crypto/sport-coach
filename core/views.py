@@ -539,6 +539,7 @@ def process_checkin(
     motivation: Optional[int] = None,
     injury_signals: Optional[list[str]] = None,
     notes: Optional[str] = None,
+    weight: Optional[float] = None,
     today: Optional[date] = None,
 ) -> dict:
     """POST /api/checkin — wellness naar history_db + injury_guard-flow.
@@ -557,6 +558,16 @@ def process_checkin(
         motivation=motivation,
         notes=notes,
     )
+
+    # Gewicht gaat naar intervals.icu, niet naar wellness_daily: het voedt
+    # daar ook icu_weight op activiteiten (W/kg). Twee bronnen zouden gaan
+    # afwijken. Faalt stil — een check-in mag nooit stuklopen op de weegschaal.
+    if weight:
+        try:
+            import intervals_client as api
+            api.update_wellness(today, weight=float(weight))
+        except Exception:
+            pass
 
     guard = injury_guard.analyze(feedback_signals=injury_signals or None)
 
