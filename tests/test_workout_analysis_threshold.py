@@ -186,6 +186,66 @@ def test_zonder_bruikbare_stream_valt_analyse_terug_op_intervals(monkeypatch):
     assert metrics["observed_pace_sec"] == 252  # uit _INTERVALS
 
 
+def _streams_met_hr(monkeypatch, blokken: list[tuple[int, int, int]]):
+    """Als _streams, maar met een eigen hartslag per blok."""
+    vel, beats = [], []
+    for pace_sec, seconds, hr in blokken:
+        vel += [1000 / pace_sec] * seconds
+        beats += [hr] * seconds
+    monkeypatch.setattr(
+        workout_analysis.api, "get_activity_streams",
+        lambda _id, types=None: [
+            {"type": "velocity_smooth", "data": vel},
+            {"type": "heartrate", "data": beats},
+        ],
+    )
+
+
+def test_drift_wordt_gemeten_op_vlakke_pace(monkeypatch):
+    """Hartslag die oploopt bij gelijk tempo is de kernmeting van drempelwerk.
+
+    Echte sessie (5 aug): 3x12 min exact op 4:20/km, HR 170 -> 175 -> 178.
+    """
+    event = {"type": "Run", "name": "Lange drempel - 3x12 min @ 4:22/km"}
+    _streams_met_hr(monkeypatch, [
+        (295, 900, 140),
+        (260, 720, 170),
+        (330, 195, 150),
+        (260, 720, 175),
+        (330, 195, 150),
+        (260, 720, 178),
+        (340, 300, 145),
+    ])
+
+    metrics = workout_analysis.analyze(event, _ACTIVITY)["metrics"]
+
+    assert metrics["hr_drift_bpm"] == 8
+    assert metrics["work_time_min"] == 36
+
+
+def test_geen_drift_als_de_pace_wegzakt(monkeypatch):
+    """Wie langzamer gaat lopen koopt zijn hartslag omlaag.
+
+    Zonder deze bewaking leest het model die sessie als vooruitgang en stelt
+    het een snellere drempel voor op grond van precies het tegendeel.
+    """
+    event = {"type": "Run", "name": "Lange drempel - 3x12 min @ 4:22/km"}
+    _streams_met_hr(monkeypatch, [
+        (295, 900, 140),
+        (252, 720, 178),   # 4:12/km
+        (330, 195, 150),
+        (262, 720, 176),
+        (330, 195, 150),
+        (275, 720, 174),   # 4:35/km — 23 s/km trager dan de eerste rep
+        (340, 300, 145),
+    ])
+
+    metrics = workout_analysis.analyze(event, _ACTIVITY)["metrics"]
+
+    assert metrics["pace_spread"] > workout_analysis.DRIFT_MAX_PACE_SPREAD
+    assert "hr_drift_bpm" not in metrics
+
+
 @pytest.mark.parametrize("name,expected", [
     ("Korte drempel - 5x1km @ 4:15/km", "run_tempo"),
     ("Lange drempel - 3x12 min @ 4:18/km", "run_tempo"),

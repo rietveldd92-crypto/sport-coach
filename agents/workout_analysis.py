@@ -436,6 +436,12 @@ HR_PLAUSIBLE_SPREAD_BPM = 15
 # ligt nog ruim onder een echte progressieve sessie (30 s/km en meer).
 HR_PLAUSIBLE_PACE_SPREAD = 0.25  # min/km (15 s/km)
 
+# Drift is alleen een uitspraak over het lichaam als de pace vlak lag. Zakt de
+# atleet weg in de laatste rep, dan koopt hij zijn hartslag omlaag met tempo en
+# meet een dalende drift precies het tegenovergestelde van vooruitgang. Strenger
+# dan HR_PLAUSIBLE_PACE_SPREAD: dat is een sensor-check, dit een trainingsclaim.
+DRIFT_MAX_PACE_SPREAD = 0.15  # min/km (9 s/km)
+
 
 def target_pace_sec(event: dict) -> int | None:
     """Voorgeschreven target-pace (sec/km) uit een workout.
@@ -604,10 +610,27 @@ def detect_run_reps(act_id: str, target_sec: int,
         reps.append({
             "pace": round((duration / 60) / (meters / 1000), 2),
             "hr": round(sum(beats) / len(beats)) if beats else 0,
+            # De mediaan naast het gemiddelde, want beide meten iets anders.
+            # Het gemiddelde van rep 1 wordt omlaag getrokken door de eerste
+            # minuut, waarin de hartslag nog aan het opklimmen is (5 aug: rep 1
+            # start op 151 en eindigt op 174). Dat vergroot elke drift-meting
+            # met een paar bpm die niets met de atleet te maken heeft. De
+            # mediaan negeert die aanloop, en ook losse sensorpieken.
+            "hr_median": _median(beats),
             "max_hr": max(beats) if beats else 0,
             "duration_s": duration,
         })
     return reps
+
+
+def _median(values: list[int]) -> int:
+    if not values:
+        return 0
+    ordered = sorted(values)
+    mid = len(ordered) // 2
+    if len(ordered) % 2:
+        return ordered[mid]
+    return round((ordered[mid - 1] + ordered[mid]) / 2)
 
 
 def _analyze_run_hard(wtype, event, activity, act_id, base):
@@ -699,6 +722,19 @@ def _analyze_run_hard(wtype, event, activity, act_id, base):
         elif len(hrs) >= 2:
             # HR response: hoeveel steeg HR per interval?
             hr_rise = hrs[-1] - hrs[0]
+            # Dit getal is de kernmeting van drempelopbouw op vaste pace: de
+            # pace-delta staat dan per definitie stil, dus drift is het enige
+            # dat nog beweegt als het lichaam vooruitgaat. Twee voorwaarden.
+            # De pace moet vlak hebben gelegen (DRIFT_MAX_PACE_SPREAD), anders
+            # meet je iemand die zijn hartslag omlaag koopt met tempo. En de
+            # reps moeten uit de pace-stream komen, want alleen die levert een
+            # mediaan: een reeks waarin de ene meting op medianen rust en de
+            # andere op gemiddelden is als trend waardeloos.
+            medians = [iv.get("hr_median") for iv in intervals_data]
+            flat_pace = (base.get("pace_spread") is not None
+                         and base["pace_spread"] <= DRIFT_MAX_PACE_SPREAD)
+            if flat_pace and all(m for m in medians):
+                base["hr_drift_bpm"] = medians[-1] - medians[0]
             if hr_rise > 10:
                 insights.append(f"HR steeg {hr_rise} bpm van eerste naar laatste interval — accumulerende vermoeidheid.")
             elif hr_rise < 3:

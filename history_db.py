@@ -379,6 +379,24 @@ def _migration_010_aerobic_efficiency_temp(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE aerobic_efficiency ADD COLUMN temp_c REAL")
 
 
+def _migration_011_observation_drift(conn: sqlite3.Connection) -> None:
+    """v11: hartslagdrift en werktijd per drempelobservatie.
+
+    Het dossier bewaarde alleen het gemiddelde over de reps. Dat getal is
+    hetzelfde voor een sessie met een vlakke hartslag en voor een sessie die
+    van 170 naar 178 klimt, terwijl juist dat verschil zegt of de pace op de
+    drempel lag. Bij opbouw op vaste pace beweegt de pace-delta per definitie
+    niet, dus zonder drift heeft het model geen enkele manier om vooruitgang
+    te zien. Werktijd staat ernaast omdat drift over 36 minuten niet dezelfde
+    meting is als drift over 50.
+    """
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(threshold_observations)")}
+    if "hr_drift_bpm" not in cols:
+        conn.execute("ALTER TABLE threshold_observations ADD COLUMN hr_drift_bpm REAL")
+    if "work_time_min" not in cols:
+        conn.execute("ALTER TABLE threshold_observations ADD COLUMN work_time_min INTEGER")
+
+
 # Registreer migraties in volgorde: (version, name, function)
 _MIGRATIONS = [
     (1, "initial_schema", _migration_001_initial_schema),
@@ -391,6 +409,7 @@ _MIGRATIONS = [
     (8, "aerobic_efficiency", _migration_008_aerobic_efficiency),
     (9, "aerobic_efficiency_band_key", _migration_009_aerobic_efficiency_band_key),
     (10, "aerobic_efficiency_temp", _migration_010_aerobic_efficiency_temp),
+    (11, "observation_drift", _migration_011_observation_drift),
 ]
 
 
@@ -908,6 +927,8 @@ def insert_threshold_observation(
     completed: bool = True,
     target_pace_sec: int | None = None,
     observed_pace_sec: int | None = None,
+    hr_drift_bpm: float | None = None,
+    work_time_min: int | None = None,
 ) -> dict:
     """Schrijf één observatie weg. Idempotent op activity_id.
 
@@ -920,8 +941,9 @@ def insert_threshold_observation(
             """
             INSERT INTO threshold_observations
                 (date, activity_id, pace_delta_sec, hr_reps_avg, hr_vs_band, rpe,
-                 completed, target_pace_sec, observed_pace_sec)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 completed, target_pace_sec, observed_pace_sec,
+                 hr_drift_bpm, work_time_min)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(activity_id) DO UPDATE SET
                 pace_delta_sec = COALESCE(excluded.pace_delta_sec, pace_delta_sec),
                 hr_reps_avg = COALESCE(excluded.hr_reps_avg, hr_reps_avg),
@@ -929,7 +951,9 @@ def insert_threshold_observation(
                 rpe = COALESCE(excluded.rpe, rpe),
                 completed = excluded.completed,
                 target_pace_sec = COALESCE(excluded.target_pace_sec, target_pace_sec),
-                observed_pace_sec = COALESCE(excluded.observed_pace_sec, observed_pace_sec)
+                observed_pace_sec = COALESCE(excluded.observed_pace_sec, observed_pace_sec),
+                hr_drift_bpm = COALESCE(excluded.hr_drift_bpm, hr_drift_bpm),
+                work_time_min = COALESCE(excluded.work_time_min, work_time_min)
             """,
             (
                 date,
@@ -941,6 +965,8 @@ def insert_threshold_observation(
                 1 if completed else 0,
                 target_pace_sec,
                 observed_pace_sec,
+                hr_drift_bpm,
+                work_time_min,
             ),
         )
         conn.commit()

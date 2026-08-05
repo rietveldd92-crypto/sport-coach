@@ -304,3 +304,153 @@ def test_zonder_hr_stuurt_hoge_rpe_bij_trage_sessies_de_drempel_omhoog():
 
     assert suggestion is not None
     assert suggestion["proposed_sec"] == 258
+
+
+# ── HARTSLAGDRIFT: opbouw op vaste pace ────────────────────────────────────
+#
+# Bij opbouw op één vaste pace staat de pace-delta per definitie stil. Zonder
+# drift heeft het model dan geen enkel signaal en blijft de drempel eeuwig op
+# dezelfde waarde staan, hoe hard de atleet ook vooruit gaat.
+
+IN_BAND = (feedback_engine.THRESHOLD_HR_MIN
+           + feedback_engine.THRESHOLD_HR_MAX) // 2
+
+
+def _obs_drift(day_offset: int, activity_id: str, drift: float,
+               delta: int = 0, rpe: int | None = 6, hr: int = IN_BAND,
+               completed: bool = True, work_time: int = 36):
+    return threshold_model.record_observation({
+        "activity_id": activity_id,
+        "date": (TODAY - timedelta(days=day_offset)).isoformat(),
+        "pace_delta_sec": delta,
+        "hr_reps_avg": hr,
+        "hr_drift_bpm": drift,
+        "work_time_min": work_time,
+        "completed": completed,
+    }, rpe=rpe)
+
+
+def test_drift_en_werktijd_landen_in_de_observatie():
+    _seed_state(262)
+
+    obs = threshold_model.observe_from_workout(
+        _threshold_event("Lange drempel - 3x12 min @ 4:22/km"),
+        {"id": 950, "start_date_local": "2026-07-20T07:00:00"},
+        {"workout_type": "run_tempo", "metrics": {
+            "pace_delta_sec": -2, "interval_hr_avg": IN_BAND,
+            "target_pace_sec": 262, "observed_pace_sec": 260,
+            "hr_drift_bpm": 6, "work_time_min": 36,
+        }},
+    )
+
+    assert obs["hr_drift_bpm"] == 6
+    assert obs["work_time_min"] == 36
+
+
+def test_onbetrouwbare_hr_levert_geen_drift():
+    """Drift uit een spookmeting is erger dan geen drift: het lijkt een feit."""
+    _seed_state(262)
+
+    obs = threshold_model.observe_from_workout(
+        _threshold_event("Lange drempel - 3x12 min @ 4:22/km"),
+        {"id": 951, "start_date_local": "2026-07-20T07:00:00"},
+        {"workout_type": "run_tempo", "metrics": {
+            "pace_delta_sec": 0, "interval_hr_avg": IN_BAND,
+            "target_pace_sec": 262, "observed_pace_sec": 262,
+            "hr_drift_bpm": 2, "work_time_min": 36, "hr_reliable": False,
+        }},
+    )
+
+    assert obs["hr_drift_bpm"] is None
+
+
+def test_vlakke_drift_op_target_stelt_snellere_drempel_voor():
+    """Pace-delta 0 in alle drie: alleen drift kan dit signaal geven."""
+    _seed_state(262)
+    _obs_drift(3, "d1", 3)
+    _obs_drift(2, "d2", 2)
+    _obs_drift(1, "d3", 1)
+
+    suggestion = threshold_model.evaluate_trend(today=TODAY)
+
+    assert suggestion is not None
+    assert suggestion["proposed_sec"] == 259
+    assert suggestion["source"] == "drift_trend"
+    assert threshold_model.get_threshold_pace() == 262  # nooit muteren
+
+
+def test_doorklimmende_drift_op_target_stelt_tragere_drempel_voor():
+    _seed_state(262)
+    _obs_drift(3, "d1", 8)
+    _obs_drift(2, "d2", 9)
+    _obs_drift(1, "d3", 11)
+
+    suggestion = threshold_model.evaluate_trend(today=TODAY)
+
+    assert suggestion is not None
+    assert suggestion["proposed_sec"] == 265
+    assert suggestion["source"] == "drift_trend"
+
+
+def test_grijze_drift_geeft_geen_voorstel():
+    """4-7 bpm is niet te onderscheiden van een warme dag of slechte nacht."""
+    _seed_state(262)
+    _obs_drift(3, "d1", 4)
+    _obs_drift(2, "d2", 6)
+    _obs_drift(1, "d3", 7)
+
+    assert threshold_model.evaluate_trend(today=TODAY) is None
+
+
+def test_vlakke_drift_telt_niet_als_de_sessie_te_traag_liep():
+    """Anders koop je een 'vooruitgang' door simpelweg rustiger te lopen."""
+    _seed_state(262)
+    _obs_drift(3, "d1", 1, delta=9)
+    _obs_drift(2, "d2", 2, delta=8)
+    _obs_drift(1, "d3", 1, delta=10)
+
+    suggestion = threshold_model.evaluate_trend(today=TODAY)
+
+    # Wel een trager-signaal (de bestaande regel), nooit een sneller-signaal.
+    assert suggestion is None or suggestion["proposed_sec"] > 262
+
+
+def test_vlakke_drift_met_hoge_rpe_versnelt_niet():
+    """Hartslag zegt rustig, atleet zegt zwaar — dan wint de atleet."""
+    _seed_state(262)
+    _obs_drift(3, "d1", 2, rpe=8)
+    _obs_drift(2, "d2", 1, rpe=9)
+    _obs_drift(1, "d3", 2, rpe=8)
+
+    assert threshold_model.evaluate_trend(today=TODAY) is None
+
+
+def test_vlakke_drift_boven_de_band_versnelt_niet():
+    _seed_state(262)
+    boven = feedback_engine.THRESHOLD_HR_MAX + 5
+    _obs_drift(3, "d1", 2, hr=boven)
+    _obs_drift(2, "d2", 1, hr=boven)
+    _obs_drift(1, "d3", 2, hr=boven)
+
+    assert threshold_model.evaluate_trend(today=TODAY) is None
+
+
+def test_drift_context_beschrijft_de_richting():
+    _seed_state(262)
+    _obs_drift(3, "d1", 6)
+    _obs_drift(2, "d2", 4)
+    _obs_drift(1, "d3", 3)
+
+    context = threshold_model.threshold_context()
+
+    assert [row["drift_bpm"] for row in context["drift_series"]] == [6, 4, 3]
+    assert "zakt bij gelijk tempo" in context["drift_sentence"]
+
+
+def test_drift_context_zonder_metingen_legt_uit_wat_er_nodig_is():
+    _seed_state(262)
+
+    context = threshold_model.threshold_context()
+
+    assert context["drift_series"] == []
+    assert "Nog geen bruikbare driftmeting" in context["drift_sentence"]
