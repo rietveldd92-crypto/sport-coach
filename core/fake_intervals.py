@@ -208,10 +208,12 @@ class MockIntervals:
             e for e in self.events if str(e["id"]) != str(event_id)]
         self.calls.append(("delete_event", str(event_id)))
 
-    def bulk_delete_events(self, start, end, category="WORKOUT") -> int:
+    def bulk_delete_events(self, start, end, category="WORKOUT", *, today=None) -> int:
+        today = today or self.today
         doomed = [
             e["id"] for e in self.get_events(start, end)
             if e.get("category") == category
+            and e.get("start_date_local", "")[:10] >= today.isoformat()
         ]
         for eid in doomed:
             self.delete_event(eid)

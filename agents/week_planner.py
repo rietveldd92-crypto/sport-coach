@@ -461,6 +461,7 @@ def build_week(
     *,
     preplanned: bool = False,
     planner_warnings: list[dict] | None = None,
+    today: date | None = None,
 ) -> list[dict]:
     """
     Bouw het volledige weekschema en schrijf naar intervals.icu.
@@ -477,6 +478,7 @@ def build_week(
         Lijst van alle geplande events
     """
     week_end = week_start + timedelta(days=6)
+    today = today or date.today()
     phase = load_manager.get("current_phase", "basis_I")
     status = injury_guard.get("status", "groen")
     strength_ok = injury_guard.get("strength_allowed", True)
@@ -558,9 +560,13 @@ def build_week(
     OUR_NOTE_PREFIXES = ("Dagelijkse rehab", "Krachttraining")
     events_to_delete = [
         e for e in existing_events
-        if e.get("category") == "WORKOUT"
-        or (e.get("category") == "NOTE"
-            and any((e.get("name") or "").startswith(p) for p in OUR_NOTE_PREFIXES))
+        if (e.get("start_date_local") or "")[:10] >= today.isoformat()
+        and (
+            e.get("category") == "WORKOUT"
+            or (e.get("category") == "NOTE"
+                and any((e.get("name") or "").startswith(p)
+                        for p in OUR_NOTE_PREFIXES))
+        )
     ]
     print(f"  Bestaande events deze week: {len(existing_events)} totaal, "
           f"{len(events_to_delete)} te verwijderen.")
@@ -947,6 +953,13 @@ def build_week(
 
     if naming_warnings:
         _persist_plan_warnings(week_start, day_planner_warnings + naming_warnings)
+
+    # Een herplanning van de lopende week mag de kalenderhistorie niet
+    # herschrijven. Laat verstreken dagen volledig staan: niet verwijderen en
+    # ook geen vervangende workouts of notities op die datums aanmaken.
+    events_to_create = [
+        event for event in events_to_create if event["datum"] >= today
+    ]
 
     # ── PRINT OVERZICHT ─────────────────────────────────────────────────────
     workout_tss = sum(e["tss"] or 0 for e in events_to_create if e["categorie"] == "WORKOUT")

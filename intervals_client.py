@@ -134,12 +134,24 @@ def delete_event(event_id: str) -> None:
     r.raise_for_status()
 
 
-def bulk_delete_events(start: date, end: date, category: str = "WORKOUT") -> int:
-    """Verwijder alle events van een bepaalde categorie in een periode. Geeft aantal verwijderde events terug."""
+def bulk_delete_events(
+    start: date,
+    end: date,
+    category: str = "WORKOUT",
+    *,
+    today: date | None = None,
+) -> int:
+    """Verwijder events vanaf vandaag; kalenderhistorie blijft onaangeraakt."""
+    today = today or date.today()
+    start = max(start, today)
+    if start > end:
+        return 0
     events = get_events(start, end)
     deleted = 0
     for event in events:
-        if event.get("category") == category:
+        if (event.get("category") == category
+                and (event.get("start_date_local") or "")[:10]
+                >= today.isoformat()):
             try:
                 delete_event(event["id"])
                 deleted += 1

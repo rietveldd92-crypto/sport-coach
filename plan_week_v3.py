@@ -138,7 +138,7 @@ if __name__ == "__main__":
 
     # Stap 2: Plan nieuwe workouts in
     print("Nieuwe workouts aanmaken...")
-    for w in WORKOUTS:
+    for w in (workout for workout in WORKOUTS if workout["date"] >= date.today()):
         event = create_event(
             event_date=w["date"],
             name=w["name"],
