@@ -26,6 +26,7 @@ import type {
   TodayView,
   TrendsView,
   WeekView,
+  WeightTrendView,
 } from "./types";
 
 export const keys = {
@@ -35,6 +36,7 @@ export const keys = {
   goals: ["goals"] as const,
   trends: ["trends"] as const,
   checkinHistory: ["checkin-history"] as const,
+  weightTrend: ["weight-trend"] as const,
   pattern: ["pattern"] as const,
   fixedSessions: ["fixed-sessions"] as const,
   thresholdPace: ["threshold-pace"] as const,
@@ -74,6 +76,7 @@ export function useCheckin() {
       motivation: number;
       injury_signals: string[];
       notes?: string;
+      weight?: number;
     }) => post<CheckinResult>("/api/checkin", body),
     onSuccess: (result) => {
       // Status-badge + checkin-kaart direct bijwerken, daarna verversen.
@@ -92,7 +95,17 @@ export function useCheckin() {
           : old,
       );
       qc.invalidateQueries({ queryKey: keys.today });
+      qc.invalidateQueries({ queryKey: keys.weightTrend });
     },
+  });
+}
+
+export function useWeightTrend(enabled = true) {
+  return useQuery({
+    queryKey: keys.weightTrend,
+    queryFn: () => get<WeightTrendView>("/api/checkin/weight"),
+    enabled,
+    staleTime: 5 * 60_000,
   });
 }
 

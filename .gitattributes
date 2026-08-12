@@ -1,0 +1,30 @@
+# Regeleindes vastleggen. Zonder dit bepaalt core.autocrlf per machine wat er
+# in de blob belandt. De repo had daardoor bestanden met CRLF en LF door elkaar
+# in dezelfde file, en dan levert een edit van vier regels een diff van honderd
+# op — puur whitespace, en git blame wordt onbruikbaar.
+#
+# LF in de repo, ongeacht het besturingssysteem. Git checkt op Windows gewoon
+# CRLF uit als core.autocrlf dat zegt; het gaat erom wat er in de blob staat.
+* text=auto eol=lf
+
+*.py    text eol=lf
+*.md    text eol=lf
+*.json  text eol=lf
+*.toml  text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.txt   text eol=lf
+*.sql   text eol=lf
+
+# Windows-scripts moeten CRLF houden, anders struikelt cmd.exe erover.
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+*.ps1   text eol=crlf
+
+*.db    binary
+*.pdf   binary
+*.xlsx  binary
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.ico   binary

@@ -24,6 +24,7 @@ if hasattr(sys.stdout, "reconfigure"):
 
 import intervals_client as api
 from agents import adherence, injury_guard, load_manager, marathon_periodizer
+from agents.aerobic_efficiency import TREND_MIN_METINGEN, TREND_MIN_SPAN_DAGEN
 
 STATE_PATH = Path(__file__).parent / "state.json"
 
@@ -127,12 +128,26 @@ def fetch_review_data() -> dict:
         elif recent > older * 1.10:
             hrv_trend = "stijgend"
 
+    # Aerobe progressie: pace bij vaste hartslag over de laatste 10 weken.
+    # Bewust over een langer venster dan de rest van de terugblik — één week
+    # bevat zelden genoeg lange duurlopen voor een trend.
+    try:
+        from agents import aerobic_efficiency as ae
+
+        ae_activities = api.get_activities(
+            start=date.today() - timedelta(weeks=10), end=date.today())
+        aerobic = ae.analyze(ae_activities)
+    except Exception as e:
+        print(f"  Aerobe efficiëntie overgeslagen: {e}")
+        aerobic = None
+
     return {
         "week_start": last_mon,
         "week_end": last_sun,
         "week_activities": week_activities,
         "all_activities": all_activities,
         "wellness": wellness,
+        "aerobic": aerobic,
         "week_tss": round(week_tss),
         "week_run_km": round(week_run_km, 1),
         "week_ride_km": round(week_ride_km, 1),
@@ -241,19 +256,49 @@ def assess(review: dict, feedback: str = None) -> dict:
     if review["hrv_trend"] == "dalend":
         coaching_notes.append("HRV is dalend de afgelopen week. Extra herstel overwegen.")
 
+    # ── As 5: Aerobe efficiëntie (pace bij vaste hartslag) ──
+    # Dit is de progressiemarker voor de aerobe motor. Wegzakken hiervan
+    # terwijl CTL stijgt is de klassieke signatuur van te hard opbouwen: je
+    # stapelt belasting die niet meer in aanpassing wordt omgezet.
+    aerobic = review.get("aerobic")
+    aerobic_regressing = False
+    if aerobic and aerobic.get("metingen"):
+        slope = aerobic.get("slope_sec_per_week")
+        coaching_notes.append(aerobic["samenvatting"])
+        # De as mag alleen beslissen als de trend het draagt: genoeg metingen
+        # over een lang genoeg venster, warme dagen er al uit. Anders kan een
+        # hittegolf of één rare run de week naar CONSOLIDATIE duwen.
+        if slope is not None and slope > 2.0 and aerobic.get("betrouwbaar_voor_besluit"):
+            aerobic_regressing = True
+            coaching_notes.append(
+                f"Aerobe efficiëntie zakt weg ({slope * 4:.0f} s/km trager per 4 weken "
+                "bij dezelfde hartslag) terwijl de belasting doorloopt. Dat is een "
+                "reden om te consolideren, niet om er volume bij te doen."
+            )
+        elif slope is not None and slope > 2.0:
+            coaching_notes.append(
+                "Aerobe efficiëntie lijkt weg te zakken, maar de reeks is nog te "
+                f"kort om er een weekbesluit op te nemen ({TREND_MIN_METINGEN} "
+                f"metingen over {TREND_MIN_SPAN_DAGEN} dagen nodig). Alleen in de "
+                "gaten houden."
+            )
+
     # ── MODUS BEPALEN ──
     injury_status = ig_result["status"]
     if injury_status == "rood" or (feedback and _has_injury_keywords(feedback)):
         modus = "TERUGSCHAKELEN"
         modus_reden = "Blessuresignaal gedetecteerd — volume verlagen, alleen Z1."
     elif (belasting["tsb_too_negative"] or belasting["ctl_too_fast"]
-          or belasting["execution_low"] or injury_status == "geel"):
+          or belasting["execution_low"] or injury_status == "geel"
+          or aerobic_regressing):
         modus = "CONSOLIDATIE"
         reasons = []
         if belasting["tsb_too_negative"]:
             reasons.append(f"TSB te negatief ({tsb:+.0f})")
         if belasting["ctl_too_fast"]:
             reasons.append(f"CTL groeit te snel (+{ctl_growth}/week)")
+        if aerobic_regressing:
+            reasons.append("aerobe efficiëntie gaat achteruit bij gelijke hartslag")
         if belasting["execution_low"]:
             reasons.append(
                 f"Consistentie onder streefband ({adherence_result.get('required_pct')}% "
@@ -277,6 +322,7 @@ def assess(review: dict, feedback: str = None) -> dict:
         "ctl_growth": ctl_growth,
         "execution_rate": execution_rate,
         "planned_tss": planned_tss,
+        "aerobic": aerobic,
     }
 
 
@@ -342,6 +388,18 @@ def print_report(review: dict, assessment: dict):
             print(f"    - {s}")
     else:
         print(f"  Blessuresignalen: geen")
+
+    aerobic = assessment.get("aerobic")
+    if aerobic and aerobic.get("metingen"):
+        from agents import aerobic_efficiency as ae
+
+        lo, hi = aerobic["hr_band"]
+        huidig = ae.fmt_pace(aerobic["huidig"]["pace_sec"])
+        print(f"\n  Pace @ {lo}-{hi} bpm:  {huidig}  "
+              f"({len(aerobic['metingen'])} metingen, {aerobic['richting']})")
+        slope = aerobic.get("slope_sec_per_week")
+        if slope is not None:
+            print(f"  Trend:            {slope * 4:+.0f} s/km per 4 weken")
 
     print(f"\n  BEOORDELING")
     print("  " + "-" * 50)

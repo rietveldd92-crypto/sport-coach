@@ -240,12 +240,21 @@ def run_adaptive_cycle(
     # runs deze week inkorten. Draait altijd (niet alleen bij deviations).
     try:
         from agents import volume_compensation as _vc
+        from agents import week_lock as _wl
         monday = _date.today() - timedelta(days=_date.today().weekday())
-        vc_updates = _vc.apply_to_events(
-            events=week_events,
-            activities=week_activities,
-            week_start=monday,
-        )
+        # Een vastgezette week is een bewuste keuze van de atleet; de
+        # dagelijkse job mag daar geen sessies in gaan herschrijven. Feedback
+        # in de beschrijving blijft wel gewoon lopen — dat verandert niets aan
+        # wat je traint, en is juist de reden dat deze job draait.
+        if _wl.find_lock(week_events):
+            print("  Volume-compensatie overgeslagen: week is vastgezet.")
+            vc_updates = []
+        else:
+            vc_updates = _vc.apply_to_events(
+                events=week_events,
+                activities=week_activities,
+                week_start=monday,
+            )
         if vc_updates and not (dry_run or detect_only):
             print(f"  Volume-compensatie: {len(vc_updates)} run(s) ingekort")
             for u in vc_updates:
@@ -284,6 +293,18 @@ def run_adaptive_cycle(
     if dry_run:
         print("  [DRY RUN] Geen wijzigingen doorgevoerd.")
         return {"deviations": deviations, "result": result, "applied": False}
+
+    # Zelfde regel als bij de volume-compensatie: in een vastgezette week
+    # herschrijft de automaat geen sessies. De afwijkingen worden wel gemeld,
+    # zodat je zelf kunt beslissen of je ontgrendelt.
+    from agents import week_lock as _wl
+    if _wl.find_lock(week_events):
+        print("  Week is vastgezet — afwijkingen wel gemeld, plan niet aangepast.")
+        print("  Ontgrendelen: python plan_week.py --week "
+              f"{(_date.today() - timedelta(days=_date.today().weekday())).isoformat()}"
+              " --ontgrendel")
+        return {"deviations": deviations, "result": result, "applied": False,
+                "skipped_reason": "week_locked"}
 
     # Apply modifications naar intervals.icu — per-mod success tracking.
     # Bij failure halverwege NIET de hele batch als applied=True markeren;

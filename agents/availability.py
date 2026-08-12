@@ -117,6 +117,38 @@ def get_rest_day_names(week_start: date) -> list[str]:
     return out
 
 
+def get_race_day_names(week_start: date) -> list[str]:
+    """NL-dagnamen waarop een race staat — voor de planner een bezette dag.
+
+    Een race is de kwaliteitssessie van die dag; er hoort geen geplande run
+    of rit bovenop. De planner kent alleen `WORKOUT`-events en zou een
+    RACE_A/B/C-event dus straal negeren: op 5 september 2026 (Big 10) stond
+    de race als `WORKOUT` ingepland, wat betekende dat de eerstvolgende
+    herplanning van die week hem simpelweg zou verwijderen.
+
+    Faalt stil met een lege lijst: de planner mag nooit blokkeren omdat
+    intervals.icu even niet bereikbaar is.
+    """
+    try:
+        import intervals_client as api
+        events = api.get_events(week_start, week_start + timedelta(days=6))
+    except Exception:
+        return []
+
+    out: list[str] = []
+    for e in events or []:
+        if not str(e.get("category") or "").startswith("RACE"):
+            continue
+        stamp = str(e.get("start_date_local") or "")[:10]
+        try:
+            offset = (date.fromisoformat(stamp) - week_start).days
+        except ValueError:
+            continue
+        if 0 <= offset < 7 and DAYS_NL[offset] not in out:
+            out.append(DAYS_NL[offset])
+    return out
+
+
 def _is_easy_bike_session(session: dict) -> bool:
     """True als we deze sessie mogen rebuilden via library.endurance_ride.
 

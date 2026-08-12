@@ -57,6 +57,7 @@ def test_build_week_v3_preplanned_houdt_plaatsing_en_reden(monkeypatch):
             "sessie": None,
             "message": "woensdag blijft leeg: geraamte/urenbudget is op.",
         }],
+        today=WEEK_START,
     )
 
     workouts = [e for e in events if e["categorie"] == "WORKOUT"]

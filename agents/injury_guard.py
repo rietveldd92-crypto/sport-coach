@@ -52,6 +52,12 @@ INTENSITY_BLOCKERS = {"knie_pijn", "knie_twinge", "rug_pijn", "heup_pijn"}
 # Signalen die kracht verbieden
 STRENGTH_BLOCKERS = {"rug_pijn", "heup_pijn"}
 
+# Symptoomvrije dagen die gelden zonder énige signaalhistorie. Ruim boven de
+# tempo-poort van 21: wie nooit een klacht heeft gemeld, zit niet in een
+# terugkeerprotocol. Zodra er één signaal binnenkomt valt de teller terug op
+# nul en gelden de gewone poorten weer.
+NO_HISTORY_SYMPTOM_FREE_DAYS = 30
+
 
 def _load_state() -> dict:
     from shared import load_state
@@ -69,6 +75,25 @@ def _days_since(date_str: str | None) -> int:
         return 999
     d = date.fromisoformat(date_str)
     return (date.today() - d).days
+
+
+def _days_symptom_free_without_history(state: dict) -> int:
+    """Symptoomvrije dagen voor een atleet zonder enige signaalhistorie.
+
+    De 14- en 21-daagse poorten voor strides en tempo horen bij een
+    terugkeer-naar-hardlopen: ze faseren intensiteit terug in nádat er een
+    klacht is geweest. Is er nooit een signaal geregistreerd — geen actieve
+    klacht, geen historie, geen laatste signaaldatum — dan is er ook niets
+    om van terug te keren en hoort de poort niet dicht te staan.
+
+    Geeft 0 zodra er wél historie is; dan telt de gewone teller.
+    """
+    injury = state.get("injury") or {}
+    if injury.get("history") or injury.get("last_signal_date"):
+        return 0
+    if injury.get("active_signals"):
+        return 0
+    return NO_HISTORY_SYMPTOM_FREE_DAYS
 
 
 def _get_buffer(state: dict) -> dict:
@@ -226,7 +251,18 @@ def analyze(wellness_data: list = None, activities: list = None, feedback_signal
         if last_signal_date:
             days_symptom_free = max(days_since_signal, days_symptom_free)
         else:
-            days_symptom_free = days_symptom_free + 1
+            # Nooit een signaal gehad. De teller stond hier op `+ 1` per
+            # aanroep, niet per dag: hij telde hoe vaak dit script had
+            # gedraaid en opgeslagen. Met ontgrendelingen op 14 en 21 dagen
+            # bleven strides en tempo daardoor onbereikbaar voor een atleet
+            # die aantoonbaar klachtenvrij was (28 jul 2026: 999 dagen sinds
+            # het laatste signaal, teller op 4, alles nog op slot).
+            #
+            # Zonder signaalhistorie is het aantal dagen sinds het begin van
+            # de registratie de eerlijke ondergrens: er is niets geweest om
+            # de teller op nul te zetten.
+            days_symptom_free = max(days_symptom_free,
+                                    _days_symptom_free_without_history(state))
         injury["days_symptom_free"] = days_symptom_free
 
     # STOPLICHT BEPALEN

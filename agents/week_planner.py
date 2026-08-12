@@ -461,6 +461,7 @@ def build_week(
     *,
     preplanned: bool = False,
     planner_warnings: list[dict] | None = None,
+    today: date | None = None,
 ) -> list[dict]:
     """
     Bouw het volledige weekschema en schrijf naar intervals.icu.
@@ -477,6 +478,7 @@ def build_week(
         Lijst van alle geplande events
     """
     week_end = week_start + timedelta(days=6)
+    today = today or date.today()
     phase = load_manager.get("current_phase", "basis_I")
     status = injury_guard.get("status", "groen")
     strength_ok = injury_guard.get("strength_allowed", True)
@@ -506,10 +508,51 @@ def build_week(
     # ── BESTAANDE EVENTS OPHALEN ─────────────────────────────────────────────
     # Dit doen we altijd, ook in dry_run, zodat je ziet wat er al staat.
     existing_events = []
+    fetch_failed = False
     try:
         existing_events = api.get_events(week_start, week_end)
     except Exception as e:
+        fetch_failed = True
         print(f"  Waarschuwing: kan bestaande events niet ophalen: {e}")
+
+    # Zonder de bestaande events weten we niet of de week vastgezet is én niet
+    # wat er al staat. Doorplannen zou dan bovenop een bestaand schema
+    # dupliceren. Niet-plannen is terug te draaien, dat niet.
+    if fetch_failed and not dry_run:
+        msg = (f"Bestaande events voor {week_start} niet op te halen — "
+               "planning afgebroken om dubbele of verloren sessies te voorkomen.")
+        print(f"  {msg}")
+        _persist_plan_warnings(week_start, [{
+            "tier": 1, "code": "events_fetch_failed",
+            "dag": None, "sessie": None, "message": msg,
+        }])
+        return []
+
+    # ── WEEK-LOCK ────────────────────────────────────────────────────────────
+    # Een handmatig samengestelde week mag niet door een automatische replan
+    # weggegooid worden (de scheduler draait elke zondag 18:00). De lock leeft
+    # als NOTE-event in de week zelf, want dat is het enige dat lokaal en op
+    # Railway gedeeld wordt.
+    from agents import week_lock as _wl
+
+    _lock = _wl.find_lock(existing_events)
+    if _lock is not None:
+        reden = _wl.lock_reason(existing_events)
+        msg = (
+            f"Week {week_start} is vastgezet — niets gewijzigd."
+            + (f" Reden: {reden}" if reden else "")
+        )
+        print(f"  🔒 {msg}")
+        print(f"     Ontgrendelen: python plan_week.py "
+              f"--week {week_start.isoformat()} --ontgrendel")
+        _persist_plan_warnings(week_start, [{
+            "tier": 1,
+            "code": "week_locked",
+            "dag": None,
+            "sessie": None,
+            "message": msg,
+        }])
+        return []
 
     # Onze eigen events: WORKOUT + NOTE events aangemaakt door dit systeem.
     # Match op prefix zodat varianten als "Krachttraining benen" ook geraakt
@@ -517,9 +560,13 @@ def build_week(
     OUR_NOTE_PREFIXES = ("Dagelijkse rehab", "Krachttraining")
     events_to_delete = [
         e for e in existing_events
-        if e.get("category") == "WORKOUT"
-        or (e.get("category") == "NOTE"
-            and any((e.get("name") or "").startswith(p) for p in OUR_NOTE_PREFIXES))
+        if (e.get("start_date_local") or "")[:10] >= today.isoformat()
+        and (
+            e.get("category") == "WORKOUT"
+            or (e.get("category") == "NOTE"
+                and any((e.get("name") or "").startswith(p)
+                        for p in OUR_NOTE_PREFIXES))
+        )
     ]
     print(f"  Bestaande events deze week: {len(existing_events)} totaal, "
           f"{len(events_to_delete)} te verwijderen.")
@@ -853,6 +900,9 @@ def build_week(
     # 3. Workoutsessies (run + fiets) — beschrijving verrijkt met pace/watts
     from agents.pijlers import pijler_header
     from agents.workout_annotations import annotate_description
+    from agents import workout_naming
+
+    naming_warnings: list[dict] = []
     for dag_naam in DAYS_NL:
         if dag_naam in sessions_by_day:
             for sessie in sessions_by_day[dag_naam]:
@@ -873,9 +923,23 @@ def build_week(
                 # de weekstimulus).
                 if sessie.get("priority") == "optioneel":
                     beschrijving = OPTIONEEL_MARKER + beschrijving
+                # De body is wat je afspeelt en uitvoert; de naam moet 'm dekken.
+                # Liepen ze uiteen, dan wint de body en loggen we het.
+                naam, naam_warn = workout_naming.check(
+                    sessie["naam"], sessie["beschrijving"]
+                )
+                if naam_warn:
+                    print(f"  ⚠️  {dag_naam}: {naam_warn}")
+                    naming_warnings.append({
+                        "tier": 2,
+                        "code": "naam_body_mismatch",
+                        "dag": dag_naam,
+                        "sessie": sessie["naam"],
+                        "message": naam_warn,
+                    })
                 events_to_create.append({
                     "datum": dag_date,
-                    "naam": sessie["naam"],
+                    "naam": naam,
                     "beschrijving": beschrijving,
                     "categorie": "WORKOUT",
                     "sport": sessie["sport"],
@@ -886,6 +950,16 @@ def build_week(
                     "priority": sessie.get("priority"),
                     "plaatsing_reden": sessie.get("plaatsing_reden"),
                 })
+
+    if naming_warnings:
+        _persist_plan_warnings(week_start, day_planner_warnings + naming_warnings)
+
+    # Een herplanning van de lopende week mag de kalenderhistorie niet
+    # herschrijven. Laat verstreken dagen volledig staan: niet verwijderen en
+    # ook geen vervangende workouts of notities op die datums aanmaken.
+    events_to_create = [
+        event for event in events_to_create if event["datum"] >= today
+    ]
 
     # ── PRINT OVERZICHT ─────────────────────────────────────────────────────
     workout_tss = sum(e["tss"] or 0 for e in events_to_create if e["categorie"] == "WORKOUT")

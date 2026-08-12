@@ -19,6 +19,7 @@ CLI:  python -m core.replan_goal [--dry-run]
 from __future__ import annotations
 
 import argparse
+import sys
 from datetime import date, timedelta
 from typing import Optional
 
@@ -284,6 +285,13 @@ def weekly_recalibration(
 
 
 def main() -> None:
+    # De adviesteksten dragen ≥, ≈ en →; de Windows-console draait standaard
+    # cp1252 en laat het script daarop crashen ná het persisteren, zodat een
+    # geslaagde herijking eruitziet als een mislukking.
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except (AttributeError, OSError):
+        pass
     parser = argparse.ArgumentParser(
         description="Wekelijkse herijking van het macroplan (§4.2)")
     parser.add_argument("--dry-run", action="store_true",
