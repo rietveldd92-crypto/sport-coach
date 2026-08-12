@@ -397,6 +397,27 @@ def _migration_011_observation_drift(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE threshold_observations ADD COLUMN work_time_min INTEGER")
 
 
+def _migration_012_observation_kind(conn: sqlite3.Connection) -> None:
+    """v12: onderscheid drempel- en sub-drempelsessies in het dossier.
+
+    Vanaf augustus 2026 loopt het merendeel van de kwaliteitssessies op
+    sub-drempel (~96% van drempelpace) in plaats van op drempel. Die sessies
+    komen per definitie op target binnen met een vlakke hartslag onder de
+    drempelband — precies het patroon dat de drift-regel als "er is ruimte,
+    versnel de drempel" leest. Zonder dit onderscheid zou elke geslaagde
+    sub-drempelsessie de drempelpace omlaag duwen, en dat is geen bewijs maar
+    een ontwerpfout.
+
+    Bestaande rijen krijgen 'threshold': tot nu toe waren het er ook alleen.
+    """
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(threshold_observations)")}
+    if "kind" not in cols:
+        conn.execute(
+            "ALTER TABLE threshold_observations ADD COLUMN kind TEXT "
+            "NOT NULL DEFAULT 'threshold'"
+        )
+
+
 # Registreer migraties in volgorde: (version, name, function)
 _MIGRATIONS = [
     (1, "initial_schema", _migration_001_initial_schema),
@@ -410,6 +431,7 @@ _MIGRATIONS = [
     (9, "aerobic_efficiency_band_key", _migration_009_aerobic_efficiency_band_key),
     (10, "aerobic_efficiency_temp", _migration_010_aerobic_efficiency_temp),
     (11, "observation_drift", _migration_011_observation_drift),
+    (12, "observation_kind", _migration_012_observation_kind),
 ]
 
 
@@ -929,11 +951,18 @@ def insert_threshold_observation(
     observed_pace_sec: int | None = None,
     hr_drift_bpm: float | None = None,
     work_time_min: int | None = None,
+    kind: str = "threshold",
 ) -> dict:
     """Schrijf één observatie weg. Idempotent op activity_id.
 
     Bestaat de rij al, dan worden alleen nog-lege velden aangevuld — de RPE
     komt vaak pas ná de eerste feedback-run binnen.
+
+    ``kind`` wordt bewust NIET bijgewerkt bij een conflict. Die classificatie
+    hangt af van de drempelpace die op het moment van lopen gold; verzet een
+    race-anker de drempel, dan zou een herverwerking van dezelfde activiteit
+    een drempelsessie achteraf tot sub-drempel bombarderen. Een observatie mag
+    nooit van as wisselen nadat hij is vastgelegd.
     """
     ensure_migrations()
     with _connect() as conn:
@@ -942,8 +971,8 @@ def insert_threshold_observation(
             INSERT INTO threshold_observations
                 (date, activity_id, pace_delta_sec, hr_reps_avg, hr_vs_band, rpe,
                  completed, target_pace_sec, observed_pace_sec,
-                 hr_drift_bpm, work_time_min)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 hr_drift_bpm, work_time_min, kind)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(activity_id) DO UPDATE SET
                 pace_delta_sec = COALESCE(excluded.pace_delta_sec, pace_delta_sec),
                 hr_reps_avg = COALESCE(excluded.hr_reps_avg, hr_reps_avg),
@@ -967,6 +996,7 @@ def insert_threshold_observation(
                 observed_pace_sec,
                 hr_drift_bpm,
                 work_time_min,
+                kind or "threshold",
             ),
         )
         conn.commit()

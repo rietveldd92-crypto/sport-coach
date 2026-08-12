@@ -475,3 +475,149 @@ def test_drift_context_zonder_metingen_legt_uit_wat_er_nodig_is():
 
     assert context["drift_series"] == []
     assert "Nog geen bruikbare driftmeting" in context["drift_sentence"]
+
+
+# ── SUB-DREMPEL ────────────────────────────────────────────────────────────
+# Sinds augustus 2026 loopt het gros van de kwaliteitssessies op sub-drempel.
+# Die komen per ontwerp op target binnen, met vlakke drift en een hartslag
+# onder de drempelband — precies het patroon dat de drift-regel als "versnel
+# de drempel" leest. Deze tests bewaken dat onderscheid.
+
+SUB_HR = feedback_engine.THRESHOLD_HR_MIN - 8  # ~163, echte sub-drempel-HR
+
+
+def _obs_sub(day_offset: int, activity_id: str, hr: float,
+             delta: int = 0, rpe: int | None = 6, drift: float = 2.0):
+    return threshold_model.record_observation({
+        "activity_id": activity_id,
+        "name": "Sub-drempel - 6x6 min @ 4:32/km",
+        "date": (TODAY - timedelta(days=day_offset)).isoformat(),
+        "pace_delta_sec": delta,
+        "hr_reps_avg": hr,
+        "hr_drift_bpm": drift,
+        "target_pace_sec": 272,
+        "work_time_min": 36,
+        "completed": True,
+    }, rpe=rpe)
+
+
+def test_session_kind_op_tempo_en_op_naam():
+    _seed_state(262)
+
+    # Naam wint ook als het tempo ontbreekt.
+    assert threshold_model.session_kind(
+        "Sub-drempel - 6x6 min @ 4:32/km", None, 262) == "subthreshold"
+    # Tempo wint ook als de naam niets prijsgeeft: 4:32 is 10 s/km boven 4:22.
+    assert threshold_model.session_kind("Blokken", 272, 262) == "subthreshold"
+    # De 2x20 @ 4:20 is 2 s/km sneller dan de drempel: gewoon drempelwerk.
+    assert threshold_model.session_kind(
+        "Lange drempel - 2x20 min @ 4:20/km", 260, 262) == "threshold"
+
+
+def test_sub_drempelsessies_duwen_de_drempel_niet_omlaag():
+    """De regressie: vlakke drift onder de band is bij sub-drempel ontwerp."""
+    _seed_state(262)
+    _obs_sub(21, "s1", SUB_HR, drift=2)
+    _obs_sub(14, "s2", SUB_HR, drift=1)
+    _obs_sub(7, "s3", SUB_HR, drift=2)
+
+    assert threshold_model.evaluate_trend(today=TODAY) is None
+    assert history_db.get_pending_threshold_suggestion() is None
+
+
+def test_zakkende_hartslag_op_sub_drempel_stelt_snellere_drempel_voor():
+    _seed_state(262)
+    _obs_sub(28, "s1", 170)
+    _obs_sub(14, "s2", 167)
+    _obs_sub(1, "s3", 164)
+
+    suggestion = threshold_model.evaluate_trend(today=TODAY)
+
+    assert suggestion is not None
+    assert suggestion["source"] == "subthreshold_hr_trend"
+    assert suggestion["proposed_sec"] == 259
+    assert threshold_model.get_threshold_pace() == 262  # nooit muteren
+
+
+def test_klimmende_hartslag_op_sub_drempel_stelt_tragere_drempel_voor():
+    _seed_state(262)
+    _obs_sub(28, "s1", 164)
+    _obs_sub(14, "s2", 167)
+    _obs_sub(1, "s3", 170)
+
+    suggestion = threshold_model.evaluate_trend(today=TODAY)
+
+    assert suggestion is not None
+    assert suggestion["source"] == "subthreshold_hr_trend"
+    assert suggestion["proposed_sec"] == 265
+
+
+def test_sub_drempeltrend_binnen_drie_weken_vuurt_niet():
+    """Drie sessies in tien dagen kan een koele week zijn, geen adaptatie."""
+    _seed_state(262)
+    _obs_sub(10, "s1", 170)
+    _obs_sub(5, "s2", 167)
+    _obs_sub(0, "s3", 163)
+
+    assert threshold_model.evaluate_trend(today=TODAY) is None
+
+
+def test_sub_drempel_met_hoge_rpe_versnelt_niet():
+    """Hartslag zegt rustig, atleet zegt zwaar: de atleet wint."""
+    _seed_state(262)
+    _obs_sub(28, "s1", 170, rpe=6)
+    _obs_sub(14, "s2", 167, rpe=8)
+    _obs_sub(1, "s3", 164, rpe=9)
+
+    assert threshold_model.evaluate_trend(today=TODAY) is None
+
+
+def test_sub_drempel_naast_te_weinig_drempelsessies_blijft_zichtbaar():
+    _seed_state(262)
+    _obs_sub(28, "s1", 170)
+    _obs_sub(14, "s2", 168)
+    _obs_sub(1, "s3", 167)
+
+    context = threshold_model.threshold_context()
+
+    assert context["subthreshold_trend"]["n"] == 3
+    assert context["subthreshold_trend"]["span_dagen"] == 27
+    assert "hartslag bij gelijke pace" in context["subthreshold_sentence"]
+
+
+def test_kind_wisselt_niet_van_as_bij_herverwerking():
+    """Een race-anker verzet de drempel; oude observaties horen te blijven.
+
+    auto_feedback draait idempotent over een venster van recente dagen. Zonder
+    deze bescherming zou een drempelsessie van 4:20 achteraf sub-drempel worden
+    zodra de drempelpace naar 4:10 gaat — en dan verhuist bewijs stilletjes van
+    de ene as naar de andere.
+    """
+    _seed_state(262)
+    payload = {
+        "activity_id": "flip1",
+        "name": "Lange drempel - 2x20 min @ 4:20/km",
+        "date": (TODAY - timedelta(days=1)).isoformat(),
+        "pace_delta_sec": 0, "hr_reps_avg": IN_BAND,
+        "target_pace_sec": 260, "completed": True,
+    }
+    assert threshold_model.record_observation(payload, rpe=7)["kind"] == "threshold"
+
+    _seed_state(250)  # race-anker verzet de drempel naar 4:10
+
+    assert threshold_model.record_observation(payload, rpe=7)["kind"] == "threshold"
+
+
+def test_sub_drempeltrend_kijkt_niet_verder_terug_dan_zijn_venster():
+    """Stilgevallen sessies mogen de coach geen richting laten vertellen."""
+    _seed_state(262)
+    ver_terug = threshold_model.SUBT_WINDOW_DAYS + 30
+    _obs_sub(ver_terug + 60, "oud1", 170)
+    _obs_sub(ver_terug + 30, "oud2", 167)
+    _obs_sub(ver_terug, "oud3", 163)
+
+    context = threshold_model.threshold_context(today=TODAY)
+
+    assert context["subthreshold_trend"] is None
+    assert "nog geen 3 bruikbare" in context["subthreshold_sentence"]
+    assert threshold_model.evaluate_trend(today=TODAY) is None
