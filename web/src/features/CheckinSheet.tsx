@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import BottomSheet from "../components/BottomSheet";
+import { errorText } from "../api/client";
 import { useCheckin, useWeightTrend } from "../api/queries";
 import type { CheckinResult } from "../api/types";
 
@@ -196,7 +197,7 @@ export default function CheckinSheet({ open, onClose }: Props) {
 
           {checkin.isError && (
             <p className="text-sm text-alert">
-              Versturen mislukt — probeer het nog eens.
+              Opslaan mislukt — {errorText(checkin.error)}
             </p>
           )}
 

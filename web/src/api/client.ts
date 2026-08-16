@@ -107,6 +107,18 @@ export function isAuthError(err: unknown): boolean {
   return err instanceof ApiError && err.status === 401;
 }
 
+/** Foutregel voor de UI. Een mislukte opslag moet zeggen wát er misging:
+ *  "probeer het nog eens" laat een verlopen sessie er hetzelfde uitzien
+ *  als een kapotte server, en dan blijf je opnieuw proberen. */
+export function errorText(err: unknown): string {
+  if (!(err instanceof ApiError)) return "onbekende fout";
+  if (err.status === 0) return "geen verbinding";
+  if (err.status === 401) return "niet ingelogd (401)";
+  if (err.status === 429) return "te veel pogingen — wacht een minuut";
+  if (err.status === 502) return "coach onbereikbaar (502)";
+  return `${err.status} — ${err.detail}`;
+}
+
 // ── auth ───────────────────────────────────────────────────────────────────
 
 export type AuthStatus = { authenticated: boolean; auth_required: boolean };
