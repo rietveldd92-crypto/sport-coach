@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { createPortal } from "react-dom";
 import type { ReactNode } from "react";
 
 interface Props {
@@ -22,7 +23,11 @@ export default function BottomSheet({ open, onClose, title, children }: Props) {
 
   if (!open) return null;
 
-  return (
+  // Portal naar <body>: de rise-in animatie laat (fill-mode: both) een
+  // permanente transform op secties achter, en een transformed ancestor
+  // wordt de containing block voor position:fixed. Zonder portal rendert
+  // een sheet die binnen zo'n sectie wordt geopend buiten beeld.
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-end justify-center">
       <button
         aria-label="Sluiten"
@@ -41,6 +46,7 @@ export default function BottomSheet({ open, onClose, title, children }: Props) {
         )}
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

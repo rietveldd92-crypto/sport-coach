@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import {
   Bar,
   BarChart,
@@ -37,6 +37,7 @@ import type {
   ThresholdMutationResult,
   ThresholdObservation,
   ThresholdPaceView,
+  ThresholdTrendContext,
   TrendsView,
 } from "../api/types";
 import OfflineBanner, { useOnline } from "../components/OfflineBanner";
@@ -414,6 +415,8 @@ function ThresholdDossierChart({ view }: { view: TrendsView }) {
           </div>
         )}
 
+        <DriftStrip context={dossier.context} />
+
         <div className="border-t border-line px-5 py-4">
           <p className="mb-2.5 font-mono text-[0.6rem] uppercase tracking-[0.18em] text-dim">
             laatste observaties
@@ -428,9 +431,15 @@ function ThresholdDossierChart({ view }: { view: TrendsView }) {
                   <span className="text-[0.8rem] text-muted">
                     {obs.hr_vs_band ? `HR ${obs.hr_vs_band}` : "HR onbekend"}
                     {obs.rpe != null ? ` · RPE ${obs.rpe}` : ""}
+                    {obs.work_time_min != null ? ` · ${obs.work_time_min}min` : ""}
                   </span>
-                  <span className={deltaClass(obs.pace_delta_sec)}>
-                    {deltaLabel(obs.pace_delta_sec)}
+                  <span className="flex items-baseline gap-2.5">
+                    <span className={driftClass(obs.hr_drift_bpm, dossier.context)}>
+                      {driftLabel(obs.hr_drift_bpm)}
+                    </span>
+                    <span className={deltaClass(obs.pace_delta_sec)}>
+                      {deltaLabel(obs.pace_delta_sec)}
+                    </span>
                   </span>
                 </li>
               ))}
@@ -497,6 +506,61 @@ function ThresholdTip({
       ))}
     </div>
   );
+}
+
+/** Hartslagdrift op target-pace: het enige signaal dat beweegt als de pace
+ *  vaststaat. Oudste links, zodat de richting leest zoals je hem traint. */
+function DriftStrip({ context }: { context: ThresholdTrendContext }) {
+  const series = context.drift_series ?? [];
+  return (
+    <div className="border-t border-line px-5 py-4">
+      <p className="mb-2.5 font-mono text-[0.6rem] uppercase tracking-[0.18em] text-dim">
+        hr-drift op target
+      </p>
+      {series.length === 0 ? (
+        <p className="text-[0.8rem] leading-relaxed text-muted">
+          {context.drift_sentence}
+        </p>
+      ) : (
+        <>
+          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1.5">
+            {series.map((point, i) => (
+              <Fragment key={`${point.date}-${i}`}>
+                {i > 0 && <span className="font-mono text-[0.7rem] text-dim">→</span>}
+                <span className="inline-flex flex-col items-center">
+                  <span className={driftClass(point.drift_bpm, context)}>
+                    {driftLabel(point.drift_bpm)}
+                  </span>
+                  <span className="font-mono text-[0.58rem] text-dim">
+                    {dayMonth(point.date)}
+                  </span>
+                </span>
+              </Fragment>
+            ))}
+          </div>
+          <p className="mt-2.5 text-[0.8rem] leading-relaxed text-muted">
+            {context.drift_sentence}
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+
+function driftLabel(drift?: number | null): string {
+  if (drift == null) return "—";
+  const rounded = Math.round(drift);
+  return `${rounded > 0 ? "+" : ""}${rounded}bpm`;
+}
+
+function driftClass(drift: number | null | undefined,
+                    context: ThresholdTrendContext): string {
+  const base = "font-mono text-[0.72rem]";
+  if (drift == null) return `${base} text-dim`;
+  // Vlak = de hartslag zette zich vast, dus de sessie lag binnen de drempel.
+  if (drift <= (context.drift_flat_bpm ?? 3)) return `${base} text-positive`;
+  if (drift >= (context.drift_high_bpm ?? 8)) return `${base} text-warning`;
+  return `${base} text-muted`;
 }
 
 function deltaLabel(delta?: number | null): string {

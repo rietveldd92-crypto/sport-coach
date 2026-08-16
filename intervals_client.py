@@ -54,6 +54,21 @@ def get_wellness(start: date = None, end: date = None) -> list:
     return r.json()
 
 
+def update_wellness(on_date: date, **fields) -> dict:
+    """Schrijf wellness-velden voor één dag (gewicht, HRV, rust-HR, ...).
+
+    intervals.icu is de backend-of-record: gewicht dat hier landt voedt ook
+    `icu_weight` op activiteiten en dus de W/kg-berekening. Lokaal opslaan
+    zou een tweede waarheid maken.
+    """
+    r = requests.put(
+        f"{BASE_URL}/athlete/{ATHLETE_ID}/wellness/{on_date.isoformat()}",
+        auth=_auth(), json=fields, timeout=TIMEOUT,
+    )
+    r.raise_for_status()
+    return r.json()
+
+
 def get_events(start: date = None, end: date = None, resolve: bool = False) -> list:
     """Haal geplande events/workouts op uit de kalender.
 
@@ -119,12 +134,24 @@ def delete_event(event_id: str) -> None:
     r.raise_for_status()
 
 
-def bulk_delete_events(start: date, end: date, category: str = "WORKOUT") -> int:
-    """Verwijder alle events van een bepaalde categorie in een periode. Geeft aantal verwijderde events terug."""
+def bulk_delete_events(
+    start: date,
+    end: date,
+    category: str = "WORKOUT",
+    *,
+    today: date | None = None,
+) -> int:
+    """Verwijder events vanaf vandaag; kalenderhistorie blijft onaangeraakt."""
+    today = today or date.today()
+    start = max(start, today)
+    if start > end:
+        return 0
     events = get_events(start, end)
     deleted = 0
     for event in events:
-        if event.get("category") == category:
+        if (event.get("category") == category
+                and (event.get("start_date_local") or "")[:10]
+                >= today.isoformat()):
             try:
                 delete_event(event["id"])
                 deleted += 1

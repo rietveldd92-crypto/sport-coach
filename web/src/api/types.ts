@@ -164,6 +164,17 @@ export interface CheckinResult {
   };
 }
 
+/** GET /api/checkin/weight */
+export interface WeightTrendView {
+  latest: number | null;
+  latest_date: string | null;
+  avg_recent: number | null;
+  avg_prior: number | null;
+  kg_per_week: number | null;
+  n_measurements: number;
+  message: string;
+}
+
 export interface PlanWeekRow {
   week_start: string;
   phase?: string;
@@ -283,6 +294,15 @@ export interface ThresholdObservation {
   completed: number | boolean;
   target_pace_sec?: number | null;
   observed_pace_sec?: number | null;
+  /** HR laatste rep min eerste rep, bij vaste pace. Null = niet meetbaar. */
+  hr_drift_bpm?: number | null;
+  work_time_min?: number | null;
+}
+
+export interface ThresholdDriftPoint {
+  date: string;
+  drift_bpm: number;
+  work_time_min?: number | null;
 }
 
 export interface ThresholdTrendContext {
@@ -290,6 +310,12 @@ export interface ThresholdTrendContext {
   recent_observations: ThresholdObservation[];
   faster_count: number;
   slower_count: number;
+  flat_drift_count: number;
+  high_drift_count: number;
+  drift_series: ThresholdDriftPoint[];
+  drift_sentence: string;
+  drift_flat_bpm: number;
+  drift_high_bpm: number;
   required_count: number;
   window_size: number;
   window_days: number;

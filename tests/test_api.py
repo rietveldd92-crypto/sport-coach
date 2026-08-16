@@ -422,6 +422,17 @@ def test_checkin_records_wellness_and_stays_green(client):
     assert rec["sleep_score"] == 4 and rec["motivation"] == 5
 
 
+def test_checkin_weight_reaches_intervals_wellness(client, mock_api):
+    r = client.post("/api/checkin", json={
+        "sleep_score": 4,
+        "weight": 87.5,
+    })
+
+    assert r.status_code == 200
+    assert ("update_wellness", TODAY.isoformat(), {"weight": 87.5}) \
+        in mock_api.calls
+
+
 def test_checkin_injury_signal_flips_guard_to_red(client):
     """Direct blessuresignaal (knie_pijn) → injury_guard ROOD,
     loopintensiteit dicht — zelfde flow als het oude adjust.py-pad."""

@@ -1,9 +1,11 @@
 """Gedeelde helpers — voorkomt duplicatie tussen app.py, coach.py, auto_feedback.py etc.
 
 Sinds Fase 0 (UPGRADE_PLAN §8) leven load_state/save_state op SQLite
-(history.db, tabellen athlete_state + availability_override) in plaats van
-state.json. Het dict-formaat dat callers zien is exact gelijk gebleven:
+(history.db, tabel athlete_state) in plaats van state.json. Het dict-formaat
+dat callers zien is exact gelijk gebleven:
 {"injury": {...}, "load": {...}, ..., "availability": {"YYYY-MM-DD": minuten}}.
+``availability`` is daarbij een read-only snapshot uit availability_override
+(eigendom van core/availability_v2) — save_state schrijft die sectie nooit.
 
 state.json blijft als read-only fallback bestaan totdat
 scripts/migrate_state_json.py is gedraaid.
@@ -69,8 +71,13 @@ def load_state(state_path: Path | None = None) -> dict:
 
 def save_state(state: dict, state_path: Path | None = None) -> None:
     """Schrijf de athlete state naar SQLite (whole-state overwrite,
-    net als het oude state.json). ``availability`` gaat naar
-    availability_override; alle andere top-level keys naar athlete_state.
+    net als het oude state.json), met één uitzondering: ``availability``
+    wordt NOOIT teruggeschreven. Die sectie is eigendom van
+    core/availability_v2 (de API-endpoints en agents/availability
+    schrijven daar direct); ``state["availability"]`` is bij load_state
+    slechts een read-only snapshot. Zou save_state die snapshot terug-
+    spiegelen, dan wist elke load→save-cyclus (injury_guard, load_manager,
+    weeklog) overrides die de gebruiker intussen via de app heeft gezet.
 
     Een expliciet afwijkend ``state_path`` (tests) blijft puur op JSON
     werken.
@@ -82,9 +89,8 @@ def save_state(state: dict, state_path: Path | None = None) -> None:
     import history_db
 
     state = dict(state)  # caller's dict niet muteren
-    availability = state.pop("availability", None)
+    state.pop("availability", None)  # read-only snapshot — niet terugschrijven
     history_db.replace_athlete_state(state)
-    history_db.replace_availability_minutes(availability or {})
 
 
 def types_match(event_type: str, activity_type: str) -> bool:

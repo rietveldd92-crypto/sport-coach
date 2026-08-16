@@ -77,13 +77,18 @@ def find_new_completed_workouts() -> tuple[list[dict], list, list]:
     log = _load_feedback_log()
     processed = set(log.get("processed_activities", []))
 
-    # Haal events en activiteiten van deze week
     monday = date.today() - timedelta(days=date.today().weekday())
     sunday = monday + timedelta(days=6)
+    # De job draait 's ochtends, dus een sessie die daarna binnenkomt wacht op de
+    # run van de volgende dag. Op zondag bestaat die dag niet meer: maandag kijkt
+    # alleen naar de nieuwe week en de sessie blijft permanent zonder feedback en
+    # zonder drempelobservatie. Het scanvenster loopt daarom een week terug;
+    # processed_activities houdt dubbele feedback tegen.
+    scan_start = monday - timedelta(days=7)
 
     try:
-        events = api.get_events(monday, sunday)
-        activities = api.get_activities(start=monday, end=sunday)
+        events = api.get_events(scan_start, sunday)
+        activities = api.get_activities(start=scan_start, end=sunday)
     except Exception as e:
         print(f"  Kan data niet ophalen: {e}")
         return [], [], []
@@ -116,7 +121,14 @@ def find_new_completed_workouts() -> tuple[list[dict], list, list]:
                 "activity_id": act_id,
             })
 
-    return results, events, activities
+    # De adaptive cycle en de buur-workout-context redeneren over déze week; het
+    # inhaalvenster hierboven dient alleen om gemiste sessies te vinden.
+    def _this_week(rows: list) -> list:
+        return [r for r in rows
+                if monday.isoformat() <= (r.get("start_date_local") or "")[:10]
+                <= sunday.isoformat()]
+
+    return results, _this_week(events), _this_week(activities)
 
 
 _types_match = shared.types_match
@@ -228,12 +240,21 @@ def run_adaptive_cycle(
     # runs deze week inkorten. Draait altijd (niet alleen bij deviations).
     try:
         from agents import volume_compensation as _vc
+        from agents import week_lock as _wl
         monday = _date.today() - timedelta(days=_date.today().weekday())
-        vc_updates = _vc.apply_to_events(
-            events=week_events,
-            activities=week_activities,
-            week_start=monday,
-        )
+        # Een vastgezette week is een bewuste keuze van de atleet; de
+        # dagelijkse job mag daar geen sessies in gaan herschrijven. Feedback
+        # in de beschrijving blijft wel gewoon lopen — dat verandert niets aan
+        # wat je traint, en is juist de reden dat deze job draait.
+        if _wl.find_lock(week_events):
+            print("  Volume-compensatie overgeslagen: week is vastgezet.")
+            vc_updates = []
+        else:
+            vc_updates = _vc.apply_to_events(
+                events=week_events,
+                activities=week_activities,
+                week_start=monday,
+            )
         if vc_updates and not (dry_run or detect_only):
             print(f"  Volume-compensatie: {len(vc_updates)} run(s) ingekort")
             for u in vc_updates:
@@ -272,6 +293,18 @@ def run_adaptive_cycle(
     if dry_run:
         print("  [DRY RUN] Geen wijzigingen doorgevoerd.")
         return {"deviations": deviations, "result": result, "applied": False}
+
+    # Zelfde regel als bij de volume-compensatie: in een vastgezette week
+    # herschrijft de automaat geen sessies. De afwijkingen worden wel gemeld,
+    # zodat je zelf kunt beslissen of je ontgrendelt.
+    from agents import week_lock as _wl
+    if _wl.find_lock(week_events):
+        print("  Week is vastgezet — afwijkingen wel gemeld, plan niet aangepast.")
+        print("  Ontgrendelen: python plan_week.py --week "
+              f"{(_date.today() - timedelta(days=_date.today().weekday())).isoformat()}"
+              " --ontgrendel")
+        return {"deviations": deviations, "result": result, "applied": False,
+                "skipped_reason": "week_locked"}
 
     # Apply modifications naar intervals.icu — per-mod success tracking.
     # Bij failure halverwege NIET de hele batch als applied=True markeren;

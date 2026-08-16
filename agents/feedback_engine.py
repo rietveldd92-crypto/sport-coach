@@ -37,11 +37,16 @@ HARD_WORKOUT_TYPES = {
 
 # Referentiewaarden — pas hier aan als FTP/HRmax verandert
 ATHLETE_FTP = 290
-ATHLETE_HRMAX = 190
+# Gemeten piek in drempel-/VO2max-sessies (23 jul, 8 jul, 13 jun 2026 elk 194).
+# Stond lang op 190; dat drukte de drempelband omlaag, waardoor sessies op een
+# normale drempel-HR als "boven de band" golden en het drempelmodel ze als
+# trager-signaal las.
+ATHLETE_HRMAX = 194
 ATHLETE_THRESHOLD_PACE_DEFAULT_SEC = 255
-THRESHOLD_HR_MIN = 167
-THRESHOLD_HR_MAX = 175
-Z2_HR_MIN = round(ATHLETE_HRMAX * 0.68)  # 129
+# Afgeleid i.p.v. hard ingevuld: de band hoort mee te schuiven met HRmax.
+THRESHOLD_HR_MIN = round(ATHLETE_HRMAX * 0.88)  # 171
+THRESHOLD_HR_MAX = round(ATHLETE_HRMAX * 0.92)  # 178
+Z2_HR_MIN = round(ATHLETE_HRMAX * 0.68)  # 132
 # Operationeel easy-plafond: Dennis herstelt aantoonbaar beter als HR op easy
 # runs/bikes onder 145 blijft; alles 145–152 = grijze zone voor hem.
 Z2_HR_MAX = 145
@@ -307,7 +312,7 @@ def build_similar_workouts_context(wtype: str, activity_id, recent_28d: list) ->
         pace_str = ""
         if dist > 0 and dur > 0 and (s.get("type") == "Run"):
             pace = dur / dist
-            pace_str = f", pace {pace:.2f}/km"
+            pace_str = f", pace {workout_analysis._fmt_pace(pace)}/km"
         power_str = ""
         if s.get("average_watts"):
             power_str = f", {s.get('average_watts'):.0f}W"
@@ -369,16 +374,36 @@ def build_prompt(
     if metrics.get("hr_drift_pct") is not None:
         deep_data.append(f"HR drift over intervals: {metrics['hr_drift_pct']}%")
     if metrics.get("splits"):
-        split_str = ", ".join(f"{s['pace']:.2f}" for s in metrics["splits"][:12])
-        deep_data.append(f"Km-splits (min/km): {split_str}")
+        split_str = ", ".join(
+            workout_analysis._fmt_pace(s["pace"]) for s in metrics["splits"][:12]
+        )
+        deep_data.append(f"Km-splits (mm:ss/km): {split_str}")
     if metrics.get("cardiac_decoupling_pct") is not None:
-        deep_data.append(f"Cardiac decoupling: {metrics['cardiac_decoupling_pct']}% (lager = beter aerobe basis)")
+        bron = metrics.get("cardiac_decoupling_bron")
+        bron_str = f", bron: {bron}" if bron else ""
+        deep_data.append(
+            f"Cardiac decoupling: {metrics['cardiac_decoupling_pct']}% "
+            f"(pace-gecorrigeerd, lager = beter aerobe basis{bron_str})")
     if metrics.get("avg_pace_first_third") and metrics.get("avg_pace_last_third"):
         deep_data.append(
-            f"Pacing: eerste derde {metrics['avg_pace_first_third']:.2f}/km → laatste derde {metrics['avg_pace_last_third']:.2f}/km"
+            f"Pacing: eerste derde {workout_analysis._fmt_pace(metrics['avg_pace_first_third'])}/km"
+            f" → laatste derde {workout_analysis._fmt_pace(metrics['avg_pace_last_third'])}/km"
         )
     if metrics.get("interval_paces"):
-        deep_data.append(f"Interval paces (min/km): {[f'{p:.2f}' for p in metrics['interval_paces']]}")
+        deep_data.append(
+            f"Interval paces: {[workout_analysis._fmt_pace(p) for p in metrics['interval_paces']]}/km"
+        )
+    if metrics.get("target_pace_sec") and metrics.get("observed_pace_sec"):
+        target_s = metrics["target_pace_sec"]
+        observed_s = metrics["observed_pace_sec"]
+        delta = metrics.get("pace_delta_sec", observed_s - target_s)
+        richting = "trager dan" if delta > 0 else "sneller dan" if delta < 0 else "exact op"
+        deep_data.append(
+            f"Intervaltarget deze sessie: {target_s // 60}:{target_s % 60:02d}/km — "
+            f"gerealiseerd {observed_s // 60}:{observed_s % 60:02d}/km "
+            f"({abs(delta)}s/km {richting} target). Gebruik ALLEEN deze twee getallen "
+            f"voor de target-vergelijking, niet de decimale interval paces hierboven."
+        )
     if metrics.get("z1z2_pct") is not None:
         deep_data.append(f"Tijd in zones: Z1+Z2 {metrics['z1z2_pct']}%, boven Z2 {metrics['z3plus_pct']}%")
     if metrics.get("vi"):
@@ -439,6 +464,7 @@ AUTO-ANALYSE BEVINDINGEN
 
 DREMPEL-TREND (deterministisch berekend; verwoord dit alleen, verzin geen drempelwaarde)
 {threshold_ctx["sentence"]}
+{threshold_ctx.get("drift_sentence", "")}
 
 WELLNESS / HERSTEL
 {wellness_ctx or '(geen wellness data beschikbaar)'}

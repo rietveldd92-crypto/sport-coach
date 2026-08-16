@@ -55,9 +55,12 @@ SAMPLE_STATE = {
 
 
 def test_save_load_round_trip_exact_dict():
+    """Round-trip van alle secties behalve availability — die sectie is
+    read-only voor save_state (eigendom van availability_v2)."""
     shared.save_state(SAMPLE_STATE)
     loaded = shared.load_state()
-    assert loaded == SAMPLE_STATE
+    expected = {k: v for k, v in SAMPLE_STATE.items() if k != "availability"}
+    assert loaded == expected
 
 
 def test_save_state_does_not_mutate_caller_dict():
@@ -92,14 +95,56 @@ def test_nested_types_survive_round_trip():
 
 
 def test_availability_minutes_to_slots_and_back():
+    """Availability komt bij load_state uit availability_override, maar
+    wordt door save_state nooit (terug)geschreven."""
+    history_db.replace_availability_minutes(SAMPLE_STATE["availability"])
     shared.save_state(SAMPLE_STATE)
     loaded = shared.load_state()
     assert loaded["availability"] == SAMPLE_STATE["availability"]
 
 
-def test_availability_slot_encoding_in_db():
-    """60 min → 07:00-08:00; 0 min (rustdag) → expliciete 00:00-00:00 rij."""
+def test_save_state_never_touches_availability_override():
+    """Regressie (2026-07-20): een load→save-cyclus met een verouderde
+    availability-snapshot mag overrides die intussen via de app zijn gezet
+    NIET wissen. Dit was de bug waardoor beschikbaarheid aanpassen in de
+    app geen effect had: injury_guard/load_manager/weeklog savede de hele
+    state terug en replace_availability_minutes gooide alle datums weg die
+    niet in hun (stale) snapshot stonden."""
+    from datetime import date
+
+    from core import availability_v2 as av2
+
     shared.save_state(SAMPLE_STATE)
+    stale = shared.load_state()  # snapshot vóór de gebruikerswijziging
+
+    d = date(2026, 7, 25)
+    av2.set_override(d, [("07:00", "09:00", "any")])
+
+    shared.save_state(stale)  # bv. load_manager die zijn analyse wegschrijft
+    assert av2.minutes_for_day(d) == 120  # override moet overleven
+
+
+def test_save_state_availability_survives_json_fallback_snapshot():
+    """Zelfde regressie, maar via het state.json-fallback-pad (verse DB):
+    de stale availability-dict uit state.json mag verse overrides niet
+    wegvagen zodra iets save_state aanroept."""
+    from datetime import date
+
+    from core import availability_v2 as av2
+
+    assert history_db.athlete_state_is_empty()
+    d = date(2026, 7, 25)
+    av2.set_override(d, [("07:00", "09:00", "any")])
+
+    stale = dict(SAMPLE_STATE)  # bevat availability met heel andere datums
+    shared.save_state(stale)
+    assert av2.minutes_for_day(d) == 120
+
+
+def test_availability_slot_encoding_in_db():
+    """60 min → 07:00-08:00; 0 min (rustdag) → expliciete 00:00-00:00 rij.
+    (Encoding van het migratiepad — replace_availability_minutes.)"""
+    history_db.replace_availability_minutes(SAMPLE_STATE["availability"])
     with sqlite3.connect(history_db.DB_PATH) as conn:
         conn.row_factory = sqlite3.Row
         rows = {
@@ -137,6 +182,7 @@ def test_agents_availability_module_reads_and_writes_db():
     from agents import availability
 
     shared.save_state(SAMPLE_STATE)
+    history_db.replace_availability_minutes(SAMPLE_STATE["availability"])
     week_start = date(2026, 5, 4)  # maandag van de week met 2026-05-06 e.d.
     week = availability.get_week(week_start)
     assert week["2026-05-06"] == 60
