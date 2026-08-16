@@ -173,7 +173,15 @@ def is_threshold_workout(event: dict, analysis: dict) -> bool:
     if event.get("type") != "Run":
         return False
     name = (event.get("name") or "").lower()
-    return analysis.get("workout_type") == "run_tempo" or "drempel" in name
+    # Long runs met MP- of sub-drempelblokken zijn geen dossiervoer: de
+    # blokken liggen diep in een lange duurloop en de HR daar zegt niets
+    # over waar LT2 ligt — vermoeide benen jagen hem structureel omhoog.
+    if "lange duurloop" in name or "long run" in name:
+        return False
+    return (
+        analysis.get("workout_type") in {"run_tempo", "run_subthreshold"}
+        or "drempel" in name
+    )
 
 
 def observe_from_workout(event: dict, activity: dict, analysis: dict) -> dict | None:

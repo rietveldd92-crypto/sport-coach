@@ -173,7 +173,8 @@ def _select_strength_days(all_sessions: list, long_run_dag: str) -> list[str]:
     # zijn aerobe motor — geen explosief/excentrisch werk dat kracht conflicteert.
     hard_keywords = ("threshold", "drempel", "marathon_tempo", "tempo_duurloop",
                      "cp_intervals", "vo2max", "interval", "over_unders",
-                     "over-unders", "pyramide", "surges", "vo2", "sweetspot")
+                     "over-unders", "pyramide", "surges", "vo2", "sweetspot",
+                     "@ mp")
 
     def _day_is_hard(dag: str) -> bool:
         # Alleen interval-/drempelsessies tellen als "hard" voor kracht-placement.
