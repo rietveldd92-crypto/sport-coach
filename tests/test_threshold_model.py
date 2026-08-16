@@ -1,5 +1,7 @@
 from datetime import date, timedelta
 
+import pytest
+
 import history_db
 import shared
 from agents import feedback_engine
@@ -7,6 +9,25 @@ from agents import threshold_model
 
 
 TODAY = date(2026, 7, 20)
+
+
+class _PinnedDate(date):
+    @classmethod
+    def today(cls):
+        return TODAY
+
+
+@pytest.fixture(autouse=True)
+def _pin_today(monkeypatch):
+    """Pin vandaag op TODAY zolang deze module draait.
+
+    De observatievensters rekenen terug vanaf vandaag. Twee paden vragen
+    zelf naar de datum in plaats van hem mee te krijgen — ``record_rpe``
+    (die na de backfill opnieuw evalueert) en ``threshold_context``. Zonder
+    pin schuiven de geseede sessies van juli vanzelf het venster uit en gaat
+    de test maanden na het schrijven ervan om, terwijl er niets stuk is.
+    """
+    monkeypatch.setattr(threshold_model, "date", _PinnedDate)
 
 
 def _seed_state(sec=255):
