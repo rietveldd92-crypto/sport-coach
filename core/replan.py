@@ -57,8 +57,12 @@ def _solver_inputs(movable: list[dict], placements_db: dict) -> tuple[list, dict
     """(sessions, current_plan, locked) voor slot_solver.solve_week.
 
     current_plan komt uit de placements-tabel als die er is, anders uit
-    de start_date_local van het event zelf.
+    de start_date_local van het event zelf. Locked zijn de sessies die de
+    solver niet mag verplaatsen: expliciet gelockte placements én sessies
+    die in de kalender zijn vastgezet (``agents.session_lock``).
     """
+    from agents import session_lock
+
     sessions: list[dict] = []
     current_plan: dict[str, tuple[str, str]] = {}
     locked: set[str] = set()
@@ -79,7 +83,11 @@ def _solver_inputs(movable: list[dict], placements_db: dict) -> tuple[list, dict
             current_plan[eid] = (rec["date"], rec.get("slot_start") or cur_time)
         else:
             current_plan[eid] = (cur_date, cur_time)
-        if rec and rec.get("locked"):
+        # Vastgezet in de kalender telt net zo zwaar als een lock in de
+        # placements-tabel — sterker nog: een externe sessie (de zondagse
+        # marathon-bloksessie) heeft daar helemaal geen rij, dus zonder de
+        # kalender-markering zou de solver hem vrolijk verschuiven.
+        if (rec and rec.get("locked")) or session_lock.is_pinned(e):
             locked.add(eid)
     return sessions, current_plan, locked
 

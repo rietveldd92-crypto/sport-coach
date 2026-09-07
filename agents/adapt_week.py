@@ -11,6 +11,7 @@ from typing import Any, Optional
 
 from .models import AdaptResult, Deviation, Modification
 from .session_classifier import is_sacred
+from .session_lock import is_pinned
 
 # Constants
 MAX_EXTRAS_BEFORE_WARN = 3
@@ -212,6 +213,16 @@ def adapt_week(
             planned = _find_event(week_events, dev.planned_event_id)
             if not planned:
                 continue
+            if is_pinned(planned):
+                # Een vastgezette sessie is een afspraak buiten dit systeem
+                # (groeps- of bloktraining). Die kun je niet naar dinsdag
+                # schuiven, en het origineel wissen zou de afspraak uit de
+                # kalender halen. Gemist is dan gemist.
+                narrative_parts.append(
+                    f"Vastgezette sessie '{planned.get('name', '?')}' gemist — "
+                    "niet verplaatst, die staat vast in de agenda."
+                )
+                continue
             if dev.sacred:
                 slot = _find_reschedule_slot(week_events, planned, today)
                 if slot is None:
@@ -280,7 +291,12 @@ def adapt_week(
         elif dev.type == "replaced_easier":
             if dev.sacred:
                 planned = _find_event(week_events, dev.planned_event_id)
-                if planned:
+                if planned and is_pinned(planned):
+                    narrative_parts.append(
+                        f"Vastgezette sessie '{planned.get('name', '?')}' lichter "
+                        "uitgevoerd — blijft staan waar hij staat."
+                    )
+                elif planned:
                     slot = _find_reschedule_slot(week_events, planned, today)
                     if slot is not None:
                         new_ev = dict(planned)

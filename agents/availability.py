@@ -149,6 +149,25 @@ def get_race_day_names(week_start: date) -> list[str]:
     return out
 
 
+def get_pinned_day_names(week_start: date) -> list[str]:
+    """NL-dagnamen met een vastgezette sessie — voor de planner een bezette dag.
+
+    Zelfde redenering als bij een racedag: de sessie staat er al, dus er
+    hoort geen geplande run of rit bovenop. Zie ``agents/session_lock.py``
+    voor waarom de markering in de kalender leeft.
+
+    Faalt stil met een lege lijst: de planner mag nooit blokkeren omdat
+    intervals.icu even niet bereikbaar is.
+    """
+    from agents import session_lock
+
+    try:
+        events = session_lock.fetch_week(week_start)
+    except Exception:
+        return []
+    return session_lock.pinned_day_names(events, week_start)
+
+
 def _is_easy_bike_session(session: dict) -> bool:
     """True als we deze sessie mogen rebuilden via library.endurance_ride.
 

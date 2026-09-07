@@ -7,6 +7,49 @@ voeren.
 
 ---
 
+## 2026-09-07 — Sessie-lock: één afspraak vastzetten zonder de week te bevriezen
+
+**Aanleiding:** De zondagavond-scheduler draaide, verving de workouts van
+de week en nam daarmee de marathon-bloksessie van zondag mee. Die sessie
+komt uit de groepsagenda, staat als gewone `WORKOUT` op de kalender, en was
+dus nergens beschermd: `week_planner.build_week` verwijdert álle toekomstige
+workouts van de week en zet er zijn eigen voor in de plaats.
+
+**Beslissing:** Een sessie-lock naast de bestaande week-lock. Markering
+`[VAST]` in de naam (of de beschrijving) van het kalender-event maakt één
+sessie onaantastbaar:
+
+- `week_planner` slaat hem over bij het wissen — de rest van de week wordt
+  gewoon opnieuw gegenereerd;
+- zijn dag telt als bezet (`availability.get_pinned_day_names` →
+  `skip_run_days` en beschikbaarheid 0 in het V3-pad), zodat de planner er
+  niets bovenop stapelt — dezelfde behandeling als een racedag;
+- de replan-solver ziet hem als `locked` en verschuift hem niet.
+
+**Waarom de markering in de kalender en niet in de database:** dezelfde
+reden als bij `week_lock`. De planner draait lokaal, via de Railway-scheduler
+en handmatig; die delen geen state-bestand en geen `history.db`. Wat ze wél
+altijd delen is intervals.icu. Bovendien heeft een externe sessie geen rij
+in de `placements`-tabel, dus de bestaande `locked`-vlag daar kon hem niet
+dekken. `session_lock` zet die vlag nu wel mee, maar de kalender is de bron
+van waarheid.
+
+**Waarom geen week-lock:** die is te grof. De atleet wil dat de rest van de
+week gewoon opnieuw gepland wordt; alleen die ene afspraak staat vast.
+
+**Bediening:** `python plan_week.py --sessie-vast 2026-09-13` (en
+`--sessie-los` om vrij te geven), of `POST /api/placements/{id}/pin`. Een
+knop in de PWA is nog niet gebouwd — dat is de logische volgende stap.
+
+**Wat we NIET gebouwd hebben:** terugkerende vaste sessies. De
+`fixed_sessions`-tabel bestaat, maar `week_skeleton._commute_slots` bakt er
+een Z2-forenzenrit van (vaste beschrijving, bike-TSS, zone Z2). Een vaste
+loopsessie zou daar verkeerd uitkomen én naast de lange duurloop landen in
+plaats van hem te vervangen. Dat is eigen ontwerpwerk; de sessie-lock lost
+het acute probleem los daarvan op.
+
+---
+
 ## 2026-07-06 - Planner-contract: triatleet zonder zwemmen
 
 **Beslissing:** Beschikbaarheid is een hard contract. Als een week geen

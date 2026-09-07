@@ -282,6 +282,29 @@ def swap_event(event_id: str, category: str) -> dict:
     )
 
 
+def set_event_pinned(event_id: str, pinned: bool) -> dict:
+    """POST /api/placements/{event_id}/pin — sessie vastzetten of vrijgeven.
+
+    Vastgezet = de weekplanner wist hem niet bij een regeneratie en de
+    solver verschuift hem niet. Zie ``agents/session_lock.py``.
+    """
+    from agents import session_lock
+
+    event = find_event(event_id)
+    if event is None:
+        raise LookupError(f"Event {event_id} niet gevonden in het zoekvenster")
+
+    if pinned:
+        result = session_lock.pin_event(str(event_id), event)
+    else:
+        result = session_lock.unpin_event(str(event_id), event)
+    return {
+        "event_id": str(event_id),
+        "pinned": pinned,
+        "name": result.get("name") or event.get("name"),
+    }
+
+
 def move_placement(event_id: str, target_date: date, *,
                    apply: bool = False) -> dict:
     """POST /api/placements/{event_id}/move — solver-diff (+ optioneel apply)."""

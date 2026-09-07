@@ -558,9 +558,16 @@ def build_week(
     # Match op prefix zodat varianten als "Krachttraining benen" ook geraakt
     # worden — eerder match-op-exact miste die en liet ze dubbel staan.
     OUR_NOTE_PREFIXES = ("Dagelijkse rehab", "Krachttraining")
+    # Vastgezette sessies zijn géén van onze events, ook al staan ze als
+    # WORKOUT op de kalender: de marathon-bloksessie op zondag komt uit de
+    # groepsagenda. Zonder deze uitzondering wist elke regeneratie hem en
+    # zette er een eigen duurloop voor in de plaats.
+    from agents import session_lock as _sl
+
     events_to_delete = [
         e for e in existing_events
         if (e.get("start_date_local") or "")[:10] >= today.isoformat()
+        and not _sl.is_pinned(e)
         and (
             e.get("category") == "WORKOUT"
             or (e.get("category") == "NOTE"
@@ -568,8 +575,18 @@ def build_week(
                         for p in OUR_NOTE_PREFIXES))
         )
     ]
+    pinned = [
+        e for e in _sl.find_pinned(existing_events)
+        if (e.get("start_date_local") or "")[:10] >= today.isoformat()
+    ]
     print(f"  Bestaande events deze week: {len(existing_events)} totaal, "
           f"{len(events_to_delete)} te verwijderen.")
+    if pinned:
+        namen = ", ".join(
+            f"{(e.get('name') or '?')} ({(e.get('start_date_local') or '')[:10]})"
+            for e in pinned
+        )
+        print(f"  Vastgezet, blijft staan: {namen}")
 
     all_sessions = run_sessions + bike_sessions
 

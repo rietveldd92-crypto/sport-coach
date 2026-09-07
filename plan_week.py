@@ -63,6 +63,9 @@ def _planner_v3_inputs(week_start: date) -> tuple[dict, list[dict], dict[str, in
     from agents import availability as _av
     for dag in _av.get_race_day_names(week_start):
         availability[dag] = 0
+    # Een vastgezette sessie is net zo bezet als een race: hij staat er al.
+    for dag in _av.get_pinned_day_names(week_start):
+        availability[dag] = 0
     return prefs, fixed_sessions, availability
 
 
@@ -184,6 +187,18 @@ def run(week_start: date, dry_run: bool = True, skip_run_days: list = None):
             print(f"  Race deze week: {', '.join(_races)} — dag geblokkeerd.")
     except Exception as _e:
         print(f"  Racedagen niet geladen: {_e}")
+
+    # Vastgezette sessies (zie agents/session_lock.py) blokkeren hun dag om
+    # dezelfde reden als een race: er staat al een sessie, dus er hoort niets
+    # bovenop. De sessie zelf blijft staan; week_planner wist hem niet.
+    try:
+        from agents import availability as _av
+        _vast = _av.get_pinned_day_names(week_start)
+        if _vast:
+            skip_run_days = list(dict.fromkeys((skip_run_days or []) + _vast))
+            print(f"  Vastgezette sessie(s): {', '.join(_vast)} — dag geblokkeerd.")
+    except Exception as _e:
+        print(f"  Vastgezette sessies niet geladen: {_e}")
 
     print(f"\n  Starttdatum week: {week_start} (maandag)")
     print("  Data ophalen uit intervals.icu...")
@@ -448,6 +463,60 @@ def run_horizon(horizon: int, write: bool, skip_run_days: list = None):
         run(wk, dry_run=not effective_write, skip_run_days=skip_run_days or [])
 
 
+def _pin_sessions_cli(args) -> None:
+    """Afhandeling van --sessie-vast / --sessie-los.
+
+    Dagniveau in plaats van event-id: een event-id opzoeken vraagt om een
+    extra ronde door de kalender, en in de praktijk gaat het altijd om
+    "de sessie van zondag" — de bloksessie die al vaststond.
+    """
+    from agents import session_lock
+
+    if args.sessie_vast and args.sessie_los:
+        print("  ⚠️  --sessie-vast en --sessie-los gaan niet samen.")
+        sys.exit(1)
+    conflicterend = [
+        naam for naam, actief in (
+            ("--schrijf", args.schrijf),
+            ("--horizon", args.horizon is not None and args.horizon > 0),
+            ("--vastzetten", args.vastzetten),
+            ("--ontgrendel", args.ontgrendel),
+        ) if actief
+    ]
+    if conflicterend:
+        print(f"  ⚠️  {', '.join(conflicterend)} kan niet samen met "
+              "--sessie-vast/--sessie-los.")
+        sys.exit(1)
+
+    raw = args.sessie_vast or args.sessie_los
+    try:
+        dag = date.fromisoformat(raw)
+    except ValueError:
+        print(f"  ⚠️  Ongeldige datum: {raw}. Gebruik format YYYY-MM-DD.")
+        sys.exit(1)
+
+    try:
+        if args.sessie_vast:
+            geraakt = session_lock.pin_day(dag)
+            actie = "vastgezet"
+        else:
+            geraakt = session_lock.unpin_day(dag)
+            actie = "vrijgegeven"
+    except Exception as exc:
+        print(f"  ⚠️  Kalender niet bereikbaar ({exc}) — niets gewijzigd.")
+        sys.exit(1)
+
+    if not geraakt:
+        wat = "workout" if args.sessie_vast else "vastgezette sessie"
+        print(f"  Geen {wat} gevonden op {dag}.")
+        return
+    for e in geraakt:
+        print(f"  {actie.capitalize()}: {e.get('name') or '?'} ({dag})")
+    if args.sessie_vast:
+        print("  De planner laat deze sessie voortaan staan en plant niets "
+              "bovenop deze dag.")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Sport Coach — week inplannen")
     parser.add_argument("--schrijf", action="store_true",
@@ -468,10 +537,20 @@ def main():
                         help="Haal de week-lock weg zodat er weer gepland mag worden.")
     parser.add_argument("--reden", type=str, default="",
                         help="Toelichting bij --vastzetten (komt in de kalendernotitie).")
+    parser.add_argument("--sessie-vast", type=str, default=None, metavar="YYYY-MM-DD",
+                        help="Zet de sessie(s) van deze dag vast. De rest van de week "
+                             "mag opnieuw gepland worden; deze sessie blijft staan en "
+                             "de dag blijft bezet.")
+    parser.add_argument("--sessie-los", type=str, default=None, metavar="YYYY-MM-DD",
+                        help="Geef de vastgezette sessie(s) van deze dag weer vrij.")
     args = parser.parse_args()
 
     if args.status:
         print_status()
+        return
+
+    if args.sessie_vast or args.sessie_los:
+        _pin_sessions_cli(args)
         return
 
     skip_run_days = ["maandag"] if args.geen_run_maandag else []

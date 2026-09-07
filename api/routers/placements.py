@@ -20,6 +20,10 @@ class SwapRequest(BaseModel):
     category: Literal["makkelijker", "vergelijkbaar", "anders", "harder"]
 
 
+class PinRequest(BaseModel):
+    pinned: bool = True
+
+
 @router.post("/placements/{event_id}/move")
 def move_placement(event_id: str, body: MoveRequest,
                    apply: bool = False) -> dict:
@@ -34,6 +38,20 @@ def move_placement(event_id: str, body: MoveRequest,
         raise HTTPException(status_code=404, detail=str(exc))
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
+
+
+@router.post("/placements/{event_id}/pin")
+def pin_placement(event_id: str, body: PinRequest) -> dict:
+    """Zet een sessie vast (of geef hem vrij).
+
+    Een vastgezette sessie overleeft een herplanning van de week en houdt
+    zijn dag bezet — bedoeld voor afspraken die niet uit dit systeem komen,
+    zoals een groeps- of bloksessie.
+    """
+    try:
+        return views.set_event_pinned(event_id, body.pinned)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
 
 
 @router.post("/placements/{event_id}/swap")
