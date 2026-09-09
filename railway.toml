@@ -11,7 +11,11 @@
 #        INTERVALS_ATHLETE_ID = i85836
 #        INTERVALS_API_KEY    = <intervals.icu key>
 #        GOOGLE_API_KEY       = <gemini key>                (optioneel: coach-feedback)
-#        TP_SYNC_ENABLED / TP_AUTH_COOKIE                   (optioneel: Zwift-sync)
+#        TP_SYNC_ENABLED      = true                        (optioneel: Zwift-sync)
+#        TP_AUTH_COOKIE       = Production_tpAuth=...       (hoort bij TP_SYNC_ENABLED)
+#      Let op: TP_AUTH_COOKIE is een browsercookie van trainingpeaks.com en
+#      verloopt. Zonder deze twee vars geeft de sync-knop een 409 met uitleg;
+#      met een verlopen cookie een 502 die zegt dat je 'm moet verversen.
 #   4. Database seeden vanaf je lokale machine:
 #        curl -X POST https://<app>.up.railway.app/api/admin/import-db \
 #             -H "Authorization: Bearer $API_TOKEN" --data-binary @history.db

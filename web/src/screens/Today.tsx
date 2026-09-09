@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { isAuthError, isUnavailable } from "../api/client";
+import { isAuthError, isUnavailable, serverDetail } from "../api/client";
 import {
   useResolveThresholdSuggestion,
   useSyncTp,
@@ -274,9 +274,7 @@ function HeroCard({
         </div>
         {sync.isError && (
           <p className="mt-2.5 text-[0.78rem] text-warning">
-            Sync niet gelukt: {(sync.error as Error)?.message?.includes("409")
-              ? "TP-sync staat uit (TP_SYNC_ENABLED)."
-              : "probeer het later opnieuw."}
+            Sync niet gelukt: {serverDetail(sync.error, "probeer het later opnieuw.")}
           </p>
         )}
       </div>
