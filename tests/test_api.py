@@ -558,6 +558,42 @@ def test_no_dist_means_api_only(mock_api, env, tmp_path):
 def test_sync_tp_disabled_gives_409(client):
     r = client.post("/api/sync/tp/e_today")
     assert r.status_code == 409
+    # De UI toont detail letterlijk: het moet zeggen wat je moet doen.
+    assert "TP_SYNC_ENABLED" in r.json()["detail"]
+    assert "staat uit" in r.json()["detail"]
+
+
+def test_sync_tp_zonder_cookie_geeft_409_met_uitleg(client, env):
+    """Sync aan maar geen cookie: configuratiefout, niet TP's schuld."""
+    env.setenv("TP_SYNC_ENABLED", "1")
+    env.setenv("TP_AUTH_COOKIE", "   ")
+
+    r = client.post("/api/sync/tp/e_today")
+
+    assert r.status_code == 409
+    assert "TP_AUTH_COOKIE" in r.json()["detail"]
+
+
+def test_sync_tp_verlopen_cookie_zegt_dat_het_de_cookie_is(client, env):
+    """De normale faalmodus: TP logt je uit. Dat moet je kunnen lezen."""
+    import tp_sync_service
+    from trainingpeaks_errors import TPAuthError
+
+    env.setenv("TP_SYNC_ENABLED", "1")
+    env.setenv("TP_AUTH_COOKIE", "verlopen-cookie")
+
+    def fake_sync(event, cookie, *args, **kwargs):
+        raise TPAuthError("401 from /users/v3/token")
+
+    env.setattr(tp_sync_service, "sync_event", fake_sync)
+    r = client.post("/api/sync/tp/e_today")
+
+    assert r.status_code == 502
+    detail = r.json()["detail"]
+    assert "verlopen" in detail
+    assert "trainingpeaks.com" in detail
+    # Geen rauwe HTTP-brokstukken richting de telefoon.
+    assert "401" not in detail
 
 
 def test_sync_tp_happy_path(client, env):
