@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { isAuthError, isUnavailable } from "../api/client";
+import { ApiError, isAuthError, isUnavailable } from "../api/client";
 import {
   useResolveThresholdSuggestion,
   useSyncTp,
@@ -179,6 +179,7 @@ function HeroCard({
   );
   const done = workout.done || localDone;
   const sync = useSyncTp();
+  const alreadySynced = isAlreadySynced(sync.error);
 
   const toggleDone = () => {
     if (workout.done) return; // echte activity wint altijd
@@ -263,25 +264,47 @@ function HeroCard({
           )}
           {isSyncable(workout) && (
             <button
-              onClick={() => sync.mutate(event.id)}
+              onClick={() =>
+                sync.mutate({ eventId: event.id, replace: alreadySynced })
+              }
               disabled={sync.isPending || sync.isSuccess}
               className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-line-strong py-3 text-sm font-semibold transition-colors hover:border-accent disabled:opacity-60"
             >
               <BoltIcon />
-              {sync.isSuccess ? "Gesynct" : "Zwift"}
+              {sync.isSuccess
+                ? "Gesynct"
+                : alreadySynced
+                  ? "Opnieuw"
+                  : "Zwift"}
             </button>
           )}
         </div>
         {sync.isError && (
           <p className="mt-2.5 text-[0.78rem] text-warning">
-            Sync niet gelukt: {(sync.error as Error)?.message?.includes("409")
-              ? "TP-sync staat uit (TP_SYNC_ENABLED)."
-              : "probeer het later opnieuw."}
+            Sync niet gelukt: {syncErrorText(sync.error)}
           </p>
         )}
       </div>
     </section>
   );
+}
+
+/** De sync-knop faalde lang met "probeer het later opnieuw" op een fout die
+ *  nooit vanzelf overgaat: 422 = deze workout staat al in TP. Toon de echte
+ *  reden, zodat de knop kan omschakelen naar opnieuw pushen (delete + post). */
+function isAlreadySynced(err: unknown): boolean {
+  return err instanceof ApiError && err.status === 422;
+}
+
+function syncErrorText(err: unknown): string {
+  if (err instanceof ApiError) {
+    if (err.status === 409) return "TP-sync staat uit (TP_SYNC_ENABLED).";
+    if (err.status === 422)
+      return "deze workout staat al in TP — druk op Opnieuw om te vervangen.";
+    if (err.status === 0) return "geen verbinding.";
+    return err.detail || "onbekende fout.";
+  }
+  return "probeer het later opnieuw.";
 }
 
 function Metric({ label, value }: { label: string; value: string }) {

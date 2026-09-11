@@ -12,7 +12,7 @@ router = APIRouter(tags=["sync"])
 
 
 @router.post("/sync/tp/{event_id}")
-def sync_tp(event_id: str) -> dict:
+def sync_tp(event_id: str, replace: bool = False) -> dict:
     if not config.get_bool("TP_SYNC_ENABLED", default=False):
         raise HTTPException(status_code=409,
                             detail="TP-sync staat uit (TP_SYNC_ENABLED)")
@@ -24,7 +24,7 @@ def sync_tp(event_id: str) -> dict:
 
     cookie = config.get_secret("TP_AUTH_COOKIE") or ""
     try:
-        return tp_sync_service.sync_event(event, cookie)
+        return tp_sync_service.sync_event(event, cookie, allow_replace=replace)
     except TPAuthError as exc:
         raise HTTPException(status_code=502, detail=f"TP-auth: {exc}")
     except TPConversionError as exc:
