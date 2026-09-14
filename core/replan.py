@@ -277,7 +277,7 @@ def move_event(
     source_date = date_type.fromisoformat(
         (target_event.get("start_date_local") or "")[:10])
     availability_swap: Optional[dict] = None
-    if swap_availability and source_date != target_date             and source_date >= today:
+    if swap_availability and source_date != target_date:
         # Vensters meeverhuizen: brondag en doeldag wisselen van
         # beschikbaarheid. Slots dragen hun datum, dus herdateren.
         src_slots = list(slots.get(source_date) or [])
