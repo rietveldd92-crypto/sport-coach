@@ -130,8 +130,10 @@ export default function Week() {
     const fromDate = (item.event.start_date_local ?? "").slice(0, 10);
     if (targetDate === fromDate) return;
     const eventId = String(item.event.id);
+    // Slepen neemt de beschikbaarheid mee: bron- en doeldag wisselen
+    // van venster, zodat je niet eerst de dag hoeft open te zetten.
     move.mutate(
-      { eventId, targetDate, apply: false },
+      { eventId, targetDate, apply: false, swapAvailability: true },
       {
         onSuccess: (result) =>
           setPendingMove({
@@ -151,7 +153,12 @@ export default function Week() {
   const confirmMove = () => {
     if (!pendingMove) return;
     move.mutate(
-      { eventId: pendingMove.eventId, targetDate: pendingMove.targetDate, apply: true },
+      {
+        eventId: pendingMove.eventId,
+        targetDate: pendingMove.targetDate,
+        apply: true,
+        swapAvailability: true,
+      },
       {
         onSuccess: () => {
           setPendingMove(null);

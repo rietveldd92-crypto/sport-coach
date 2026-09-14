@@ -156,14 +156,17 @@ export function useMovePlacement() {
       eventId,
       targetDate,
       apply,
+      swapAvailability = false,
     }: {
       eventId: string;
       targetDate: string;
       apply: boolean;
+      /** Vensters van bron- en doeldag mee laten wisselen. */
+      swapAvailability?: boolean;
     }) =>
       post<MoveResult>(
         `/api/placements/${eventId}/move${apply ? "?apply=true" : ""}`,
-        { target_date: targetDate },
+        { target_date: targetDate, swap_availability: swapAvailability },
       ),
   });
 }

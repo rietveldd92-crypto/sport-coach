@@ -14,6 +14,9 @@ router = APIRouter(tags=["placements"])
 
 class MoveRequest(BaseModel):
     target_date: date
+    # Beschikbaarheid van bron- en doeldag mee laten wisselen, zodat je
+    # kunt slepen zonder eerst de vensters aan te passen.
+    swap_availability: bool = False
 
 
 class SwapRequest(BaseModel):
@@ -29,7 +32,9 @@ def move_placement(event_id: str, body: MoveRequest,
     placements-tabel); zonder die query-param is het een preview.
     """
     try:
-        return views.move_placement(event_id, body.target_date, apply=apply)
+        return views.move_placement(
+            event_id, body.target_date, apply=apply,
+            swap_availability=body.swap_availability)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     except ValueError as exc:

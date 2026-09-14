@@ -283,7 +283,8 @@ def swap_event(event_id: str, category: str) -> dict:
 
 
 def move_placement(event_id: str, target_date: date, *,
-                   apply: bool = False) -> dict:
+                   apply: bool = False,
+                   swap_availability: bool = False) -> dict:
     """POST /api/placements/{event_id}/move — solver-diff (+ optioneel apply)."""
     import intervals_client as api
     from core import replan
@@ -295,7 +296,8 @@ def move_placement(event_id: str, target_date: date, *,
     except Exception as exc:
         raise IntervalsUnavailable(f"events ophalen faalde: {exc}") from exc
 
-    return replan.move_event(event_id, target_date, apply=apply, events=events)
+    return replan.move_event(event_id, target_date, apply=apply, events=events,
+                             swap_availability=swap_availability)
 
 
 # ── GOALS ─────────────────────────────────────────────────────────────────
