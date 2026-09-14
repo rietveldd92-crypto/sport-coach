@@ -53,6 +53,12 @@ def _movable_workouts(events: list[dict], today: date_type) -> list[dict]:
     ]
 
 
+def _slot_dicts(slots) -> list[dict]:
+    """Slots → JSON-vriendelijke {start, end, context}-dicts."""
+    return [{"start": s.start, "end": s.end, "context": s.context}
+            for s in slots]
+
+
 def _solver_inputs(movable: list[dict], placements_db: dict) -> tuple[list, dict, set]:
     """(sessions, current_plan, locked) voor slot_solver.solve_week.
 
@@ -202,6 +208,7 @@ def move_event(
     apply: bool = False,
     events: Optional[list[dict]] = None,
     today: Optional[date_type] = None,
+    swap_availability: bool = False,
 ) -> dict:
     """Drag-to-reschedule: solve de week met deze sessie locked op doeldatum.
 
@@ -216,6 +223,12 @@ def move_event(
             False = alleen het diff teruggeven (preview).
         events: injecteerbaar voor tests (None = ophalen via intervals.icu).
         today: testbaar 'vandaag'.
+        swap_availability: True = de beschikbaarheidsvensters van de
+            bron- en doeldag wisselen mee met de sessie. Zo kun je een
+            workout naar een dag zonder venster slepen zonder eerst de
+            beschikbaarheid aan te passen; een sessie die op de doeldag
+            stond schuift dan vanzelf terug naar de brondag. Bij apply
+            worden beide dagen als override weggeschreven.
 
     Returns dict::
 
@@ -224,12 +237,14 @@ def move_event(
          placements: [{event_id, naam, date, slot_start, kind, score,
                        moved_days, notes}],
          dropped: [{event_id, naam, reason}],
+         availability_swap: None | {from, to, from_slots, to_slots},
          applied: bool, errors: [str]}
 
     Raises:
         LookupError: event niet gevonden in de doelweek.
         ValueError: doeldatum in het verleden, of geen
-            beschikbaarheidsvenster op de doeldag.
+            beschikbaarheidsvenster op de doeldag (en ook niet op de
+            brondag als swap_availability aan staat).
     """
     import history_db
     from core import availability_v2 as av2
@@ -258,6 +273,26 @@ def move_event(
 
     slots = av2.get_slots_for_week(week_start)
     slots = {d: (s if d >= today else []) for d, s in slots.items()}
+
+    source_date = date_type.fromisoformat(
+        (target_event.get("start_date_local") or "")[:10])
+    availability_swap: Optional[dict] = None
+    if swap_availability and source_date != target_date             and source_date >= today:
+        # Vensters meeverhuizen: brondag en doeldag wisselen van
+        # beschikbaarheid. Slots dragen hun datum, dus herdateren.
+        src_slots = list(slots.get(source_date) or [])
+        dst_slots = list(slots.get(target_date) or [])
+        slots[target_date] = [s.model_copy(update={"date": target_date})
+                              for s in src_slots]
+        slots[source_date] = [s.model_copy(update={"date": source_date})
+                              for s in dst_slots]
+        availability_swap = {
+            "from": source_date.isoformat(),
+            "to": target_date.isoformat(),
+            "from_slots": _slot_dicts(slots[source_date]),
+            "to_slots": _slot_dicts(slots[target_date]),
+        }
+
     target_slots = slots.get(target_date) or []
     if not target_slots:
         raise ValueError(
@@ -315,6 +350,19 @@ def move_event(
                     f"Verplaatsen '{mv['event_name']}' → {mv['to']} "
                     f"faalde: {exc}")
         errors.extend(slot_solver.persist_placements(result.placements))
+        if availability_swap is not None:
+            # Beide dagen als override wegschrijven; [] wordt de
+            # rustdag-marker, precies wat de brondag na de wissel is.
+            for day_iso, day_slots in (
+                (availability_swap["from"], availability_swap["from_slots"]),
+                (availability_swap["to"], availability_swap["to_slots"]),
+            ):
+                try:
+                    av2.set_override(
+                        date_type.fromisoformat(day_iso), day_slots)
+                except Exception as exc:
+                    errors.append(
+                        f"Beschikbaarheid {day_iso} wisselen faalde: {exc}")
         # Handmatige drag = gebruikersbesluit → vastzetten zodat een
         # latere availability-replan dit niet stilletjes terugdraait.
         try:
@@ -341,6 +389,7 @@ def move_event(
             for pl in result.placements
         ],
         "dropped": dropped,
+        "availability_swap": availability_swap,
         "applied": applied,
         "errors": errors,
     }

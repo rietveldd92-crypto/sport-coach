@@ -1,6 +1,11 @@
 import BottomSheet from "../components/BottomSheet";
-import type { MoveResult } from "../api/types";
+import type { AvailabilitySwapSlot, MoveResult } from "../api/types";
 import { dayShort } from "../lib/dates";
+
+function fmtSlots(slots: AvailabilitySwapSlot[]): string {
+  if (slots.length === 0) return "rustdag";
+  return slots.map((s) => `${s.start}–${s.end}`).join(", ");
+}
 
 export interface PendingMove {
   eventId: string;
@@ -60,6 +65,25 @@ export default function MoveDiffSheet({ pending, busy, onConfirm, onClose }: Pro
               </li>
             ))}
           </ul>
+        )}
+
+        {result.availability_swap && !infeasible && (
+          <div className="rounded-xl bg-elevated px-4 py-3">
+            <p className="mb-1.5 font-mono text-[0.6rem] uppercase tracking-[0.18em] text-dim">
+              beschikbaarheid wisselt mee
+            </p>
+            <p className="font-mono text-[0.78rem] leading-relaxed text-muted">
+              {dayShort(result.availability_swap.to)}{" "}
+              <span className="text-ink">
+                {fmtSlots(result.availability_swap.to_slots)}
+              </span>
+              {" · "}
+              {dayShort(result.availability_swap.from)}{" "}
+              <span className="text-ink">
+                {fmtSlots(result.availability_swap.from_slots)}
+              </span>
+            </p>
+          </div>
         )}
 
         {movedNotes.length > 0 && (

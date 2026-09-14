@@ -124,11 +124,26 @@ export interface SolverPlacement {
 }
 
 /** POST /api/placements/{id}/move (core.replan.move_event) */
+export interface AvailabilitySwapSlot {
+  start: string;
+  end: string;
+  context: string;
+}
+
+/** Beschikbaarheid die met de drag meeverhuist (bron ↔ doel). */
+export interface AvailabilitySwap {
+  from: string;
+  to: string;
+  from_slots: AvailabilitySwapSlot[];
+  to_slots: AvailabilitySwapSlot[];
+}
+
 export interface MoveResult {
   status: "OPTIMAL" | "FEASIBLE" | "INFEASIBLE";
   diff: MoveDiffEntry[];
   placements: SolverPlacement[];
   dropped: { event_id: string; naam: string; reason: string }[];
+  availability_swap?: AvailabilitySwap | null;
   applied: boolean;
   errors: string[];
 }
