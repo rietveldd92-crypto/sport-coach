@@ -250,6 +250,20 @@ def test_observe_from_workout_negeert_niet_drempelsessies():
     assert history_db.list_threshold_observations() == []
 
 
+def test_observe_from_workout_negeert_long_runs_met_blokken():
+    """Een lange duurloop met sub-drempel- of MP-blokken is geen dossiervoer:
+    de blokken lopen op vermoeide benen en de HR daar zegt niets over LT2."""
+    _seed_state(255)
+
+    sub_long = threshold_model.observe_from_workout(
+        {"type": "Run", "name": "Lange duurloop – 20 km met 3x10 min sub-drempel"},
+        {"id": 904}, _analysis(0, 170, wtype="run_long"),
+    )
+
+    assert sub_long is None
+    assert history_db.list_threshold_observations() == []
+
+
 def test_rpe_backfill_vult_bestaande_observatie_en_deblokkeert_trend():
     _seed_state(255)
     # Observaties komen binnen via de nachtelijke feedback-run, dus zonder RPE.

@@ -74,8 +74,8 @@ def test_buildweek_heeft_twee_intervallen_long_en_commutes():
     assert _roles(slots).count("commute") == 2
 
     interval_types = [s.sessie["type"] for s in slots if s.rol.startswith("interval")]
-    assert interval_types[0].startswith("run_threshold")
-    assert interval_types[1] == "run_vo2max"
+    assert interval_types[0] == "run_subthreshold"
+    assert interval_types[1] == "run_speed"
     assert {s.vaste_dag for s in slots if s.rol == "commute"} == {"dinsdag", "vrijdag"}
 
 
@@ -88,7 +88,7 @@ def test_gate_kiest_juiste_quality_toolkit():
         {"is_deload_week": False}, prefs, [],
     )
     assert [s.sessie["type"] for s in tempoduur if s.rol.startswith("interval")] == [
-        "run_threshold_long", "run_speed",
+        "run_subthreshold", "run_speed",
     ]
 
     race = build_skeleton(
@@ -97,7 +97,45 @@ def test_gate_kiest_juiste_quality_toolkit():
     )
     race_types = [s.sessie["type"] for s in race if s.rol.startswith("interval")]
     assert race_types[0] == "run_marathon"
-    assert race_types[1].startswith("run_threshold")
+    assert race_types[1] == "run_subthreshold"
+
+
+def test_geen_vo2max_of_boven_drempel_runs_in_toolkit():
+    # Norwegian-omslag: VO2max-werk gaat naar de fiets; boven-drempel loopt
+    # alleen nog via speed-prikkels. De run-toolkit plant het niet meer.
+    from agents import workout_library as lib
+
+    geplande = {cat for paar in lib.QUALITY_TOOLKIT_BY_GATE.values() for cat in paar}
+    assert "vo2max" not in geplande
+    assert "threshold" not in geplande
+    assert "subthreshold" in geplande
+
+
+def test_long_run_marathonspecifiek_bij_open_poort():
+    slots = build_skeleton(
+        15, _volume(week=15, long_km=20), _guard(), {"is_deload_week": False},
+        _prefs(), [],
+    )
+
+    long = next(s.sessie for s in slots if s.rol == "long_run")
+    assert long["type"] in {"long_run_mp", "long_run_subt"}
+    assert "min" in long["naam"]  # blokken staan in de naam
+
+
+def test_long_run_puur_z2_in_deload_en_bij_dichte_poort():
+    deload = build_skeleton(
+        15, _volume(week=15, long_km=20), _guard(), {"is_deload_week": True},
+        _prefs(), [],
+    )
+    guard_dicht = {**_guard(), "run_intensity_allowed": False, "tempo_allowed": False}
+    dicht = build_skeleton(
+        15, _volume(week=15, long_km=20), guard_dicht, {"is_deload_week": False},
+        _prefs(), [],
+    )
+
+    for slots in (deload, dicht):
+        long = next(s.sessie for s in slots if s.rol == "long_run")
+        assert long["type"] in {"long_run", "long_run_ns"}
 
 
 def test_deloadweek_heeft_een_interval():

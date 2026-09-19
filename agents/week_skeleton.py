@@ -126,7 +126,13 @@ def build_skeleton_with_warnings(
             })
             long_km = remaining_for_long
         if long_km > 0:
-            long_run = lib.pick_long_run(long_km, long_idx)
+            # Norwegian-omslag: elke lange sessie marathonspecifiek (MP- of
+            # sub-drempelblokken), behalve als de poort dicht is of in een
+            # deload — een deload haalt intensiteit weg, geen volume.
+            long_run = lib.pick_long_run(
+                long_km, long_idx,
+                marathon_specific=intensity_open and not is_deload,
+            )
             slots.append(SkeletonSlot(long_run, "long_run", 1))
             planned_run_km += long_km
 
@@ -171,7 +177,7 @@ def _quality_or_easy(
 def _quality_categories(marathon_volume: dict) -> tuple[str, str]:
     gate = marathon_volume.get("intensity_gate") or marathon_volume.get("run_intensiteit")
     toolkit = getattr(lib, "QUALITY_TOOLKIT_BY_GATE", {})
-    return toolkit.get(gate, ("threshold_short", "threshold_long"))
+    return toolkit.get(gate, ("subthreshold", "speed"))
 
 
 def _commute_slots(fixed_sessions: list[dict]) -> list[SkeletonSlot]:
@@ -226,7 +232,7 @@ def _km_to_minutes(km: float, pace_min_per_km: float = 5.8) -> int:
 
 
 def _estimate_run_km(sessie: dict, marathon_volume: dict) -> float:
-    if sessie.get("type") == "long_run" or sessie.get("type") == "long_run_ns":
+    if str(sessie.get("type") or "").startswith("long_run"):
         return float(marathon_volume.get("lange_duurloop_km") or 0)
     # Conservative skeleton-level estimate. Detailed workout parsing stays in
     # workout_annotations; the skeleton only needs ceiling protection.

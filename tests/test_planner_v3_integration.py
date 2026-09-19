@@ -148,8 +148,8 @@ def test_e2e_hersteld_plan_geeft_volwaardige_week(monkeypatch):
 
     runs = [s for s in placed if s["sport"] == "Run"]
     quality = [s for s in runs if s["type"] in
-               {"run_threshold_short", "run_threshold_long", "run_vo2max",
-                "run_speed", "run_marathon"}]
+               {"run_subthreshold", "run_threshold_short", "run_threshold_long",
+                "run_vo2max", "run_speed", "run_marathon"}]
     long_runs = [s for s in runs if s["type"].startswith("long_run")]
 
     if not week_row["is_recovery"]:

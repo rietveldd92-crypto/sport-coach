@@ -18,7 +18,7 @@ def test_run_quality_ladders_are_tss_progressive():
 
 def test_run_quality_v2_ladders_are_strictly_progressive():
     library = workout_library.run_quality_library(255, mp_sec=256)
-    for category in ("threshold", "speed", "vo2max", "marathon"):
+    for category in ("subthreshold", "threshold", "speed", "vo2max", "marathon"):
         rung_tss = [
             min(workout["tss_geschat"] for workout in variants)
             for variants in library[category]
@@ -83,12 +83,71 @@ def test_pick_run_quality_rotates_category_and_variant_but_keeps_step():
     ]
 
     assert {p["type"] for p in picked[:3]} == {
-        "run_threshold_short",
-        "run_threshold_long",
-        "run_vo2max",
+        "run_subthreshold",
+        "run_speed",
+        "run_marathon",
     }
     assert picked[0]["naam"] != picked[3]["naam"]
-    assert all(55 <= p["tss_geschat"] <= 90 for p in picked)
+    # Speed is bewust licht (economy-prikkel), marathon het zwaarst.
+    assert all(40 <= p["tss_geschat"] <= 90 for p in picked)
+
+
+def test_subthreshold_is_echt_sub_drempel():
+    """Elke sub-drempelworkout moet ook als sub-drempel classificeren.
+
+    Zakt de gap met de drempelpace onder SUBT_MIN_GAP_SEC, dan leest het
+    drempeldossier de sessie als drempelwerk en gaat de drift-regel de
+    drempelpace omlaag praten (bug van 12 aug, commit 44b700f).
+    """
+    from agents.threshold_model import SUBT_MIN_GAP_SEC, session_kind
+
+    pace_re = re.compile(r"- \d+m (?P<m>\d):(?P<s>\d{2})/km Pace")
+    for threshold_sec in (245, 255, 262):
+        rungs = workout_library.run_quality_library(
+            threshold_sec, mp_sec=280,
+        )["subthreshold"]
+        for variants in rungs:
+            for workout in variants:
+                assert workout["naam"].startswith("Sub-drempel")
+                m = pace_re.search(workout["beschrijving"])
+                pace = int(m.group("m")) * 60 + int(m.group("s"))
+                assert pace - threshold_sec >= SUBT_MIN_GAP_SEC, workout["naam"]
+                assert session_kind(workout["naam"], pace, threshold_sec) == (
+                    "subthreshold"
+                )
+
+
+def test_subthreshold_beschrijving_bevat_kalibratieprotocol():
+    from agents.feedback_engine import SUBT_CAL_HR_MAX, SUBT_CAL_HR_MIN
+
+    workout = workout_library.pick_run_quality(
+        step=3, variety_index=0, category="subthreshold", threshold_sec=262,
+    )
+
+    assert f"{SUBT_CAL_HR_MIN}-{SUBT_CAL_HR_MAX} bpm" in workout["beschrijving"]
+    assert "AFBREKEN" in workout["beschrijving"]
+
+
+def test_pick_long_run_marathonspecifiek_roteert_mp_en_subdrempel():
+    mp = workout_library.pick_long_run(
+        20, 0, marathon_specific=True, threshold_sec=262)
+    sub = workout_library.pick_long_run(
+        20, 1, marathon_specific=True, threshold_sec=262)
+    plain = workout_library.pick_long_run(20, 0)
+
+    assert mp["type"] == "long_run_mp"
+    assert "@ MP" in mp["naam"]
+    assert sub["type"] == "long_run_subt"
+    assert "sub-drempel" in sub["naam"]
+    assert plain["type"] == "long_run"
+
+
+def test_marathon_block_pace_realistisch_tot_de_drempel_het_doel_dekt():
+    # Drempel 4:22 → afgeleide MP 4:35 (drempel+5%), niet de doelpace.
+    assert workout_library.marathon_block_pace(262) == round(262 * 1.05)
+    # Snelle drempel: de (tragere) doelpace wint dan vanzelf.
+    fast = workout_library.marathon_block_pace(238)
+    assert fast >= round(238 * 1.05)
 
 
 def test_marathon_drempel_gate_uses_quality_library(monkeypatch):
@@ -129,6 +188,5 @@ def test_marathon_drempel_gate_uses_quality_library(monkeypatch):
     )
 
     types = [s["type"] for s in sessions]
-    assert any(t in {"run_threshold_short", "run_threshold_long", "run_vo2max"}
-               for t in types)
-    assert types.count("run_threshold_long") >= 1
+    # Norwegian-omslag: beide kwaliteitsdagen in het legacy-pad zijn sub-drempel.
+    assert types.count("run_subthreshold") == 2

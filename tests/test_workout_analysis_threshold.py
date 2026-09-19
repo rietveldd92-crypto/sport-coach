@@ -252,6 +252,10 @@ def test_geen_drift_als_de_pace_wegzakt(monkeypatch):
     ("VO2max - 10x60s @ 106%", "run_vo2max"),
     ("Speed economy - 8x20s @ 110%", "run_speed"),
     ("Marathon-specifiek - 3x15 min @ 4:20/km", "run_marathon"),
+    ("Sub-drempel - 6x6 min @ 4:33/km", "run_subthreshold"),
+    # Long run met blokken blijft een long run — de blokken maken hem geen
+    # drempelsessie.
+    ("Lange duurloop – 20 km met 3x10 min sub-drempel", "run_long"),
 ])
 def test_library_v2_namen_worden_herkend(name, expected):
     """Zonder deze regels vielen de v2-categorieën terug op 'run_z2'."""

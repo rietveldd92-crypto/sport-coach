@@ -452,9 +452,13 @@ def _plan_marathon_sessions(
         # Delahaije: tempoduur = Z1 (net onder aerobe drempel, 85% HRmax)
         # Drempel = vanaf wk 13+, @ 4:20/km startpace (echt hard).
         if intensiteit == "drempel" and tempo_ok and run_intensity_ok and i == 0:
+            # Norwegian-omslag (2026-08-11): de primaire kwaliteitssessie is
+            # sub-drempel, niet drempel — meer minuten op de LT2-prikkel
+            # tegen lagere herstelkosten.
             sessie = lib.pick_run_quality(
                 step=_quality_step,
                 variety_index=_quality_idx + week_number,
+                category="subthreshold",
             )
             _primary_quality_type = sessie.get("type")
         elif (intensiteit == "drempel" and tempo_ok and run_intensity_ok
@@ -466,15 +470,13 @@ def _plan_marathon_sessions(
             # geen tweede identieke intervaldag. Ook in deloadweken blijft
             # het concrete ritme twee drempelprikkels houden; de step wordt
             # hierboven al verlaagd.
-            second_category = (
-                "threshold_short"
-                if _primary_quality_type == "run_threshold_long"
-                else "threshold_long"
-            )
+            # Norwegian-omslag: ook de tweede kwaliteitsdag is sub-drempel;
+            # de variety-index verderop kiest een andere blokvorm dan de
+            # primaire sessie.
             sessie = lib.pick_run_quality(
                 step=_quality_step,
                 variety_index=_quality_idx + week_number + 1,
-                category=second_category,
+                category="subthreshold",
             )
         elif intensiteit == "tempoduur" and i == 0:
             sessie = _tempoduur_progressief(week_number)
@@ -533,7 +535,13 @@ def _plan_marathon_sessions(
             if intensiteit == "geen":
                 sessie = lib.long_run(long_km)
             else:
-                sessie = lib.pick_long_run(long_km, _long_idx)
+                # Norwegian-omslag: lange sessies marathonspecifiek zodra er
+                # intensiteit gelopen mag worden; in een deload gewoon Z2.
+                sessie = lib.pick_long_run(
+                    long_km, _long_idx,
+                    marathon_specific=tempo_ok and run_intensity_ok
+                    and not is_deload,
+                )
             sessions.append({"dag": "zondag", "sessie": sessie})
 
     # ── AFBOUW/RACE WEEK ──
