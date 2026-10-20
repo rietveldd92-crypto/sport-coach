@@ -134,3 +134,13 @@ export async function logout(): Promise<void> {
   await post("/api/auth/logout");
   setToken(null); // ook de oude bearer-token opruimen
 }
+
+/** De foutzin die de server zelf meestuurde. Voor endpoints waar de backend
+ *  de melding al in het Nederlands schrijft (TP-sync) is het generieke
+ *  "probeer het later opnieuw" een verslechtering: het verstopt juist het
+ *  enige dat je verder helpt, namelijk dát de cookie verlopen is. */
+export function serverDetail(err: unknown, fallback: string): string {
+  if (!(err instanceof ApiError)) return fallback;
+  if (err.status === 0) return "geen verbinding — probeer het opnieuw zodra je online bent.";
+  return err.detail || fallback;
+}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ApiError, errorText, isAuthError } from "./client";
+import { ApiError, errorText, isAuthError, serverDetail } from "./client";
 
 describe("foutregels in de UI", () => {
   it("noemt een verlopen sessie bij naam", () => {
@@ -23,5 +23,25 @@ describe("foutregels in de UI", () => {
 
   it("valt terug op onbekend bij iets dat geen ApiError is", () => {
     expect(errorText(new Error("stuk"))).toBe("onbekende fout");
+  });
+});
+
+describe("serverDetail", () => {
+  it("laat de server-uitleg staan in plaats van een generiek zinnetje", () => {
+    const err = new ApiError(502, "De TrainingPeaks-cookie is verlopen.");
+    expect(serverDetail(err, "probeer het later opnieuw.")).toBe(
+      "De TrainingPeaks-cookie is verlopen.",
+    );
+  });
+
+  it("zegt bij offline dat het aan de verbinding ligt, niet aan TP", () => {
+    expect(serverDetail(new ApiError(0, "offline"), "fallback")).toContain(
+      "geen verbinding",
+    );
+  });
+
+  it("valt terug als er geen detail of geen ApiError is", () => {
+    expect(serverDetail(new ApiError(500, ""), "fallback")).toBe("fallback");
+    expect(serverDetail(new Error("stuk"), "fallback")).toBe("fallback");
   });
 });
