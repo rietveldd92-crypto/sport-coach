@@ -25,6 +25,11 @@ import json
 import sys
 from datetime import date, datetime, timedelta
 
+# Windows-console is cp1252: zonder dit crasht een geslaagde push alsnog
+# op het printen van '→' / '—' (zie feedback_state_json_utf8_windows).
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+
 import config
 import intervals_client
 import tp_sync_service

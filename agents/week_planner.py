@@ -153,6 +153,72 @@ def _is_hard_session(sessie: dict) -> bool:
     return sessie.get("type") in hard_types
 
 
+STRENGTH_NOTE_A = (
+    "KRACHT A — zwaar (30-40 min), heup-gericht. 3 sets, 1-2 herhalingen in reserve.\n\n"
+    "• Bulgarian split squat 3×6-8 per been (zwaar, gecontroleerd)\n"
+    "• Single-leg Romanian deadlift 3×6-8 per been\n"
+    "• Hip thrust 3×8\n"
+    "• Copenhagen plank 3×20-30s per kant (adductoren)\n"
+    "• Calf raise single-leg 3×10 per been (langzaam omlaag)\n\n"
+    "Regels: nooit de dag vóór een VO2-run. Heup of lies de volgende ochtend "
+    "slechter? Volgende sessie lichter. Melden via: python adjust.py"
+)
+
+STRENGTH_NOTE_B = (
+    "KRACHT B — stabiliteit + pogo (25-30 min), heup-gericht.\n\n"
+    "• Side plank met been omhoog 3×30s per kant (glute medius)\n"
+    "• Lateral band walk 3×15 per kant\n"
+    "• Single-leg balance op kussen 3×30s per kant\n"
+    "• Pogo jumps 3×20 (licht, snel contact)\n"
+    "• Single-leg hops vooruit 2×8 per been\n"
+    "• Dead bug 3×10\n\n"
+    "Regels: pogo's en hops licht en snel — stoppen zodra de landing slordig wordt."
+)
+
+# Sessietypes uit de blokplanner (PLANLOGICA-V4). Een week met deze types
+# krijgt de blok-krachtregels: 2x/wk, >=48 u ertussen, niet de dag vóór een
+# lopende kwaliteitssessie, wél na de long run of op een fietsdag (W6).
+BLOCK_QUALITY_TYPES = {"vo2_run", "run_subthreshold", "race_pace"}
+BLOCK_SESSION_TYPES = BLOCK_QUALITY_TYPES | {"easy_asr", "long_run_block", "openers", "bike_subt",
+                                             "bike_easy", "calibration_vvo2"}
+
+
+def _is_block_week(all_sessions: list) -> bool:
+    return any(s.get("type") in BLOCK_SESSION_TYPES for s in all_sessions)
+
+
+def _select_strength_days_block(all_sessions: list) -> list[str]:
+    by_day: dict[str, list] = {}
+    for s in all_sessions:
+        by_day.setdefault(s["dag"], []).append(s)
+
+    def has(dag: str, types: set) -> bool:
+        return any(s.get("type") in types for s in by_day.get(dag, []))
+
+    # Niet op een kwaliteitsdag zelf; de dag ervóór alleen niet bij een
+    # VO2-run of kalibratie (W6) — vóór sub-T of een fietsdag mag kracht.
+    forbidden: set[str] = set()
+    for i, dag in enumerate(DAYS_NL):
+        if has(dag, BLOCK_QUALITY_TYPES | {"bike_subt", "openers", "calibration_vvo2"}):
+            forbidden.add(dag)
+        if i > 0 and has(dag, {"vo2_run", "calibration_vvo2", "openers"}):
+            forbidden.add(DAYS_NL[i - 1])
+
+    def preference(i: int) -> tuple:
+        dag = DAYS_NL[i]
+        return (has(dag, {"long_run_block"}), has(dag, {"bike_easy"}), -i)
+
+    candidates = sorted((i for i, d in enumerate(DAYS_NL) if d not in forbidden),
+                        key=preference, reverse=True)
+    picked: list[int] = []
+    for i in candidates:
+        if all(abs(i - p) >= 2 for p in picked):
+            picked.append(i)
+        if len(picked) == 2:
+            break
+    return [DAYS_NL[i] for i in sorted(picked)]
+
+
 def _select_strength_days(all_sessions: list, long_run_dag: str) -> list[str]:
     """Kies kracht-dagen volgens twee regels:
 
@@ -865,8 +931,12 @@ def build_week(
     # 2. NOOIT 2 dagen achter elkaar
     # 3. NOOIT op long-run dag
     long_run_dag = next((s["dag"] for s in run_sessions if s.get("type") == "lange_duur"), "zondag")
-    strength_days_this_week = _select_strength_days(all_sessions, long_run_dag)
-    if not strength_days_this_week:
+    block_week = _is_block_week(all_sessions)
+    if block_week:
+        strength_days_this_week = _select_strength_days_block(all_sessions)
+    else:
+        strength_days_this_week = _select_strength_days(all_sessions, long_run_dag)
+    if not strength_days_this_week and not block_week:
         # Fallback: oude vaste lijst minus long_run_dag — beter dan niks
         strength_days_this_week = [d for d in STRENGTH_DAYS if d != long_run_dag]
 
@@ -887,12 +957,17 @@ def build_week(
 
     # 2. Krachttraining (om de dag, als toegestaan)
     if strength_ok and phase not in ("race_week",):
-        for dag_naam in strength_days_this_week:
+        for k_idx, dag_naam in enumerate(strength_days_this_week):
             dag_date = _day_label(week_start, dag_naam)
+            if block_week:
+                k_naam = "Krachttraining A" if k_idx == 0 else "Krachttraining B"
+                k_tekst = STRENGTH_NOTE_A if k_idx == 0 else STRENGTH_NOTE_B
+            else:
+                k_naam, k_tekst = "Krachttraining", STRENGTH_NOTE
             events_to_create.append({
                 "datum": dag_date,
-                "naam": "Krachttraining",
-                "beschrijving": STRENGTH_NOTE,
+                "naam": k_naam,
+                "beschrijving": k_tekst,
                 "categorie": "NOTE",
                 "sport": "WeightTraining",
                 "tss": None,
