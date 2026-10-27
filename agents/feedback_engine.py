@@ -31,7 +31,8 @@ GEMINI_FLASH_MODEL = "gemini-2.5-flash"
 
 # Workout types die "Pro" verdienen — daar is diepere analyse meeste waard
 HARD_WORKOUT_TYPES = {
-    "run_long", "run_tempo", "run_intervals", "run_progression", "run_fartlek",
+    "run_long", "run_tempo", "run_subthreshold", "run_intervals",
+    "run_progression", "run_fartlek",
     "bike_threshold", "bike_sweetspot", "bike_over_unders", "bike_tempo",
 }
 
@@ -46,6 +47,11 @@ ATHLETE_THRESHOLD_PACE_DEFAULT_SEC = 255
 # Afgeleid i.p.v. hard ingevuld: de band hoort mee te schuiven met HRmax.
 THRESHOLD_HR_MIN = round(ATHLETE_HRMAX * 0.88)  # 171
 THRESHOLD_HR_MAX = round(ATHLETE_HRMAX * 0.92)  # 178
+# Kalibratieband voor sub-drempelreps (Norwegian-protocol, atleet-afspraak
+# 2026-08-11): rep 1-2 op deze HR bepaalt de sub-drempelpace van de dag,
+# gegeven weer en vermoeidheid. Daarna houdt de pace de sessie bij elkaar.
+SUBT_CAL_HR_MIN = round(ATHLETE_HRMAX * 0.84)  # 163
+SUBT_CAL_HR_MAX = round(ATHLETE_HRMAX * 0.85)  # 165
 Z2_HR_MIN = round(ATHLETE_HRMAX * 0.68)  # 132
 # Operationeel easy-plafond: Dennis herstelt aantoonbaar beter als HR op easy
 # runs/bikes onder 145 blijft; alles 145–152 = grijze zone voor hem.

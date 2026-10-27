@@ -1517,6 +1517,66 @@ def _build_run_threshold_long(
     }
 
 
+def _subthreshold_protocol(threshold_sec: int | None) -> str:
+    """Het HR-kalibratieprotocol (Norwegian, atleet-afspraak 2026-08-11).
+
+    HR zet de pace, pace houdt de sessie bij elkaar, drift zegt wanneer je
+    stopt. Een vaste HR-cap tot het eind zou je bij gelijke fysiologische
+    belasting steeds verder afremmen.
+    """
+    from agents.feedback_engine import SUBT_CAL_HR_MAX, SUBT_CAL_HR_MIN
+    from agents.threshold_model import DRIFT_HIGH_BPM
+
+    return (
+        f"Rep 1-2: loop tot je op {SUBT_CAL_HR_MIN}-{SUBT_CAL_HR_MAX} bpm zit - "
+        "dat is de sub-drempelpace van vandaag, gegeven het weer. "
+        "Rep 3+: die pace vasthouden; oplopende HR is normaal. "
+        f"AFBREKEN: meer dan {DRIFT_HIGH_BPM} bpm boven rep 1 bij gelijke pace. "
+    )
+
+
+def _build_run_subthreshold(
+    reps: int,
+    rep_min: int,
+    rest_sec: int,
+    pct: int,
+    if_score: float,
+    label: str,
+    threshold_sec: int | None = None,
+) -> dict:
+    pace_sec, _ = _resolve_run_pace(pct, threshold_sec)
+    rest = _fmt_interval_duration(rest_sec)
+    work_min = reps * rep_min
+    total_min = 15 + work_min + round(reps * rest_sec / 60) + 10
+    pace = _pace_label(pace_sec)
+    return {
+        "type": "run_subthreshold",
+        "naam": f"Sub-drempel - {reps}x{rep_min} min @ {pace}",
+        "beschrijving": (
+            _threshold_header(threshold_sec) +
+            "Warmup\n"
+            "- 15m ramp 65-80% Pace\n\n"
+            "Main Set\n"
+            f"{reps}x\n"
+            f"- {rep_min}m {pace} Pace ({pct}% drempel - sub-drempel)\n"
+            f"- {rest} 64% Pace (dribbel)\n\n"
+            "Cooldown\n"
+            "- 10m ramp 72-58% Pace\n\n"
+            f"{label}. Sub-drempel: {work_min} min op de prikkel die LT2 "
+            "verplaatst, tegen een fractie van de herstelkosten van echt "
+            "drempelwerk. Korte pauzes onderdrukken de drift.\n"
+            f"{_subthreshold_protocol(threshold_sec)}{REHAB_PRE_RUN}"
+            f"{DELAHAIJE_RUN}"
+        ),
+        "duur_min": total_min,
+        "tss_geschat": _tss_run(total_min, if_score),
+        "sport": "Run",
+        "zone": "Z3 sub-drempel",
+        "intensiteit_factor": if_score,
+        "fun": 3,
+    }
+
+
 def _build_run_vo2max(
     reps: int,
     work_sec: int,
@@ -1652,13 +1712,19 @@ def _build_run_marathon(
     return workout
 
 
+# Norwegian-omslag (atleet-afspraak 2026-08-11/12): het gros van de kwaliteit
+# loopt op sub-drempel (~96% drempelpace, gebroken blokken) — meer minuten op
+# de LT2-prikkel tegen lagere herstelkosten. Boven-drempel loopt alleen nog
+# via speed-prikkels en races; VO2max-werk gaat naar de fiets. De threshold-
+# en vo2max-ladders blijven bestaan als swap-optie en voor de periodieke
+# meting (2x20 @ drempel), maar worden niet meer standaard gepland.
 QUALITY_TOOLKIT_BY_GATE = {
-    "tempoduur": ("threshold", "speed"),
-    "drempel": ("threshold", "vo2max"),
-    "race_specifiek": ("marathon", "threshold"),
+    "tempoduur": ("subthreshold", "speed"),
+    "drempel": ("subthreshold", "speed"),
+    "race_specifiek": ("marathon", "subthreshold"),
 }
 
-RUN_QUALITY_ROTATION = ("threshold_short", "threshold_long", "vo2max")
+RUN_QUALITY_ROTATION = ("subthreshold", "speed", "marathon")
 
 
 def run_quality_library(
@@ -1667,6 +1733,42 @@ def run_quality_library(
 ) -> dict[str, list[list[dict]]]:
     """Runtime run-quality library: paces are calculated at plan time."""
     mp_sec = mp_sec or _default_marathon_pace()
+    # Overload-as (Bakken): eerst totale minuten op de prikkel omhoog
+    # (24 -> 48), dan repduur omhoog; het percentage kruipt hooguit van
+    # 95 naar 97. Nooit boven 97: dan zakt de gap met de drempelpace onder
+    # SUBT_MIN_GAP_SEC en leest het drempeldossier de sessie als drempelwerk.
+    subthreshold = [
+        [
+            _build_run_subthreshold(4, 6, 60, 95, 0.82, "Instap", threshold_sec),
+            _build_run_subthreshold(3, 8, 60, 95, 0.82, "Instap variant", threshold_sec),
+            _build_run_subthreshold(6, 4, 60, 95, 0.82, "Instap variant 2", threshold_sec),
+        ],
+        [
+            _build_run_subthreshold(5, 6, 60, 95, 0.83, "Opbouw", threshold_sec),
+            _build_run_subthreshold(3, 10, 90, 95, 0.83, "Opbouw variant", threshold_sec),
+            _build_run_subthreshold(6, 5, 60, 95, 0.83, "Opbouw variant 2", threshold_sec),
+        ],
+        [
+            _build_run_subthreshold(6, 6, 60, 96, 0.84, "Zwaarder", threshold_sec),
+            _build_run_subthreshold(4, 9, 75, 96, 0.84, "Zwaarder variant", threshold_sec),
+            _build_run_subthreshold(3, 12, 90, 96, 0.84, "Zwaarder variant 2", threshold_sec),
+        ],
+        [
+            _build_run_subthreshold(5, 8, 75, 96, 0.85, "Piek", threshold_sec),
+            _build_run_subthreshold(4, 10, 90, 96, 0.85, "Piek variant", threshold_sec),
+            _build_run_subthreshold(8, 5, 60, 96, 0.85, "Piek variant 2", threshold_sec),
+        ],
+        [
+            _build_run_subthreshold(4, 11, 90, 96, 0.86, "Scherper", threshold_sec),
+            _build_run_subthreshold(5, 9, 75, 96, 0.86, "Scherper variant", threshold_sec),
+            _build_run_subthreshold(11, 4, 60, 96, 0.86, "Scherper variant 2", threshold_sec),
+        ],
+        [
+            _build_run_subthreshold(6, 8, 75, 97, 0.87, "Piek+", threshold_sec),
+            _build_run_subthreshold(4, 12, 90, 97, 0.87, "Piek+ variant", threshold_sec),
+            _build_run_subthreshold(3, 16, 120, 97, 0.87, "Piek+ variant 2", threshold_sec),
+        ],
+    ]
     threshold = [
         [
             _build_run_threshold_long(2, 10, 3.0, 95, 0.84, "Instap cruise", threshold_sec),
@@ -1811,6 +1913,7 @@ def run_quality_library(
         threshold_short.append(short_variants)
         threshold_long.append(long_variants)
     return {
+        "subthreshold": subthreshold,
         "threshold": threshold,
         "threshold_short": threshold_short,
         "threshold_long": threshold_long,
@@ -2199,11 +2302,118 @@ def pick_z2_run(duration_min: int, variety_index: int) -> dict:
     return Z2_RUN_VARIANTS[idx](duration_min)
 
 
+def marathon_block_pace(threshold_sec: int) -> int:
+    """MP voor long-run blokken: doelpace zodra de drempel die dekt, anders
+    afgeleid van LT2 (drempel + 5%).
+
+    Atleet-afspraak 2026-08-12: MP nu al in de long runs, op realistisch
+    tempo — niet op droomtempo. max() pakt de tragere van de twee; zodra de
+    drempelpace ver genoeg zakt, neemt de doelpace het vanzelf over.
+    """
+    return max(_default_marathon_pace(), round(threshold_sec * 1.05))
+
+
+def long_run_subthreshold_blocks(km: float, threshold_sec: int | None = None) -> dict:
+    """Lange duurloop met sub-drempelblokken in het midden (Norwegian)."""
+    threshold_sec = threshold_sec or _default_threshold_pace()
+    pace = _pace_label(pace_from_pct(threshold_sec, 96))
+    duration_min = _km_to_min(km, pace=6.0)
+    blocks = 3 if km >= 18 else 2
+    block_min = 10
+    wu = max(12, round(duration_min * 0.12))
+    cd = 8
+    pre_easy = max(10, duration_min - wu - blocks * (block_min + 4) - cd)
+    return {
+        "type": "long_run_subt",
+        "naam": f"Lange duurloop – {km:.0f} km met {blocks}x{block_min} min sub-drempel",
+        "beschrijving": (
+            _threshold_header(threshold_sec) +
+            f"Warmup\n- {wu}m ramp 55-72% Pace\n\n"
+            f"Main Set\n- {pre_easy}m 70% Pace\n"
+            f"{blocks}x\n"
+            f"- {block_min}m {pace} Pace (96% drempel - sub-drempel)\n"
+            "- 4m 68% Pace\n\n"
+            f"Cooldown\n- {cd}m ramp 70-55% Pace\n\n"
+            "Sleutelsessie: sub-drempelwerk op vermoeide benen, aaneengesloten "
+            "kwaliteit midden in het volume.\n"
+            f"{_subthreshold_protocol(threshold_sec)}"
+            "Voeding: drinken elke 20m, gel/fruit vanaf 45m."
+            f"{DELAHAIJE_RUN}"
+        ),
+        "duur_min": duration_min,
+        "tss_geschat": _tss_run(duration_min, 0.78),
+        "sport": "Run", "zone": "Z2 + sub-drempel",
+        "intensiteit_factor": 0.78, "fun": 4,
+    }
+
+
+def long_run_mp_blocks(
+    km: float,
+    mp_sec: int | None = None,
+    threshold_sec: int | None = None,
+) -> dict:
+    """Lange duurloop met marathonpace-blokken — de raceleer-sessie."""
+    threshold_sec = threshold_sec or _default_threshold_pace()
+    mp_sec = mp_sec or marathon_block_pace(threshold_sec)
+    pace = _pace_label(mp_sec)
+    duration_min = _km_to_min(km, pace=6.0)
+    if km >= 24:
+        blocks, block_min = 3, 15
+    elif km >= 18:
+        blocks, block_min = 3, 12
+    else:
+        blocks, block_min = 2, 12
+    wu = max(12, round(duration_min * 0.12))
+    cd = 8
+    pre_easy = max(10, duration_min - wu - blocks * (block_min + 4) - cd)
+    return {
+        "type": "long_run_mp",
+        "naam": f"Lange duurloop – {km:.0f} km met {blocks}x{block_min} min @ MP",
+        "beschrijving": (
+            _threshold_header(threshold_sec) +
+            f"Warmup\n- {wu}m ramp 55-72% Pace\n\n"
+            f"Main Set\n- {pre_easy}m 70% Pace\n"
+            f"{blocks}x\n"
+            f"- {block_min}m {pace} Pace (marathonpace - doeltempo)\n"
+            "- 4m 70% Pace\n\n"
+            f"Cooldown\n- {cd}m ramp 70-55% Pace\n\n"
+            "Sleutelsessie: doeltempo leren lopen met vermoeide benen. Moet "
+            "aanvoelen als 'snel maar duurzaam' - hijgen is te hard.\n"
+            "Voeding: drinken elke 20m, gel/fruit vanaf 45m."
+            f"{DELAHAIJE_RUN}"
+        ),
+        "duur_min": duration_min,
+        "tss_geschat": _tss_run(duration_min, 0.78),
+        "sport": "Run", "zone": "Z2 + MP",
+        "intensiteit_factor": 0.78, "fun": 4,
+    }
+
+
 LONG_RUN_VARIANTS = [long_run, long_run_negative_split]
+# Norwegian-omslag (2026-08-12): elke lange sessie is marathonspecifiek zodra
+# de intensiteitspoort open is — MP-blokken en sub-drempelblokken wisselen af.
+MARATHON_LONG_RUN_VARIANTS = [long_run_mp_blocks, long_run_subthreshold_blocks]
 
 
-def pick_long_run(km: float, variety_index: int) -> dict:
-    """Roteer lange-duurloop-varianten (steady / negative split)."""
+def pick_long_run(
+    km: float,
+    variety_index: int,
+    marathon_specific: bool = False,
+    threshold_sec: int | None = None,
+    mp_sec: int | None = None,
+) -> dict:
+    """Roteer lange-duurloop-varianten.
+
+    marathon_specific=True (intensiteitspoort open, geen deload) wisselt
+    MP-blokken en sub-drempelblokken af; anders steady / negative split.
+    """
+    if marathon_specific:
+        builder = MARATHON_LONG_RUN_VARIANTS[
+            variety_index % len(MARATHON_LONG_RUN_VARIANTS)
+        ]
+        if builder is long_run_mp_blocks:
+            return builder(km, mp_sec=mp_sec, threshold_sec=threshold_sec)
+        return builder(km, threshold_sec=threshold_sec)
     idx = variety_index % len(LONG_RUN_VARIANTS)
     return LONG_RUN_VARIANTS[idx](km)
 

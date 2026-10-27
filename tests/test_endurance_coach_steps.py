@@ -14,7 +14,7 @@ _PACE_STEP_OK = re.compile(
 
 def test_threshold_library_steps_are_intervals_icu_parseable():
     library = workout_library.run_quality_library(threshold_sec=255)
-    for category in ("threshold", "speed", "vo2max", "marathon"):
+    for category in ("subthreshold", "threshold", "speed", "vo2max", "marathon"):
         for rung in library[category]:
             for workout in rung:
                 desc = workout["beschrijving"]
@@ -51,7 +51,8 @@ def test_dubbele_drempel_vanaf_start_week_ook_in_deload():
           "tempo_allowed": True, "volume_modifier": 1.0}
     lm = {"recommended_weekly_tss": 650}
 
-    quality_types = {"run_threshold_short", "run_threshold_long", "run_vo2max"}
+    # Norwegian-omslag: beide kwaliteitsdagen zijn sub-drempel.
+    quality_types = {"run_subthreshold"}
 
     def quality_count(week_nr, deload=False):
         guard = dict(ig, _is_deload_week=deload)

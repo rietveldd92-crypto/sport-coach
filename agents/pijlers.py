@@ -33,8 +33,8 @@ PIJLER_LABELS: dict[str, str] = {
         "racepace-blokken gepland zijn."
     ),
     "vo2max": (
-        "PIJLER: VO2MAX — het plafond optillen. Korte intensieve blokken; "
-        "op de fiets om knie/hamstring te sparen."
+        "PIJLER: VO2MAX — het plafond optillen. Korte intensieve blokken: "
+        "lopend in een 5-10k-blok, op de fiets als ontlasting."
     ),
     "support": (
         "SUPPORT — aerobe basis die de vier pijlers draagt. Geen doel op "
@@ -43,15 +43,20 @@ PIJLER_LABELS: dict[str, str] = {
 }
 
 # type/naam-keywords → pijler. Volgorde is betekenisvol: eerste match wint.
+# Fatigue staat vóór lactaatdrempel: een lange duurloop mét MP- of
+# sub-drempelblokken ("… met 3x10 min sub-drempel") blijft de fatigue-pijler
+# voeden — de blokken zijn het racepace-werk bínnen de duursessie.
 _PIJLER_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("fatigue_resistance", ("lange_duur", "long_run", "long_slow",
+                            "lange duurloop", "long endurance", "fatmax")),
     ("lactaatdrempel", ("drempel", "threshold", "tempoduur", "tempoloon",
                         "sweetspot", "over_unders", "over-unders",
                         "marathon_tempo", "cruise", "cp_intervals",
-                        "pyramide", "interval_10km")),
+                        "pyramide", "interval_10km", "race_pace",
+                        "racetempo", "fartlek")),
     ("vo2max", ("vo2", "30/15", "ronnestad")),
-    ("running_economy", ("strides", "heuvels", "hill")),
-    ("fatigue_resistance", ("lange_duur", "long_run", "long_slow",
-                            "lange duurloop", "long endurance", "fatmax")),
+    ("running_economy", ("strides", "heuvels", "hill", "vliegers",
+                         "easy_asr", "heuvelsprints")),
 )
 
 

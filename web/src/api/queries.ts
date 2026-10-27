@@ -145,8 +145,16 @@ export function useSwap(eventId: string | number) {
 
 export function useSyncTp() {
   return useMutation({
-    mutationFn: (eventId: string | number) =>
-      post<Record<string, unknown>>(`/api/sync/tp/${eventId}`),
+    mutationFn: ({
+      eventId,
+      replace = false,
+    }: {
+      eventId: string | number;
+      replace?: boolean;
+    }) =>
+      post<Record<string, unknown>>(
+        `/api/sync/tp/${eventId}${replace ? "?replace=true" : ""}`,
+      ),
   });
 }
 

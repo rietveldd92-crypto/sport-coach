@@ -71,6 +71,8 @@ def classify_workout(event: dict) -> str:
             return "run_speed"
         if "marathon-specifiek" in name or "marathon specifiek" in name:
             return "run_marathon"
+        if "sub-drempel" in name or "subdrempel" in name:
+            return "run_subthreshold"
         if "pickup" in name or "versnelling" in name:
             return "run_pickups"
         if "trail" in name or "bos" in name:
@@ -138,7 +140,8 @@ def analyze(event: dict, activity: dict) -> dict:
         return _analyze_run_easy(wtype, event, activity, act_id, base)
     elif wtype in ("run_fartlek", "run_pickups", "run_progression", "run_speed"):
         return _analyze_run_varied(wtype, event, activity, act_id, base)
-    elif wtype in ("run_tempo", "run_intervals", "run_vo2max", "run_marathon"):
+    elif wtype in ("run_tempo", "run_subthreshold", "run_intervals",
+                   "run_vo2max", "run_marathon"):
         return _analyze_run_hard(wtype, event, activity, act_id, base)
     elif wtype == "strength":
         return _analyze_strength(wtype, event, activity, act_id, base)

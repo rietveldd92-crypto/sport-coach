@@ -31,12 +31,15 @@ _FALLBACK_PACE_SEC_PER_KM = 330  # 5:30/km easy
 # Sessietypes die de weekstimulus dragen. Die kort je niet in om km te
 # compenseren: de km zijn het bijproduct, de tijd-op-drempel is het doel.
 _KEY_SESSION_TYPES = (
-    "run_threshold", "run_vo2max", "run_marathon", "run_speed",
-    "run_intervals", "run_tempo",
+    "run_threshold", "run_subthreshold", "run_vo2max", "run_marathon",
+    "run_speed", "run_intervals", "run_tempo",
+    # Long runs met vaste MP-/sub-drempelblokken: de main set staat vast in
+    # de beschrijving, dus proportioneel inkorten maakt de sessie niet lichter.
+    "long_run_mp", "long_run_subt",
 )
 _KEY_SESSION_WORDS = (
     "drempel", "threshold", "vo2max", "interval", "tempo", "cruise",
-    "marathon-specifiek", "over-under",
+    "marathon-specifiek", "over-under", "@ mp",
 )
 
 
