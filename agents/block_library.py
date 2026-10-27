@@ -20,12 +20,13 @@ PACE_RANGE_SEC = 5
 HR_CAP_REP = 168
 DRIFT_STOP_BPM = 5
 
-# Terugval-verhoudingen t.o.v. de drempelpace (sec/km). vVO2 ~111% van de
-# drempelsnelheid is wat blok 1 met de hand koos (3:50 bij drempel 4:16);
-# AeT ~120% sluit aan op de gemeten LT1 van 4:50-5:00 (aug 2026) met wat
-# marge, want easy runs zaten in de praktijk boven LT1.
-VVO2_FROM_THRESHOLD = 1.11
-AET_FROM_THRESHOLD = 1.20
+# Het drempelanker is critical speed (REN-01..03): ``cs_pace_sec`` in de
+# state. Zonder CS valt het terug op de drempelpace uit threshold_model.
+# Terugval-verhoudingen (sec/km) t.o.v. CS: vVO2 ~107,5% van CS-snelheid
+# geeft 3:51 bij CS 4:08 (blok 1 koos 3:50); AeT op ~123,5% geeft een
+# easy-range van 4:59-5:29, wat blok 1 met de hand gebruikte.
+VVO2_FROM_THRESHOLD = 1.075
+AET_FROM_THRESHOLD = 1.235
 
 
 @dataclass(frozen=True)
@@ -48,13 +49,16 @@ def load_anchors(state: dict | None = None) -> Anchors:
             state = load_state() or {}
         except Exception:
             state = {}
-    try:
-        from agents.threshold_model import get_threshold_pace
-        threshold = int(get_threshold_pace())
-    except Exception:
-        threshold = int(state.get("threshold_pace_sec_per_km") or 256)
-
-    bronnen = {"drempel": "threshold_model"}
+    if state.get("cs_pace_sec"):
+        threshold = int(state["cs_pace_sec"])
+        bronnen = {"drempel": "critical speed"}
+    else:
+        try:
+            from agents.threshold_model import get_threshold_pace
+            threshold = int(get_threshold_pace())
+        except Exception:
+            threshold = int(state.get("threshold_pace_sec_per_km") or 256)
+        bronnen = {"drempel": "threshold_model"}
     vvo2 = state.get("vvo2_pace_sec")
     if vvo2:
         bronnen["vvo2"] = "gemeten"
@@ -209,13 +213,14 @@ def vo2_run(step: int, variant: int, a: Anchors) -> dict:
 # fartlek of een duurloop met sub-T-blok: speelser dan reps.
 
 SUBT_LADDER: list[list[tuple]] = [
-    # (soort, reps, werk_s, rust_s, pct)
-    [("fartlek", 3, 0, 0, 96), ("reps", 5, 360, 60, 95), ("reps", 4, 420, 75, 95)],
-    [("reps", 4, 480, 75, 95), ("reps", 6, 360, 60, 95), ("fartlek", 3, 0, 0, 96)],
-    [("reps", 4, 510, 75, 96), ("reps", 3, 720, 90, 96), ("reps", 5, 480, 75, 96)],
-    [("reps", 5, 480, 75, 96), ("duur", 25, 5, 0, 96), ("reps", 3, 780, 90, 96)],
-    [("reps", 4, 600, 90, 96), ("duur", 25, 8, 0, 96), ("reps", 6, 420, 60, 96)],
-    [("reps", 3, 900, 120, 97), ("reps", 5, 540, 75, 97), ("duur", 30, 8, 0, 97)],
+    # (soort, reps, werk_s, rust_s, pct van CS-snelheid). REN-12: sub-T ligt
+    # 3-5 s/km onder CS -> 97-98%. Eerst minuten erbij, dan pas 98%.
+    [("fartlek", 3, 0, 0, 97), ("reps", 5, 360, 60, 97), ("reps", 4, 420, 75, 97)],
+    [("reps", 4, 480, 75, 97), ("reps", 6, 360, 60, 97), ("fartlek", 3, 0, 0, 97)],
+    [("reps", 4, 510, 75, 97), ("reps", 3, 720, 90, 97), ("reps", 5, 480, 75, 97)],
+    [("reps", 5, 480, 75, 98), ("duur", 25, 5, 0, 97), ("reps", 3, 780, 90, 98)],
+    [("reps", 4, 600, 90, 98), ("duur", 25, 8, 0, 97), ("reps", 6, 420, 60, 98)],
+    [("reps", 3, 900, 120, 98), ("reps", 5, 540, 75, 98), ("duur", 30, 8, 0, 98)],
 ]
 
 

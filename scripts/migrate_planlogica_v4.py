@@ -11,7 +11,8 @@ Wat het doet:
 2. Nieuwe doelen: A = 10k Leiden (placeholder 30-05-2027, band 38:00-38:45),
    B = Bruggenloop 15 km 13-12-2026 (1:02:00), Schoorl 10k 14-2-2027,
    CPC 5k 14-3-2027, Rotterdam 10k 11-4-2027; C = parkrun 14-11-2026.
-3. Voorkeuren: run_pattern 4-3 vanaf 2-11-2026, block_start 2-11-2026.
+3. Voorkeuren: run_pattern 4-3 vanaf 2-11-2026, block_start 2-11-2026;
+   CS-anker 4:08/km.
 4. Macroplan voor het nieuwe A-doel genereren en persisteren.
 """
 from __future__ import annotations
@@ -38,6 +39,11 @@ NIEUWE_DOELEN = [
     Goal(type="10k", sport="run", event_date=date(2027, 4, 11), target_value=None, priority="B"),
     Goal(type="5k", sport="run", event_date=date(2026, 11, 14), target_value="19:45", priority="C"),
 ]
+
+# Critical speed als drempelanker (27 okt 2026): geschat uit de Big 10 van
+# 5-9-2026 (10 km 40:36, D' 150-250 m) -> 4:07-4:10. Na de parkrun van
+# 14-11 herijken met twee punten.
+CS_PACE_SEC = 248
 
 PREFERENCES = {
     "run_pattern": {"counts": [4, 3], "start": BLOCK_START.isoformat()},
@@ -78,6 +84,10 @@ def main() -> None:
         # Eén key upserten — nooit save_state() met een gedeeltelijk dict
         # (replace_athlete_state wist dan alle andere keys).
         history_db.set_athlete_state_value("preferences", prefs)
+    if state.get("cs_pace_sec") != CS_PACE_SEC:
+        print(f"{tag}CS-anker: {CS_PACE_SEC // 60}:{CS_PACE_SEC % 60:02d}/km")
+        if write:
+            history_db.set_athlete_state_value("cs_pace_sec", CS_PACE_SEC)
 
     if not write:
         return
