@@ -24,7 +24,7 @@ from typing import Literal, Optional
 from pydantic import BaseModel, Field
 
 GOAL_TYPES = (
-    "marathon", "half", "10k", "5k", "gran_fondo", "ftp", "triathlon", "custom",
+    "marathon", "half", "15k", "10k", "5k", "gran_fondo", "ftp", "triathlon", "custom",
 )
 
 
@@ -33,7 +33,7 @@ class Goal(BaseModel):
 
     id: Optional[int] = None
     type: Literal[
-        "marathon", "half", "10k", "5k", "gran_fondo", "ftp", "triathlon", "custom"
+        "marathon", "half", "15k", "10k", "5k", "gran_fondo", "ftp", "triathlon", "custom"
     ]
     sport: Literal["run", "ride", "multi"] = "run"
     event_date: date

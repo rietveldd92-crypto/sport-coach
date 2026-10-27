@@ -260,6 +260,9 @@ GOAL_TYPE_PROFILES: dict[str, GoalTypeProfile] = {
     ),
 }
 GOAL_TYPE_PROFILES["custom"] = GOAL_TYPE_PROFILES["marathon"]
+# 15 km (Bruggenloop) is als B-doel alleen een mini-taper; als A-doel zou hij
+# tussen 10k en half in zitten — het 10k-profiel is de dichtstbijzijnde.
+GOAL_TYPE_PROFILES["15k"] = GOAL_TYPE_PROFILES["10k"]
 
 
 # ── STAP 1: BLOKVERDELING ─────────────────────────────────────────────────
@@ -392,9 +395,13 @@ def compute_peak_km(profile: GoalTypeProfile, target_value: Optional[str],
 
 
 def _parse_time_seconds(value: Optional[str]) -> Optional[int]:
-    """'2:59:00' → 10740; '42:30' → 2550; anders None (bv. '310W')."""
+    """'2:59:00' → 10740; '42:30' → 2550; band '38:00-38:45' → midden;
+    anders None (bv. '310W')."""
     if not value:
         return None
+    if "-" in value:
+        lo, hi = (_parse_time_seconds(p) for p in value.split("-", 1))
+        return round((lo + hi) / 2) if lo and hi else (lo or hi)
     parts = value.strip().split(":")
     try:
         nums = [int(p) for p in parts]

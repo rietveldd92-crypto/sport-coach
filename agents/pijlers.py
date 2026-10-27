@@ -33,8 +33,8 @@ PIJLER_LABELS: dict[str, str] = {
         "racepace-blokken gepland zijn."
     ),
     "vo2max": (
-        "PIJLER: VO2MAX — het plafond optillen. Korte intensieve blokken; "
-        "op de fiets om knie/hamstring te sparen."
+        "PIJLER: VO2MAX — het plafond optillen. Korte intensieve blokken: "
+        "lopend in een 5-10k-blok, op de fiets als ontlasting."
     ),
     "support": (
         "SUPPORT — aerobe basis die de vier pijlers draagt. Geen doel op "
@@ -52,9 +52,11 @@ _PIJLER_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("lactaatdrempel", ("drempel", "threshold", "tempoduur", "tempoloon",
                         "sweetspot", "over_unders", "over-unders",
                         "marathon_tempo", "cruise", "cp_intervals",
-                        "pyramide", "interval_10km")),
+                        "pyramide", "interval_10km", "race_pace",
+                        "racetempo", "fartlek")),
     ("vo2max", ("vo2", "30/15", "ronnestad")),
-    ("running_economy", ("strides", "heuvels", "hill")),
+    ("running_economy", ("strides", "heuvels", "hill", "vliegers",
+                         "easy_asr", "heuvelsprints")),
 )
 
 

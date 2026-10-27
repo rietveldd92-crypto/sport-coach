@@ -66,6 +66,160 @@ def _planner_v3_inputs(week_start: date) -> tuple[dict, list[dict], dict[str, in
     return prefs, fixed_sessions, availability
 
 
+def _active_block_goal():
+    """Het actieve A-doel als het een blokdoel (10k/5k/half) is, anders None."""
+    try:
+        from agents.block_planner import BLOCK_GOAL_TYPES
+        from core import goal_engine
+
+        goal = goal_engine.get_active_goal()
+    except Exception:
+        return None
+    if goal is not None and goal.type in BLOCK_GOAL_TYPES:
+        return goal
+    return None
+
+
+_RACE_PRIORITY = {"RACE_A": "A", "RACE_B": "B", "RACE_C": "C"}
+
+
+def _race_distance_km(event: dict, goal=None) -> float:
+    import re
+    from agents.block_planner import GOAL_DISTANCE_KM
+
+    if goal is not None and goal.type in GOAL_DISTANCE_KM:
+        return GOAL_DISTANCE_KM[goal.type]
+    meters = event.get("distance") or 0
+    if meters:
+        return round(float(meters) / 1000, 1)
+    m = re.search(r"(\d+(?:[.,]\d+)?)\s*(?:km|k\b)", (event.get("name") or "").lower())
+    return float(m.group(1).replace(",", ".")) if m else 10.0
+
+
+def _goal_on(goals: list, day: date):
+    return next((g for g in goals if g.event_date == day), None)
+
+
+def _races_in_week(week_start: date, goals: list) -> list:
+    """RACE_A/B/C-events uit intervals.icu, verrijkt met doel-prioriteit en racepace."""
+    from agents.block_planner import Race, race_pace_for
+
+    try:
+        events = api.get_events(week_start, week_start + timedelta(days=6))
+    except Exception:
+        return []
+    races = []
+    for e in events or []:
+        prio = _RACE_PRIORITY.get(str(e.get("category") or ""))
+        if not prio:
+            continue
+        day = date.fromisoformat(str(e.get("start_date_local"))[:10])
+        if any(r.datum == day for r in races):
+            continue
+        goal = _goal_on(goals, day)
+        km = _race_distance_km(e, goal)
+        races.append(Race(
+            datum=day,
+            naam=e.get("name") or "race",
+            distance_km=km,
+            priority=goal.priority if goal else prio,
+            race_pace_sec=race_pace_for(goal.type, goal.target_value, km) if goal else None,
+        ))
+    return races
+
+
+def _next_ab_race(week_start: date, goals: list):
+    from agents.block_planner import GOAL_DISTANCE_KM, Race, race_pace_for
+
+    upcoming = sorted(
+        (g for g in goals if g.priority in ("A", "B") and g.event_date >= week_start),
+        key=lambda g: g.event_date,
+    )
+    if not upcoming:
+        return None
+    g = upcoming[0]
+    km = GOAL_DISTANCE_KM.get(g.type, 10.0)
+    return Race(datum=g.event_date, naam=f"{g.type} {g.event_date:%d-%m}", distance_km=km,
+                priority=g.priority, race_pace_sec=race_pace_for(g.type, g.target_value, km))
+
+
+def _ran_on(day: date) -> bool:
+    """Staat er op ``day`` een (geplande of gelopen) run?"""
+    try:
+        for e in api.get_events(day, day) or []:
+            if (e.get("type") or "").lower() == "run" and e.get("category") != "NOTE":
+                return True
+        for a in api.get_activities(day, day) or []:
+            if (a.get("type") or "").lower() == "run":
+                return True
+    except Exception:
+        pass
+    return False
+
+
+def block_context(week_start: date, goal, *, ftp: int, macro_gate: str,
+                  is_deload: bool = False, intensity_open: bool = True,
+                  prev_week_sunday_run: bool | None = None):
+    """Bouw de BlockWeekContext voor ``week_start`` (ook gebruikt door de
+    dry-run-vergelijking in scripts/compare_block_plan.py)."""
+    from agents import block_planner
+    from core import goal_engine
+
+    prefs, _fixed, availability = _planner_v3_inputs(week_start)
+    pattern = prefs.get("run_pattern") or {}
+    goals = [goal, *goal_engine.get_intermediate_goals(goal)]
+    # Ook afgesloten A/B-doelen tellen: de race van vorige week maakt deze
+    # week een herstelweek, ook als iemand het doel al op completed zette.
+    ab_dates = sorted(
+        g.event_date for g in goal_engine.list_goals()
+        if g.priority in ("A", "B") and g.status != "abandoned"
+    )
+    last_ab = max((d for d in ab_dates if d < week_start), default=None)
+    start = block_planner.effective_block_start(prefs.get("block_start"), last_ab)
+    if prev_week_sunday_run is None:
+        prev_week_sunday_run = _ran_on(week_start - timedelta(days=1))
+    return block_planner.BlockWeekContext(
+        week_start=week_start,
+        goal_type=goal.type,
+        run_count=block_planner.run_count_for_week(week_start, pattern),
+        availability=availability,
+        ftp=ftp,
+        macro_gate=macro_gate,
+        steps=block_planner.block_steps(week_start, prefs.get("block_start"), is_deload, last_ab),
+        variety=max(0, (week_start - start).days // 7) if start else 0,
+        races=_races_in_week(week_start, goals),
+        next_race=_next_ab_race(week_start, goals),
+        is_deload=is_deload,
+        intensity_open=intensity_open,
+        prev_week_sunday_run=prev_week_sunday_run,
+        next_week_run_count=block_planner.run_count_for_week(week_start + timedelta(days=7), pattern),
+        runs_back_to_back_ok=bool(prefs.get("runs_back_to_back_ok", False)),
+        recovery_week=last_ab is not None and (week_start - last_ab).days <= 7,
+    )
+
+
+def _plan_block_week(week_start: date, goal, ig_result: dict, lm_result: dict,
+                     ftp: int, macro_gate: str):
+    """PLANLOGICA-V4: weekplan voor een 10k/5k/half-blok."""
+    from agents import block_library, block_planner
+
+    state = _load_state() or {}
+    ctx = block_context(
+        week_start, goal, ftp=ftp, macro_gate=macro_gate,
+        is_deload=bool(lm_result.get("is_deload_week")),
+        intensity_open=bool(ig_result.get("run_intensity_allowed")) and bool(ig_result.get("tempo_allowed")),
+    )
+    anchors = block_library.load_anchors(state)
+    sessions, warnings = block_planner.plan_block_week(ctx, anchors)
+    print(f"  Blokplanner ({goal.type}): {ctx.run_count} runs-patroon, gate "
+          f"{block_planner.block_gate(ctx)}, {len(ctx.races)} race(s) deze week"
+          f"{', HERSTELWEEK na race' if ctx.recovery_week else ''}.")
+    print(f"  Ankers: drempel {block_library.pace(anchors.threshold_sec)}, "
+          f"vVO2 {block_library.pace(anchors.vvo2_sec)} ({anchors.bronnen['vvo2']}), "
+          f"AeT {block_library.pace(anchors.aet_sec)} ({anchors.bronnen['aet']}).")
+    return sessions, warnings
+
+
 def _planner_v3_warning(warning: dict) -> dict:
     return {
         "tier": warning.get("tier", 2),
@@ -256,6 +410,24 @@ def run(week_start: date, dry_run: bool = True, skip_run_days: list = None):
 
     # ── 4. ENDURANCE COACH ───────────────────────────────────────────────────
     from core import planner_v3_enabled
+
+    block_goal = _active_block_goal() if planner_v3_enabled() else None
+    if block_goal is not None:
+        placed_sessions, block_warnings = _plan_block_week(
+            week_start, block_goal, ig_result, lm_result, ftp,
+            marathon_vol.get("intensity_gate") or "drempel",
+        )
+        events = week_planner.build_week(
+            week_start=week_start,
+            run_sessions=[s for s in placed_sessions if (s.get("sport") or "").lower() == "run"],
+            bike_sessions=[s for s in placed_sessions if (s.get("sport") or "").lower() != "run"],
+            injury_guard=ig_result,
+            load_manager=lm_result,
+            dry_run=dry_run,
+            preplanned=True,
+            planner_warnings=[_planner_v3_warning(w) for w in block_warnings],
+        )
+        return _record_week_log(events, week_start, phase, lm_result, ig_result)
 
     if planner_v3_enabled():
         from agents.day_assigner import assign_days
